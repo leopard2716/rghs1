@@ -1,0 +1,29 @@
+{
+  "name": "@rghs1/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/dev-server.ts",
+    "dev:worker": "wrangler dev --local --port 8787",
+    "deploy": "wrangler deploy",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --max-warnings=0",
+    "lint:fix": "eslint src --fix",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.4.3",
+    "@rghs1/domain": "0.1.0",
+    "hono": "^4.8.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^1.13.8",
+    "@cloudflare/workers-types": "^4.20250617.0",
+    "@types/node": "^20.19.1",
+    "tsx": "^4.19.2",
+    "wrangler": "4.22.0"
+  }
+}

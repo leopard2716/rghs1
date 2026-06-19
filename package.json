@@ -1,0 +1,37 @@
+{
+  "name": "rghs1",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace @rghs1/api",
+    "dev:web": "npm run dev --workspace @rghs1/web",
+    "bootstrap:platform-admin": "node --env-file=.env scripts/bootstrap-platform-admin.mjs",
+    "migrate:tracking-plaintext": "node --env-file=.env scripts/migrate-tracking-plaintext.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:fix": "npm run lint:fix --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "ci": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "concurrently": "^8.2.2",
+    "eslint": "^9.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.4",
+    "supabase": "^2.107.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "^3.2.4"
+  }
+}

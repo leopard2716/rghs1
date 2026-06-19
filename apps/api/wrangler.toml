@@ -1,0 +1,15 @@
+name = "rghs1-api"
+main = "src/index.ts"
+compatibility_date = "2026-06-17"
+
+[triggers]
+crons = ["17 * * * *"]
+
+[vars]
+APP_NAME = "RGHS1"
+ALLOWED_ORIGINS = "http://localhost:5173"
+
+[[r2_buckets]]
+binding = "RESUME_BUCKET"
+bucket_name = "rghs1-resumes"
+preview_bucket_name = "rghs1-resumes-preview"
