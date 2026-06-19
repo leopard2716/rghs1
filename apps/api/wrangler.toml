@@ -7,9 +7,30 @@ crons = ["17 * * * *"]
 
 [vars]
 APP_NAME = "RGHS1"
-ALLOWED_ORIGINS = "http://localhost:5173"
+ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 [[r2_buckets]]
 binding = "RESUME_BUCKET"
-bucket_name = "rghs1-resumes"
-preview_bucket_name = "rghs1-resumes-preview"
+bucket_name = "rghs1-resumes-dev"
+
+[env.dev]
+name = "rghs1-api-dev"
+
+[env.dev.vars]
+APP_NAME = "RGHS1 Development"
+ALLOWED_ORIGINS = "https://rghs1-web-dev.pages.dev"
+
+[[env.dev.r2_buckets]]
+binding = "RESUME_BUCKET"
+bucket_name = "rghs1-resumes-dev"
+
+[env.production]
+name = "rghs1-api-prod"
+
+[env.production.vars]
+APP_NAME = "RGHS1"
+ALLOWED_ORIGINS = "https://rghs1-web-prod.pages.dev"
+
+[[env.production.r2_buckets]]
+binding = "RESUME_BUCKET"
+bucket_name = "rghs1-resumes-prod"
