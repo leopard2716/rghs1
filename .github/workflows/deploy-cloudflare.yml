@@ -51,22 +51,26 @@ jobs:
       - name: Apply development migrations
         run: supabase db push
 
+      - name: Prepare development API secrets
+        env:
+          SUPABASE_URL: ${{ vars.DEV_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.DEV_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node -e "const fs=require('node:fs'); const keys=['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY']; const values=Object.fromEntries(keys.map((key)=>[key,process.env[key]])); if(keys.some((key)=>!values[key])) throw new Error('A development API secret is missing'); fs.writeFileSync('apps/api/.deploy-secrets.json',JSON.stringify(values));"
+
       - name: Deploy development API
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: deploy --env dev
-          environment: dev
-          secrets: |
-            SUPABASE_URL
-            SUPABASE_ANON_KEY
-            SUPABASE_SERVICE_ROLE_KEY
-        env:
-          SUPABASE_URL: ${{ vars.DEV_SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ vars.DEV_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}
+          wranglerVersion: "4.103.0"
+          command: deploy --env dev --secrets-file .deploy-secrets.json
+
+      - name: Remove development API secrets file
+        if: always()
+        run: rm -f apps/api/.deploy-secrets.json
 
       - name: Build development web
         run: npm run build --workspace @rghs1/web
@@ -128,22 +132,26 @@ jobs:
       - name: Apply production migrations
         run: supabase db push
 
+      - name: Prepare production API secrets
+        env:
+          SUPABASE_URL: ${{ vars.PROD_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.PROD_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node -e "const fs=require('node:fs'); const keys=['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY']; const values=Object.fromEntries(keys.map((key)=>[key,process.env[key]])); if(keys.some((key)=>!values[key])) throw new Error('A production API secret is missing'); fs.writeFileSync('apps/api/.deploy-secrets.json',JSON.stringify(values));"
+
       - name: Deploy production API
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: deploy --env production
-          environment: production
-          secrets: |
-            SUPABASE_URL
-            SUPABASE_ANON_KEY
-            SUPABASE_SERVICE_ROLE_KEY
-        env:
-          SUPABASE_URL: ${{ vars.PROD_SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ vars.PROD_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
+          wranglerVersion: "4.103.0"
+          command: deploy --env production --secrets-file .deploy-secrets.json
+
+      - name: Remove production API secrets file
+        if: always()
+        run: rm -f apps/api/.deploy-secrets.json
 
       - name: Build production web
         run: npm run build --workspace @rghs1/web
