@@ -104,7 +104,7 @@ export function companyNameSimilarity(query: string, candidate: string): number 
 }
 
 export function matchingCompanyBids(query: string, bids: BidRecord[], limit = 8): BidRecord[] {
-  return bids
+  return [...new Map(bids.map((bid) => [bid.id, bid])).values()]
     .map((bid) => ({
       bid,
       score: companyNameSimilarity(query, bid.company)
