@@ -366,14 +366,15 @@ export class WorkspaceAccessService {
     }
 
     const existingRoleIds = new Set(existingMemberRoles.map((role) => role.role_id));
-    const adminRole = rolesByKey.get("admin");
+    const assignableRoleIds = new Set(assignableRoles.map((role) => role.id));
     const desiredRoleIds = new Set(
-      input.roleKeys
-        .map((key) => rolesByKey.get(key)?.id)
-        .filter((roleId): roleId is string => Boolean(roleId))
+      [...existingRoleIds].filter((roleId) => !assignableRoleIds.has(roleId))
     );
-    if (adminRole && existingRoleIds.has(adminRole.id)) {
-      desiredRoleIds.add(adminRole.id);
+    for (const roleKey of input.roleKeys) {
+      const role = rolesByKey.get(roleKey);
+      if (role) {
+        desiredRoleIds.add(role.id);
+      }
     }
 
     const roleIdsToRemove = [...existingRoleIds].filter((roleId) => !desiredRoleIds.has(roleId));
