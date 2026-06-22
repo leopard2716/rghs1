@@ -39,6 +39,12 @@ describe("company name matching", () => {
       "older"
     ]);
   });
+
+  it("does not repeat a bid when candidate sources overlap", () => {
+    const matchingBid = bid("matching", "Reinforce Labs", "2026-02-09T18:00:00.000Z");
+
+    expect(matchingCompanyBids("reinforce", [matchingBid, matchingBid])).toEqual([matchingBid]);
+  });
 });
 
 function bid(id: string, company: string, bidAt: string): BidRecord {

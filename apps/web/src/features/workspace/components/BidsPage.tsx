@@ -73,9 +73,23 @@ export function BidsPage({
   const [profileResumes, setProfileResumes] = useState<Record<string, string>>({});
   const [selectedBidId, setSelectedBidId] = useState<string | null>(null);
   const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
+  const [companySearch, setCompanySearch] = useState("");
+  const modalBid = editingBid ?? selectedBid;
   const bidsQuery = useQuery({
     queryKey: ["tracking-bids", slug, memberId, listQuery],
     queryFn: () => fetchBids(session, slug, listQuery)
+  });
+  const companySearchQuery = useQuery({
+    queryKey: ["tracking-bid-company-search", slug, memberId, companySearch],
+    queryFn: () =>
+      fetchBids(session, slug, {
+        page: 1,
+        pageSize: 100,
+        search: companySearch,
+        sortBy: "datetime",
+        sortDirection: "desc"
+      }),
+    enabled: creating && !modalBid && companySearch.length >= 2
   });
   const updateListQuery = useCallback((change: Partial<TrackingListQuery>) => {
     setListQuery((current) => ({ ...current, ...change }));
@@ -117,10 +131,14 @@ export function BidsPage({
     onSettled: () => setDeletingBidId(null)
   });
   const companyMatches = useMemo(
-    () => matchingCompanyBids(company, bidsQuery.data?.suggestionBids ?? []),
-    [company, bidsQuery.data?.suggestionBids]
+    () =>
+      matchingCompanyBids(company, [
+        ...(bidsQuery.data?.bids ?? []),
+        ...(companySearchQuery.data?.bids ?? []),
+        ...(bidsQuery.data?.suggestionBids ?? [])
+      ]),
+    [bidsQuery.data?.bids, bidsQuery.data?.suggestionBids, company, companySearchQuery.data?.bids]
   );
-  const modalBid = editingBid ?? selectedBid;
   const formProfiles = useMemo(
     () => [
       ...new Map(
@@ -158,6 +176,17 @@ export function BidsPage({
     setSelectedBid(null);
     setBulkImporting(false);
   }, [memberId]);
+
+  useEffect(() => {
+    const nextSearch = company.trim();
+    if (!creating || modalBid || nextSearch.length < 2) {
+      setCompanySearch("");
+      return;
+    }
+
+    const timer = window.setTimeout(() => setCompanySearch(nextSearch), 300);
+    return () => window.clearTimeout(timer);
+  }, [company, creating, modalBid]);
 
   function openBidForm() {
     setCompany("");
