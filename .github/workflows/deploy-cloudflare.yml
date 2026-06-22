@@ -79,13 +79,24 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.DEV_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.DEV_SUPABASE_ANON_KEY }}
 
+      - name: Configure development Pages production branch
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          curl --fail --request PATCH \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/rghs1-web-dev" \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"production_branch":"deploy/dev"}'
+
       - name: Deploy development web
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: pages deploy ../web/dist --project-name=rghs1-web-dev
+          command: pages deploy ../web/dist --project-name=rghs1-web-dev --branch=deploy/dev
 
       - name: Validate development deployment
         env:
@@ -160,13 +171,24 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.PROD_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.PROD_SUPABASE_ANON_KEY }}
 
+      - name: Configure production Pages production branch
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          curl --fail --request PATCH \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/rghs1-web-prod" \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"production_branch":"deploy/prod"}'
+
       - name: Deploy production web
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: pages deploy ../web/dist --project-name=rghs1-web-prod
+          command: pages deploy ../web/dist --project-name=rghs1-web-prod --branch=deploy/prod
 
       - name: Validate production deployment
         env:
