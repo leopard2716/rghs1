@@ -85,7 +85,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: pages deploy ../web/dist --project-name=rghs1-web-dev --branch=production
+          command: pages deploy ../web/dist --project-name=rghs1-web-dev
 
       - name: Validate development deployment
         env:
@@ -166,7 +166,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: pages deploy ../web/dist --project-name=rghs1-web-prod --branch=production
+          command: pages deploy ../web/dist --project-name=rghs1-web-prod
 
       - name: Validate production deployment
         env:
