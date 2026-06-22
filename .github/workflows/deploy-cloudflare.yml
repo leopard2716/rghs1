@@ -1,13 +1,26 @@
-name: Deploy Cloudflare
+name: Deploy
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - deploy/dev
+      - deploy/prod
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  deploy-api:
+  deploy-dev:
+    if: github.ref_name == 'deploy/dev'
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.DEV_SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ vars.DEV_SUPABASE_PROJECT_REF }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -15,44 +28,172 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install
         run: npm ci
 
-      - name: Deploy Worker API
-        run: npm run deploy --workspace @rghs1/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify
+        run: npm run ci
 
-  deploy-web:
-    runs-on: ubuntu-latest
-    needs: deploy-api
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
         with:
-          node-version: 20
-          cache: npm
+          version: latest
 
-      - name: Install
-        run: npm ci
+      - name: Link development database
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
-      - name: Build web
-        run: npm run build --workspace @rghs1/web
+      - name: Preview development migrations
+        run: supabase db push --dry-run
+
+      - name: Apply development migrations
+        run: supabase db push
+
+      - name: Prepare development API secrets
         env:
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          SUPABASE_URL: ${{ vars.DEV_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.DEV_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEV_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node -e "const fs=require('node:fs'); const keys=['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY']; const values=Object.fromEntries(keys.map((key)=>[key,process.env[key]])); if(keys.some((key)=>!values[key])) throw new Error('A development API secret is missing'); fs.writeFileSync('apps/api/.deploy-secrets.json',JSON.stringify(values));"
 
-      - name: Deploy Pages
-        uses: cloudflare/pages-action@v1
+      - name: Deploy development API
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: rghs1-web
-          directory: apps/web/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "4.103.0"
+          command: deploy --env dev --secrets-file .deploy-secrets.json
+
+      - name: Remove development API secrets file
+        if: always()
+        run: rm -f apps/api/.deploy-secrets.json
+
+      - name: Build development web
+        run: npm run build --workspace @rghs1/web
+        env:
+          VITE_API_BASE_URL: ${{ vars.DEV_API_URL }}
+          VITE_SUPABASE_URL: ${{ vars.DEV_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.DEV_SUPABASE_ANON_KEY }}
+
+      - name: Configure development Pages production branch
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          curl --fail --request PATCH \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/rghs1-web-dev" \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"production_branch":"deploy/dev"}'
+
+      - name: Deploy development web
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: pages deploy ../web/dist --project-name=rghs1-web-dev --branch=deploy/dev
+
+      - name: Validate development deployment
+        env:
+          API_URL: ${{ vars.DEV_API_URL }}
+          WEB_URL: ${{ vars.DEV_WEB_URL }}
+        run: |
+          curl --fail --retry 5 --retry-delay 5 "$API_URL/health"
+          curl --fail --retry 5 --retry-delay 5 "$WEB_URL"
+
+  deploy-prod:
+    if: github.ref_name == 'deploy/prod'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.PROD_SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ vars.PROD_SUPABASE_PROJECT_REF }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Verify
+        run: npm run ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link production database
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Preview production migrations
+        run: supabase db push --dry-run
+
+      - name: Apply production migrations
+        run: supabase db push
+
+      - name: Prepare production API secrets
+        env:
+          SUPABASE_URL: ${{ vars.PROD_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.PROD_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PROD_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node -e "const fs=require('node:fs'); const keys=['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY']; const values=Object.fromEntries(keys.map((key)=>[key,process.env[key]])); if(keys.some((key)=>!values[key])) throw new Error('A production API secret is missing'); fs.writeFileSync('apps/api/.deploy-secrets.json',JSON.stringify(values));"
+
+      - name: Deploy production API
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          wranglerVersion: "4.103.0"
+          command: deploy --env production --secrets-file .deploy-secrets.json
+
+      - name: Remove production API secrets file
+        if: always()
+        run: rm -f apps/api/.deploy-secrets.json
+
+      - name: Build production web
+        run: npm run build --workspace @rghs1/web
+        env:
+          VITE_API_BASE_URL: ${{ vars.PROD_API_URL }}
+          VITE_SUPABASE_URL: ${{ vars.PROD_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.PROD_SUPABASE_ANON_KEY }}
+
+      - name: Configure production Pages production branch
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          curl --fail --request PATCH \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/rghs1-web-prod" \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"production_branch":"deploy/prod"}'
+
+      - name: Deploy production web
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: pages deploy ../web/dist --project-name=rghs1-web-prod --branch=deploy/prod
+
+      - name: Validate production deployment
+        env:
+          API_URL: ${{ vars.PROD_API_URL }}
+          WEB_URL: ${{ vars.PROD_WEB_URL }}
+        run: |
+          curl --fail --retry 5 --retry-delay 5 "$API_URL/health"
+          curl --fail --retry 5 --retry-delay 5 "$WEB_URL"
