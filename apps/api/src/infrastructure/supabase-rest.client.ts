@@ -14,6 +14,7 @@ export type PageResult<T> = {
 
 export class SupabaseRestClient {
   private static readonly requestTimeoutMs = 10_000;
+  private static readonly selectAllPageSize = 1000;
 
   constructor(private readonly config: SupabaseConfig) {}
 
@@ -36,6 +37,32 @@ export class SupabaseRestClient {
     }
 
     return (await response.json()) as T[];
+  }
+
+  async selectAll<T>(
+    table: string,
+    select: string,
+    filters: Record<string, string> = {},
+    options: Pick<SelectOptions, "order"> = {}
+  ): Promise<T[]> {
+    const pageSize = SupabaseRestClient.selectAllPageSize;
+    const firstPage = await this.selectPage<T>(table, select, filters, {
+      limit: pageSize,
+      offset: 0,
+      order: options.order
+    });
+    const records = [...firstPage.records];
+
+    for (let offset = pageSize; offset < firstPage.total; offset += pageSize) {
+      const page = await this.selectPage<T>(table, select, filters, {
+        limit: pageSize,
+        offset,
+        order: options.order
+      });
+      records.push(...page.records);
+    }
+
+    return records;
   }
 
   async selectPage<T>(

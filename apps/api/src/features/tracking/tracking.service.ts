@@ -402,10 +402,15 @@ export class TrackingService {
       this.loadMarkets(context.workspace.id, true),
       this.loadMembers(context.workspace.id),
       query.profileId
-        ? this.supabase.select<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
-            workspace_id: `eq.${context.workspace.id}`,
-            profile_id: `eq.${query.profileId}`
-          })
+        ? this.supabase.selectAll<BidRecordProfileRow>(
+            "bid_record_profiles",
+            bidRecordProfileFields,
+            {
+              workspace_id: `eq.${context.workspace.id}`,
+              profile_id: `eq.${query.profileId}`
+            },
+            { order: "bid_id.asc" }
+          )
         : Promise.resolve([])
     ]);
     const profileBidIds = query.profileId
@@ -1090,10 +1095,11 @@ export class TrackingService {
     if (!includeDeleted) {
       filters.deleted_at = "is.null";
     }
-    const rows = await this.supabase.select<TrackingProfileRow>(
+    const rows = await this.supabase.selectAll<TrackingProfileRow>(
       "tracking_profiles",
       trackingProfileFields,
-      filters
+      filters,
+      { order: "id.asc" }
     );
     const profiles = rows.map((row) => this.records.profile(row));
     return profiles.sort((left, right) => left.name.localeCompare(right.name));
@@ -1104,10 +1110,11 @@ export class TrackingService {
     if (!includeDeleted) {
       filters.deleted_at = "is.null";
     }
-    const rows = await this.supabase.select<TrackingJobMarketRow>(
+    const rows = await this.supabase.selectAll<TrackingJobMarketRow>(
       "tracking_job_markets",
       trackingJobMarketFields,
-      filters
+      filters,
+      { order: "id.asc" }
     );
     const markets = rows.map((row) => this.records.market(row));
     return markets.sort(
@@ -1117,10 +1124,11 @@ export class TrackingService {
   }
 
   private async loadMembers(workspaceId: string): Promise<MemberSummary[]> {
-    const rows = await this.supabase.select<WorkspaceMemberRow>(
+    const rows = await this.supabase.selectAll<WorkspaceMemberRow>(
       "workspace_members",
       "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
-      { workspace_id: `eq.${workspaceId}` }
+      { workspace_id: `eq.${workspaceId}` },
+      { order: "id.asc" }
     );
     return rows.map((member) => ({
       id: member.id,
@@ -1156,10 +1164,17 @@ export class TrackingService {
       bidFilters.deleted_at = "is.null";
     }
     const [rows, assignments] = await Promise.all([
-      this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, bidFilters),
-      this.supabase.select<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
-        workspace_id: `eq.${workspaceId}`
-      })
+      this.supabase.selectAll<BidRecordRow>("bid_records", bidRecordFields, bidFilters, {
+        order: "id.asc"
+      }),
+      this.supabase.selectAll<BidRecordProfileRow>(
+        "bid_record_profiles",
+        bidRecordProfileFields,
+        {
+          workspace_id: `eq.${workspaceId}`
+        },
+        { order: "bid_id.asc,profile_id.asc" }
+      )
     ]);
     const assignmentsByBid = groupAssignmentsByBid(assignments);
     const lookups = this.records.lookups(profiles, markets, members);
@@ -1176,10 +1191,15 @@ export class TrackingService {
   }
 
   private async loadInterviews(workspaceId: string) {
-    return this.supabase.select<InterviewRecordRow>("interview_records", interviewRecordFields, {
-      workspace_id: `eq.${workspaceId}`,
-      deleted_at: "is.null"
-    });
+    return this.supabase.selectAll<InterviewRecordRow>(
+      "interview_records",
+      interviewRecordFields,
+      {
+        workspace_id: `eq.${workspaceId}`,
+        deleted_at: "is.null"
+      },
+      { order: "id.asc" }
+    );
   }
 
   private async audit(
