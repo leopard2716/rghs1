@@ -47,4 +47,39 @@ describe("SupabaseRestClient pagination", () => {
       Range: "20-39"
     });
   });
+
+  it("loads every page when a table exceeds the Supabase row cap", async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, index) => ({ id: `bid-${index}` }));
+    const secondPage = Array.from({ length: 400 }, (_, index) => ({
+      id: `bid-${index + 1000}`
+    }));
+    const fetchMock = vi.fn<(input: RequestInfo | URL) => Promise<Response>>(async (input) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset") ?? "0");
+      return Response.json(offset === 0 ? firstPage : secondPage, {
+        status: 206,
+        headers: {
+          "content-range": offset === 0 ? "0-999/1400" : "1000-1399/1400"
+        }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new SupabaseRestClient({
+      url: "https://example.supabase.co",
+      anonKey: "anon",
+      serviceRoleKey: "service"
+    });
+
+    const records = await client.selectAll<{ id: string }>(
+      "bid_records",
+      "id",
+      { workspace_id: "eq.workspace-1" },
+      { order: "id.asc" }
+    );
+
+    expect(records).toHaveLength(1400);
+    expect(records.at(-1)).toEqual({ id: "bid-1399" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=1000");
+  });
 });
