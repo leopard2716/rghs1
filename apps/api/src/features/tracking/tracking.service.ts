@@ -1324,7 +1324,9 @@ export class TrackingService {
       bidFilters.deleted_at = "is.null";
     }
     const [rows, assignments] = await Promise.all([
-      this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, bidFilters),
+      this.supabase.selectAll<BidRecordRow>("bid_records", bidRecordFields, bidFilters, {
+        order: "id.asc"
+      }),
       this.selectAllPages<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
         workspace_id: `eq.${workspaceId}`
       })
