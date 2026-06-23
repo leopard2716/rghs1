@@ -16,12 +16,14 @@ import type {
   TrackingProfileInput
 } from "./tracking.schemas";
 import {
+  chunkValues,
   countBy,
   inDateRange,
   matchesJobSearch,
   normalizeSearch,
   paginate,
   paginationFor,
+  sortJobMarketsByUsage,
   sortJobRecords,
   trendByDate
 } from "./tracking-query";
@@ -66,7 +68,7 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     const [profiles, markets] = await Promise.all([
       this.loadProfiles(context.workspace.id),
-      this.loadMarkets(context.workspace.id)
+      this.loadMarkets(context.workspace.id, false, context.member.id)
     ]);
     const canManage = context.roleKeys.includes("admin");
 
@@ -399,34 +401,28 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     const [allProfiles, allMarkets, members, profileAssignments] = await Promise.all([
       this.loadProfiles(context.workspace.id, true),
-      this.loadMarkets(context.workspace.id, true),
+      this.loadMarkets(context.workspace.id, true, context.member.id),
       this.loadMembers(context.workspace.id),
       query.profileId
-        ? this.supabase.selectAll<BidRecordProfileRow>(
-            "bid_record_profiles",
-            bidRecordProfileFields,
-            {
-              workspace_id: `eq.${context.workspace.id}`,
-              profile_id: `eq.${query.profileId}`
-            },
-            { order: "bid_id.asc" }
-          )
+        ? this.selectAllPages<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
+            workspace_id: `eq.${context.workspace.id}`,
+            profile_id: `eq.${query.profileId}`
+          })
         : Promise.resolve([])
     ]);
     const profileBidIds = query.profileId
       ? [...new Set(profileAssignments.map((assignment) => assignment.bid_id))]
       : undefined;
     const emptyProfileFilter = Boolean(query.profileId && !profileBidIds?.length);
-    const filters = this.listQueries.bidFilters(context.workspace.id, query, profileBidIds);
-    const requestedOffset = (query.page - 1) * query.pageSize;
     const [pageResult, suggestionRows] = await Promise.all([
       emptyProfileFilter
-        ? Promise.resolve({ records: [] as BidRecordRow[], total: 0 })
-        : this.supabase.selectPage<BidRecordRow>("bid_records", bidRecordFields, filters, {
-            limit: query.pageSize,
-            offset: requestedOffset,
-            order: this.listQueries.bidOrder(query)
-          }),
+        ? Promise.resolve({
+            records: [] as BidRecordRow[],
+            pagination: paginationFor(0, query.page, query.pageSize)
+          })
+        : profileBidIds
+          ? this.profileFilteredBidPage(context.workspace.id, query, profileBidIds)
+          : this.bidPage(context.workspace.id, query),
       this.supabase.select<BidRecordRow>(
         "bid_records",
         bidRecordFields,
@@ -437,27 +433,23 @@ export class TrackingService {
         { order: "bid_at.desc,id.desc", limit: 100 }
       )
     ]);
-    const pagination = paginationFor(pageResult.total, query.page, query.pageSize);
-    const pageRows =
-      pagination.page === query.page || pageResult.total === 0
-        ? pageResult.records
-        : (
-            await this.supabase.selectPage<BidRecordRow>("bid_records", bidRecordFields, filters, {
-              limit: query.pageSize,
-              offset: (pagination.page - 1) * query.pageSize,
-              order: this.listQueries.bidOrder(query)
-            })
-          ).records;
+    const { pagination, records: pageRows } = pageResult;
     const visibleIds = [...new Set([...pageRows, ...suggestionRows].map((row) => row.id))];
     const assignments = visibleIds.length
-      ? await this.supabase.select<BidRecordProfileRow>(
-          "bid_record_profiles",
-          bidRecordProfileFields,
-          {
-            workspace_id: `eq.${context.workspace.id}`,
-            bid_id: `in.(${visibleIds.join(",")})`
-          }
-        )
+      ? (
+          await Promise.all(
+            chunkValues(visibleIds, 100).map((bidIds) =>
+              this.selectAllPages<BidRecordProfileRow>(
+                "bid_record_profiles",
+                bidRecordProfileFields,
+                {
+                  workspace_id: `eq.${context.workspace.id}`,
+                  bid_id: `in.(${bidIds.join(",")})`
+                }
+              )
+            )
+          )
+        ).flat()
       : [];
     const assignmentsByBid = groupAssignmentsByBid(assignments);
     const canManageBids = context.roleKeys.includes("bidder");
@@ -494,6 +486,37 @@ export class TrackingService {
       jobMarketId: input.jobMarketId
     });
     return { bid };
+  }
+
+  async getBid(slug: string, bidId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    const [profiles, markets, members, rows, assignments] = await Promise.all([
+      this.loadProfiles(context.workspace.id, true),
+      this.loadMarkets(context.workspace.id, true, context.member.id),
+      this.loadMembers(context.workspace.id),
+      this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${bidId}`
+      }),
+      this.supabase.select<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
+        workspace_id: `eq.${context.workspace.id}`,
+        bid_id: `eq.${bidId}`
+      })
+    ]);
+    const [row] = rows;
+    if (!row) {
+      throw apiError(404, "Bid was not found.", "bid_record_not_found");
+    }
+
+    return {
+      bid: this.records.bid(
+        row,
+        assignments,
+        this.records.lookups(profiles, markets, members),
+        context.member.id,
+        context.roleKeys.includes("bidder")
+      )
+    };
   }
 
   async bulkCreateBids(slug: string, user: AuthUser, input: BulkBidRecordInput) {
@@ -808,7 +831,7 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     const [allProfiles, allMarkets, members, interviewRows] = await Promise.all([
       this.loadProfiles(context.workspace.id, true),
-      this.loadMarkets(context.workspace.id, true),
+      this.loadMarkets(context.workspace.id, true, context.member.id),
       this.loadMembers(context.workspace.id),
       this.loadInterviews(context.workspace.id)
     ]);
@@ -894,6 +917,59 @@ export class TrackingService {
     return { id: interview.id };
   }
 
+  async getInterview(slug: string, interviewId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    const [profiles, markets, members, rows] = await Promise.all([
+      this.loadProfiles(context.workspace.id, true),
+      this.loadMarkets(context.workspace.id, true, context.member.id),
+      this.loadMembers(context.workspace.id),
+      this.supabase.select<InterviewRecordRow>("interview_records", interviewRecordFields, {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${interviewId}`,
+        deleted_at: "is.null"
+      })
+    ]);
+    const [row] = rows;
+    if (!row) {
+      throw apiError(404, "Interview was not found.", "interview_record_not_found");
+    }
+    const [bidRows, assignments] = await Promise.all([
+      this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${row.bid_id}`
+      }),
+      this.supabase.select<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
+        workspace_id: `eq.${context.workspace.id}`,
+        bid_id: `eq.${row.bid_id}`
+      })
+    ]);
+    const [bidRow] = bidRows;
+    if (!bidRow) {
+      throw apiError(500, "Interview bid relationship is incomplete.", "interview_bid_invalid");
+    }
+    const bids = [
+      this.records.bid(
+        bidRow,
+        assignments,
+        this.records.lookups(profiles, markets, members),
+        context.member.id,
+        context.roleKeys.includes("bidder")
+      )
+    ];
+    const [interview] = this.records.interviews(
+      [row],
+      bids,
+      profiles,
+      members,
+      context.member.id,
+      context.roleKeys.includes("interviewer")
+    );
+    if (!interview) {
+      throw apiError(404, "Interview was not found.", "interview_record_not_found");
+    }
+    return { interview };
+  }
+
   async updateInterview(
     slug: string,
     interviewId: string,
@@ -966,7 +1042,7 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     const [profiles, markets, members, interviewRows] = await Promise.all([
       this.loadProfiles(context.workspace.id, true),
-      this.loadMarkets(context.workspace.id, true),
+      this.loadMarkets(context.workspace.id, true, context.member.id),
       this.loadMembers(context.workspace.id),
       this.loadInterviews(context.workspace.id)
     ]);
@@ -1105,22 +1181,106 @@ export class TrackingService {
     return profiles.sort((left, right) => left.name.localeCompare(right.name));
   }
 
-  private async loadMarkets(workspaceId: string, includeDeleted = false) {
+  private async loadMarkets(workspaceId: string, includeDeleted = false, currentMemberId?: string) {
     const filters: Record<string, string> = { workspace_id: `eq.${workspaceId}` };
     if (!includeDeleted) {
       filters.deleted_at = "is.null";
     }
-    const rows = await this.supabase.selectAll<TrackingJobMarketRow>(
-      "tracking_job_markets",
-      trackingJobMarketFields,
+    const [rows, memberBids] = await Promise.all([
+      this.supabase.select<TrackingJobMarketRow>(
+        "tracking_job_markets",
+        trackingJobMarketFields,
+        filters
+      ),
+      currentMemberId
+        ? this.selectAllPages<Pick<BidRecordRow, "job_market_id">>("bid_records", "job_market_id", {
+            workspace_id: `eq.${workspaceId}`,
+            created_by_member_id: `eq.${currentMemberId}`,
+            deleted_at: "is.null"
+          })
+        : Promise.resolve([])
+    ]);
+    const usageByMarketId = new Map<string, number>();
+    for (const bid of memberBids) {
+      usageByMarketId.set(bid.job_market_id, (usageByMarketId.get(bid.job_market_id) ?? 0) + 1);
+    }
+    return sortJobMarketsByUsage(rows, usageByMarketId).map((row) => this.records.market(row));
+  }
+
+  private async bidPage(workspaceId: string, query: BidListQuery) {
+    const filters = this.listQueries.bidFilters(workspaceId, query);
+    const requestedOffset = (query.page - 1) * query.pageSize;
+    const pageResult = await this.supabase.selectPage<BidRecordRow>(
+      "bid_records",
+      bidRecordFields,
       filters,
-      { order: "id.asc" }
+      {
+        limit: query.pageSize,
+        offset: requestedOffset,
+        order: this.listQueries.bidOrder(query)
+      }
     );
-    const markets = rows.map((row) => this.records.market(row));
-    return markets.sort(
-      (left, right) =>
-        Number(right.system) - Number(left.system) || left.name.localeCompare(right.name)
+    const pagination = paginationFor(pageResult.total, query.page, query.pageSize);
+    if (pagination.page === query.page || pageResult.total === 0) {
+      return { records: pageResult.records, pagination };
+    }
+    const corrected = await this.supabase.selectPage<BidRecordRow>(
+      "bid_records",
+      bidRecordFields,
+      filters,
+      {
+        limit: query.pageSize,
+        offset: (pagination.page - 1) * query.pageSize,
+        order: this.listQueries.bidOrder(query)
+      }
     );
+    return { records: corrected.records, pagination };
+  }
+
+  private async profileFilteredBidPage(
+    workspaceId: string,
+    query: BidListQuery,
+    profileBidIds: string[]
+  ) {
+    const rows = (
+      await Promise.all(
+        chunkValues(profileBidIds, 100).map((bidIds) =>
+          this.supabase.select<BidRecordRow>(
+            "bid_records",
+            bidRecordFields,
+            this.listQueries.bidFilters(workspaceId, query, bidIds)
+          )
+        )
+      )
+    ).flat();
+    const sorted = sortBidRows(rows, query);
+    return paginate(sorted, query.page, query.pageSize);
+  }
+
+  private async selectAllPages<T>(
+    table: string,
+    select: string,
+    filters: Record<string, string>
+  ): Promise<T[]> {
+    const pageSize = 1000;
+    const records: T[] = [];
+    let offset = 0;
+    let total = 0;
+
+    do {
+      const page = await this.supabase.selectPage<T>(table, select, filters, {
+        limit: pageSize,
+        offset
+      });
+      records.push(...page.records);
+      total = page.total;
+      if (!page.records.length) {
+        break;
+      }
+      offset += page.records.length;
+    } while (offset < total);
+
+    return records;
   }
 
   private async loadMembers(workspaceId: string): Promise<MemberSummary[]> {
@@ -1164,17 +1324,10 @@ export class TrackingService {
       bidFilters.deleted_at = "is.null";
     }
     const [rows, assignments] = await Promise.all([
-      this.supabase.selectAll<BidRecordRow>("bid_records", bidRecordFields, bidFilters, {
-        order: "id.asc"
-      }),
-      this.supabase.selectAll<BidRecordProfileRow>(
-        "bid_record_profiles",
-        bidRecordProfileFields,
-        {
-          workspace_id: `eq.${workspaceId}`
-        },
-        { order: "bid_id.asc,profile_id.asc" }
-      )
+      this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, bidFilters),
+      this.selectAllPages<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
+        workspace_id: `eq.${workspaceId}`
+      })
     ]);
     const assignmentsByBid = groupAssignmentsByBid(assignments);
     const lookups = this.records.lookups(profiles, markets, members);
@@ -1257,6 +1410,28 @@ function groupAssignmentsByBid(
     assignmentsByBid.set(assignment.bid_id, current);
   }
   return assignmentsByBid;
+}
+
+function sortBidRows(rows: BidRecordRow[], query: BidListQuery): BidRecordRow[] {
+  const direction = query.sortDirection === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const leftValue =
+      query.sortBy === "company"
+        ? left.company
+        : query.sortBy === "jobTitle"
+          ? left.job_title
+          : left.bid_at;
+    const rightValue =
+      query.sortBy === "company"
+        ? right.company
+        : query.sortBy === "jobTitle"
+          ? right.job_title
+          : right.bid_at;
+    return (
+      leftValue.localeCompare(rightValue, undefined, { sensitivity: "base" }) * direction ||
+      left.id.localeCompare(right.id) * direction
+    );
+  });
 }
 
 function normalizeName(value: string): string {

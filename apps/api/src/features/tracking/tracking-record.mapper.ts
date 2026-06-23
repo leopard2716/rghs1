@@ -167,10 +167,11 @@ export class TrackingRecordMapper {
         : null,
       createdAt: row.created_at,
       deletedAt: row.deleted_at,
-      canDelete: canManage && ownedByCurrentMember,
+      canDelete: canManage && ownedByCurrentMember && !row.deleted_at,
       canEdit:
         canManage &&
         ownedByCurrentMember &&
+        !row.deleted_at &&
         !market.deletedAt &&
         profiles.every((profile) => !profile.deletedAt)
     };

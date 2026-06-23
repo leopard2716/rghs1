@@ -342,6 +342,19 @@ export async function fetchBids(
   return parseJson<BidsResponse>(response);
 }
 
+export async function fetchBid(
+  session: AuthSession,
+  slug: string,
+  bidId: string
+): Promise<{ bid: BidRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids/${encodeURIComponent(bidId)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<{ bid: BidRecord }>(response);
+}
+
 export async function createBid(
   session: AuthSession,
   slug: string,
@@ -433,6 +446,19 @@ export async function fetchInterviews(
     { headers: authHeaders() }
   );
   return parseJson<InterviewsResponse>(response);
+}
+
+export async function fetchInterview(
+  session: AuthSession,
+  slug: string,
+  interviewId: string
+): Promise<{ interview: InterviewRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/interviews/${encodeURIComponent(interviewId)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<{ interview: InterviewRecord }>(response);
 }
 
 export async function createInterviewRecord(

@@ -110,6 +110,48 @@ describe("TrackingService deletion ownership", () => {
   });
 });
 
+describe("TrackingService profile filtering", () => {
+  it("chunks a heavily used profile instead of building one oversized bid-id filter", async () => {
+    const profileId = "5c6757ac-ef52-40e3-a875-c5c0bf2a1e75";
+    const assignments = Array.from({ length: 251 }, (_, index) => ({
+      workspace_id: workspaceId,
+      bid_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      profile_id: profileId,
+      resume: null,
+      created_at: "2026-06-18T00:00:00.000Z"
+    }));
+    const supabase = listBidsSupabase(profileId, assignments);
+    const service = new TrackingService(supabase as unknown as SupabaseRestClient);
+
+    await expect(
+      service.listBids(
+        "rg-team",
+        { id: authUserId },
+        {
+          page: 1,
+          pageSize: 20,
+          profileId,
+          sortBy: "datetime",
+          sortDirection: "desc"
+        }
+      )
+    ).resolves.toMatchObject({
+      bids: [],
+      pagination: { total: 0 }
+    });
+
+    const bidIdFilters = supabase.select.mock.calls
+      .filter(([table]) => table === "bid_records")
+      .map(([, , filters]) => filters?.id)
+      .filter((value): value is string => Boolean(value));
+
+    expect(bidIdFilters).toHaveLength(3);
+    expect(
+      bidIdFilters.every((filter) => filter.slice("in.(".length, -1).split(",").length <= 100)
+    ).toBe(true);
+  });
+});
+
 function trackingService(supabase: ReturnType<typeof trackingSupabase>) {
   return new TrackingService(supabase as unknown as SupabaseRestClient);
 }
@@ -193,6 +235,116 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
         }
       ];
     }),
+    insert: vi.fn(async () => []),
+    delete: vi.fn(async () => [])
+  };
+}
+
+function listBidsSupabase(
+  profileId: string,
+  assignments: Array<{
+    workspace_id: string;
+    bid_id: string;
+    profile_id: string;
+    resume: null;
+    created_at: string;
+  }>
+) {
+  const select = vi.fn(
+    async (table: string, _fields?: string, _filters?: Record<string, string>) => {
+      if (table === "workspaces") {
+        return [
+          {
+            id: workspaceId,
+            name: "RG Team",
+            slug: "rg-team",
+            status: "active",
+            created_at: "2026-06-18T00:00:00.000Z"
+          }
+        ];
+      }
+      if (table === "workspace_members") {
+        return [
+          {
+            id: memberId,
+            workspace_id: workspaceId,
+            auth_user_id: authUserId,
+            display_name: "Workspace Member",
+            email: "member@example.com",
+            status: "active",
+            created_at: "2026-06-18T00:00:00.000Z",
+            updated_at: "2026-06-18T00:00:00.000Z",
+            deleted_at: null
+          }
+        ];
+      }
+      if (table === "workspace_roles") {
+        return [
+          {
+            id: "role-1",
+            workspace_id: workspaceId,
+            name: "Bidder",
+            key: "bidder",
+            system: true,
+            deleted_at: null
+          }
+        ];
+      }
+      if (table === "workspace_member_roles") {
+        return [{ workspace_id: workspaceId, member_id: memberId, role_id: "role-1" }];
+      }
+      if (table === "tracking_profiles") {
+        return [
+          {
+            id: profileId,
+            workspace_id: workspaceId,
+            name: "Frank",
+            created_by_member_id: memberId,
+            created_at: "2026-06-18T00:00:00.000Z",
+            updated_at: "2026-06-18T00:00:00.000Z",
+            deleted_at: null
+          }
+        ];
+      }
+      if (table === "tracking_job_markets") {
+        return [
+          {
+            id: "a79a47ef-bf8c-4821-8b31-ff5200fd5061",
+            workspace_id: workspaceId,
+            market_key: "us",
+            name: "US Job Market",
+            system: true,
+            created_by_member_id: null,
+            created_at: "2026-06-18T00:00:00.000Z",
+            updated_at: "2026-06-18T00:00:00.000Z",
+            deleted_at: null
+          }
+        ];
+      }
+      return [];
+    }
+  );
+
+  return {
+    select,
+    selectAll: select,
+    selectPage: vi.fn(
+      async (
+        table: string,
+        _fields: string,
+        filters: Record<string, string>,
+        options: { offset: number; limit: number }
+      ) => {
+        if (table === "bid_record_profiles" && filters.profile_id === `eq.${profileId}`) {
+          return {
+            records: assignments.slice(options.offset, options.offset + options.limit),
+            total: assignments.length
+          };
+        }
+        return { records: [], total: 0 };
+      }
+    ),
+    update: vi.fn(async () => []),
     insert: vi.fn(async () => []),
     delete: vi.fn(async () => [])
   };
