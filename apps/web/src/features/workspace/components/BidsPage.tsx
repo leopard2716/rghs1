@@ -13,7 +13,7 @@ import {
   X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Modal } from "../../../components/shared/Modal";
 import { errorMessage } from "../../../errors";
 import { paths } from "../../../routing/paths";
@@ -21,6 +21,7 @@ import type { AuthSession } from "../../../services/auth.service";
 import {
   createBid,
   deleteBid as deleteBidRecord,
+  fetchBid,
   fetchBids,
   updateBid,
   type BidRecord,
@@ -31,18 +32,16 @@ import { displayDate, localDateTimeToIso, localDateTimeValue } from "../../../ut
 import { fieldValue } from "../../../utils/form";
 import { matchingCompanyBids } from "../company-name-match";
 import { plainTextToRichText } from "../csv-bid-import";
+import {
+  clearTrackingModalParams,
+  trackingListQueryFromParams,
+  updateTrackingListParams
+} from "../tracking-list-url";
 import { BulkBidImportModal } from "./BulkBidImportModal";
 import { PaginationControls } from "./PaginationControls";
 import { RichTextContent, RichTextEditor } from "./RichTextEditor";
 import { TrackingListControls } from "./TrackingListControls";
 import { WorkspaceShell } from "./WorkspaceShell";
-
-const initialQuery: TrackingListQuery = {
-  page: 1,
-  pageSize: 20,
-  sortBy: "datetime",
-  sortDirection: "desc"
-};
 
 export function BidsPage({
   session,
@@ -58,11 +57,15 @@ export function BidsPage({
   const slug = workspaceSession.workspace.slug;
   const memberId = workspaceSession.member.id;
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamsValue = searchParams.toString();
+  const listQuery = useMemo(
+    () => trackingListQueryFromParams(new URLSearchParams(searchParamsValue)),
+    [searchParamsValue]
+  );
+  const requestedBidId = searchParams.get("bidId");
+  const creating = searchParams.get("modal") === "new";
   const queryClient = useQueryClient();
-  const [listQuery, setListQuery] = useState<TrackingListQuery>(initialQuery);
-  const [creating, setCreating] = useState(false);
-  const [editingBid, setEditingBid] = useState<BidRecord | null>(null);
-  const [selectedBid, setSelectedBid] = useState<BidRecord | null>(null);
   const [bulkImporting, setBulkImporting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [company, setCompany] = useState("");
@@ -74,11 +77,23 @@ export function BidsPage({
   const [selectedBidId, setSelectedBidId] = useState<string | null>(null);
   const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
   const [companySearch, setCompanySearch] = useState("");
-  const modalBid = editingBid ?? selectedBid;
   const bidsQuery = useQuery({
     queryKey: ["tracking-bids", slug, memberId, listQuery],
-    queryFn: () => fetchBids(session, slug, listQuery)
+    queryFn: () => fetchBids(session, slug, listQuery),
+    placeholderData: (previousData) => previousData
   });
+  const requestedBidQuery = useQuery({
+    queryKey: ["tracking-bid", slug, memberId, requestedBidId],
+    queryFn: () => fetchBid(session, slug, requestedBidId as string),
+    enabled: Boolean(requestedBidId)
+  });
+  const modalBid =
+    bidsQuery.data?.bids.find((bid) => bid.id === requestedBidId) ??
+    requestedBidQuery.data?.bid ??
+    null;
+  const editingBid = modalBid && canEditBid(modalBid, memberId) ? modalBid : null;
+  const selectedBid = modalBid && !editingBid ? modalBid : null;
+  const showBidForm = creating || Boolean(modalBid);
   const companySearchQuery = useQuery({
     queryKey: ["tracking-bid-company-search", slug, memberId, companySearch],
     queryFn: () =>
@@ -91,13 +106,20 @@ export function BidsPage({
       }),
     enabled: creating && !modalBid && companySearch.length >= 2
   });
-  const updateListQuery = useCallback((change: Partial<TrackingListQuery>) => {
-    setListQuery((current) => ({ ...current, ...change }));
-  }, []);
+  const updateListQuery = useCallback(
+    (change: Partial<TrackingListQuery>) => {
+      setSearchParams(updateTrackingListParams(new URLSearchParams(searchParamsValue), change), {
+        replace: true
+      });
+    },
+    [searchParamsValue, setSearchParams]
+  );
   const createMutation = useMutation({
     mutationFn: (input: Parameters<typeof createBid>[2]) => createBid(session, slug, input),
     onSuccess: async () => {
-      setCreating(false);
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
       setFormError(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
@@ -110,8 +132,9 @@ export function BidsPage({
     mutationFn: ({ bidId, input }: { bidId: string; input: Parameters<typeof updateBid>[3] }) =>
       updateBid(session, slug, bidId, input),
     onSuccess: async () => {
-      setCreating(false);
-      setEditingBid(null);
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
@@ -171,11 +194,28 @@ export function BidsPage({
   const bidFormDisabled = bidMutationPending || Boolean(selectedBid);
 
   useEffect(() => {
-    setCreating(false);
-    setEditingBid(null);
-    setSelectedBid(null);
     setBulkImporting(false);
   }, [memberId]);
+
+  useEffect(() => {
+    if (!modalBid) {
+      return;
+    }
+    setCompany(modalBid.company);
+    setJobTitle(modalBid.jobTitle);
+    setJobLink(modalBid.jobLink);
+    setJobDescription(
+      typeof modalBid.jobDescription === "string"
+        ? (plainTextToRichText(modalBid.jobDescription) ?? null)
+        : modalBid.jobDescription
+    );
+    setSelectedProfileIds(modalBid.profiles.map((profile) => profile.id));
+    setProfileResumes(
+      Object.fromEntries(modalBid.profiles.map((profile) => [profile.id, profile.resume ?? ""]))
+    );
+    setSelectedBidId(null);
+    setFormError(null);
+  }, [modalBid]);
 
   useEffect(() => {
     const nextSearch = company.trim();
@@ -196,32 +236,21 @@ export function BidsPage({
     setSelectedProfileIds([]);
     setProfileResumes({});
     setSelectedBidId(null);
-    setEditingBid(null);
-    setSelectedBid(null);
     setFormError(null);
     createMutation.reset();
     updateMutation.reset();
-    setCreating(true);
-  }
-
-  function openBidEdit(bid: BidRecord) {
-    populateBidForm(bid);
-    setEditingBid(bid);
-    setSelectedBid(null);
-    createMutation.reset();
-    updateMutation.reset();
-    setCreating(true);
+    const next = clearTrackingModalParams(new URLSearchParams(searchParamsValue));
+    next.set("modal", "new");
+    setSearchParams(next);
   }
 
   function openBidView(bid: BidRecord) {
-    if (canEditBid(bid, memberId)) {
-      openBidEdit(bid);
-      return;
-    }
     populateBidForm(bid);
-    setEditingBid(null);
-    setSelectedBid(bid);
-    setCreating(true);
+    createMutation.reset();
+    updateMutation.reset();
+    const next = clearTrackingModalParams(new URLSearchParams(searchParamsValue));
+    next.set("bidId", bid.id);
+    setSearchParams(next);
   }
 
   function populateBidForm(bid: BidRecord) {
@@ -243,9 +272,9 @@ export function BidsPage({
 
   function closeBidForm() {
     if (!createMutation.isPending && !updateMutation.isPending) {
-      setCreating(false);
-      setEditingBid(null);
-      setSelectedBid(null);
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
       setFormError(null);
     }
   }
@@ -315,16 +344,16 @@ export function BidsPage({
             query={listQuery}
             profiles={bidsQuery.data.filterProfiles}
             markets={bidsQuery.data.filterMarkets}
-            disabled={bidsQuery.isFetching}
+            disabled={false}
             onChange={updateListQuery}
           />
         ) : null}
 
-        {bidsQuery.isError ? (
+        {bidsQuery.isError && !bidsQuery.data ? (
           <p className="form-error">{errorMessage(bidsQuery.error)}</p>
         ) : bidsQuery.isLoading ? (
           <RecordLoading label="Loading bids" />
-        ) : bidsQuery.data?.bids.length ? (
+        ) : bidsQuery.data ? (
           <>
             <div className="table-wrap">
               <table className="tracking-table tracking-record-table">
@@ -341,132 +370,140 @@ export function BidsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {bidsQuery.data.bids.map((bid) => (
-                    <tr
-                      key={bid.id}
-                      className={`tracking-row-clickable${
-                        deletingBidId === bid.id ? " tenant-row-pending" : ""
-                      }`}
-                      aria-busy={deletingBidId === bid.id}
-                      tabIndex={0}
-                      onClick={() => openBidView(bid)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openBidView(bid);
-                        }
-                      }}
-                    >
-                      <td>
-                        <strong>{bid.jobTitle}</strong>
-                        <span>{bid.company}</span>
-                        {bid.jobDescription ? (
-                          <details
-                            className="record-details"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <summary>Description</summary>
-                            <RichTextContent value={bid.jobDescription} />
-                          </details>
-                        ) : null}
-                      </td>
-                      <td>
-                        <span className="market-pill">
-                          {bid.jobMarket.name}
-                          {bid.jobMarket.deletedAt ? " (deleted)" : ""}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="profile-tags">
-                          {bid.profiles.map((profile) => (
-                            <span
-                              className={profile.deletedAt ? "deleted-profile-tag" : undefined}
-                              key={profile.id}
-                            >
-                              {profile.name}
-                              {profile.deletedAt ? " (deleted)" : ""}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        <div className="resume-list">
-                          {bid.profiles.map((profile) => (
+                  {bidsQuery.isFetching ? (
+                    <TableLoadingRow colSpan={showActions ? 8 : 7} label="Loading bid results" />
+                  ) : bidsQuery.data.bids.length ? (
+                    bidsQuery.data.bids.map((bid) => (
+                      <tr
+                        key={bid.id}
+                        className={`tracking-row-clickable${
+                          deletingBidId === bid.id ? " tenant-row-pending" : ""
+                        }`}
+                        aria-busy={deletingBidId === bid.id}
+                        tabIndex={0}
+                        onClick={() => openBidView(bid)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openBidView(bid);
+                          }
+                        }}
+                      >
+                        <td>
+                          <strong>{bid.jobTitle}</strong>
+                          <span>{bid.company}</span>
+                          {bid.jobDescription ? (
                             <details
                               className="record-details"
-                              key={profile.id}
                               onClick={(event) => event.stopPropagation()}
                             >
-                              <summary>{profile.name}</summary>
-                              <p className="plain-resume">
-                                {profile.resume ?? "No resume stored."}
-                              </p>
+                              <summary>Description</summary>
+                              <RichTextContent value={bid.jobDescription} />
                             </details>
-                          ))}
-                        </div>
-                      </td>
-                      <td>{bid.bidder?.name ?? "Former member"}</td>
-                      <td>{displayDate(bid.bidAt)}</td>
-                      <td>
-                        <div className="record-links">
-                          <a
-                            href={bid.jobLink}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <ExternalLink aria-hidden="true" />
-                            Open
-                          </a>
-                        </div>
-                      </td>
-                      {showActions ? (
+                          ) : null}
+                        </td>
                         <td>
-                          <div className="record-actions">
-                            {bidsQuery.data.canCreateInterview &&
-                            bid.profiles.some((profile) => !profile.deletedAt) ? (
-                              <button
-                                className="secondary-action compact-action"
-                                type="button"
-                                disabled={deletingBidId === bid.id}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  navigate(paths.workspaceInterviewForBid(slug, bid.id));
-                                }}
+                          <span className="market-pill">
+                            {bid.jobMarket.name}
+                            {bid.jobMarket.deletedAt ? " (deleted)" : ""}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="profile-tags">
+                            {bid.profiles.map((profile) => (
+                              <span
+                                className={profile.deletedAt ? "deleted-profile-tag" : undefined}
+                                key={profile.id}
                               >
-                                <CalendarPlus aria-hidden="true" />
-                                Interview
-                              </button>
-                            ) : null}
-                            {canDeleteBid(bid, memberId) ? (
-                              <button
-                                className="secondary-action compact-action danger-action"
-                                type="button"
-                                disabled={deletingBidId === bid.id}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  const confirmed = window.confirm(
-                                    `Delete the bid for "${bid.jobTitle}" at ${bid.company}? Existing interview history will be preserved.`
-                                  );
-                                  if (confirmed) {
-                                    setDeletingBidId(bid.id);
-                                    deleteMutation.mutate(bid.id);
-                                  }
-                                }}
-                              >
-                                {deletingBidId === bid.id ? (
-                                  <LoaderCircle className="spin-icon" aria-hidden="true" />
-                                ) : (
-                                  <Trash2 aria-hidden="true" />
-                                )}
-                                {deletingBidId === bid.id ? "Deleting" : "Delete"}
-                              </button>
-                            ) : null}
+                                {profile.name}
+                                {profile.deletedAt ? " (deleted)" : ""}
+                              </span>
+                            ))}
                           </div>
                         </td>
-                      ) : null}
+                        <td>
+                          <div className="resume-list">
+                            {bid.profiles.map((profile) => (
+                              <details
+                                className="record-details"
+                                key={profile.id}
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <summary>{profile.name}</summary>
+                                <p className="plain-resume">
+                                  {profile.resume ?? "No resume stored."}
+                                </p>
+                              </details>
+                            ))}
+                          </div>
+                        </td>
+                        <td>{bid.bidder?.name ?? "Former member"}</td>
+                        <td>{displayDate(bid.bidAt)}</td>
+                        <td>
+                          <div className="record-links">
+                            <a
+                              href={bid.jobLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <ExternalLink aria-hidden="true" />
+                              Open
+                            </a>
+                          </div>
+                        </td>
+                        {showActions ? (
+                          <td>
+                            <div className="record-actions">
+                              {bidsQuery.data.canCreateInterview &&
+                              bid.profiles.some((profile) => !profile.deletedAt) ? (
+                                <button
+                                  className="secondary-action compact-action"
+                                  type="button"
+                                  disabled={deletingBidId === bid.id}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    navigate(paths.workspaceInterviewForBid(slug, bid.id));
+                                  }}
+                                >
+                                  <CalendarPlus aria-hidden="true" />
+                                  Interview
+                                </button>
+                              ) : null}
+                              {canDeleteBid(bid, memberId) ? (
+                                <button
+                                  className="secondary-action compact-action danger-action"
+                                  type="button"
+                                  disabled={deletingBidId === bid.id}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    const confirmed = window.confirm(
+                                      `Delete the bid for "${bid.jobTitle}" at ${bid.company}? Existing interview history will be preserved.`
+                                    );
+                                    if (confirmed) {
+                                      setDeletingBidId(bid.id);
+                                      deleteMutation.mutate(bid.id);
+                                    }
+                                  }}
+                                >
+                                  {deletingBidId === bid.id ? (
+                                    <LoaderCircle className="spin-icon" aria-hidden="true" />
+                                  ) : (
+                                    <Trash2 aria-hidden="true" />
+                                  )}
+                                  {deletingBidId === bid.id ? "Deleting" : "Delete"}
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="tracking-table-empty-row">
+                      <td colSpan={showActions ? 8 : 7}>No bids match the current view.</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -476,18 +513,20 @@ export function BidsPage({
               onPageChange={(page) => updateListQuery({ page })}
               onPageSizeChange={(pageSize) => updateListQuery({ pageSize, page: 1 })}
             />
+            {bidsQuery.isError ? (
+              <p className="form-error">{errorMessage(bidsQuery.error)}</p>
+            ) : null}
           </>
-        ) : (
-          <div className="admin-empty-state">
-            <span>No bids match the current view.</span>
-          </div>
-        )}
+        ) : null}
         {deleteMutation.isError ? (
           <p className="form-error">{errorMessage(deleteMutation.error)}</p>
         ) : null}
+        {requestedBidQuery.isError ? (
+          <p className="form-error">{errorMessage(requestedBidQuery.error)}</p>
+        ) : null}
       </section>
 
-      {creating && bidsQuery.data ? (
+      {showBidForm && bidsQuery.data ? (
         <Modal
           title={selectedBid ? "Bid Details" : editingBid ? "Edit Bid" : "Save Bid"}
           size="large"
@@ -819,6 +858,17 @@ function RecordLoading({ label }: { label: string }) {
       <LoaderCircle className="spin-icon" aria-hidden="true" />
       <span>{label}</span>
     </div>
+  );
+}
+
+function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return (
+    <tr className="tracking-table-loading-row">
+      <td colSpan={colSpan}>
+        <LoaderCircle className="spin-icon" aria-hidden="true" />
+        <span>{label}</span>
+      </td>
+    </tr>
   );
 }
 

@@ -8,9 +8,13 @@ describe("workspace paths", () => {
     expect(paths.workspaceDashboard("rg-team")).toBe("/rg-team/dashboard");
     expect(paths.workspaceProfiles("rg-team")).toBe("/rg-team/profiles");
     expect(paths.workspaceBids("rg-team")).toBe("/rg-team/bids");
+    expect(paths.workspaceBid("rg-team", "bid-1")).toBe("/rg-team/bids?bidId=bid-1");
     expect(paths.workspaceInterviews("rg-team")).toBe("/rg-team/interviews");
+    expect(paths.workspaceInterview("rg-team", "interview-1")).toBe(
+      "/rg-team/interviews?interviewId=interview-1"
+    );
     expect(paths.workspaceInterviewForBid("rg-team", "bid-1")).toBe(
-      "/rg-team/interviews?bidId=bid-1"
+      "/rg-team/interviews?modal=new&bidId=bid-1"
     );
     expect(paths.workspaceUsers("rg-team")).toBe("/rg-team/users");
   });

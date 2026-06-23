@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { countBy, matchesJobSearch, paginate, sortJobRecords, trendByDate } from "./tracking-query";
+import {
+  chunkValues,
+  countBy,
+  matchesJobSearch,
+  paginate,
+  sortJobMarketsByUsage,
+  sortJobRecords,
+  trendByDate
+} from "./tracking-query";
 
 const records = [
   {
@@ -43,5 +51,46 @@ describe("tracking query helpers", () => {
       { date: "2026-06-17", value: 1 },
       { date: "2026-06-18", value: 1 }
     ]);
+  });
+
+  it("keeps profile-filter database requests bounded", () => {
+    const chunks = chunkValues(
+      Array.from({ length: 251 }, (_, index) => `bid-${index}`),
+      100
+    );
+
+    expect(chunks.map((chunk) => chunk.length)).toEqual([100, 100, 51]);
+  });
+
+  it("orders markets by member usage with the built-in order as the tie breaker", () => {
+    const markets = [
+      { id: "custom", market_key: null, name: "Canada", created_at: "2026-01-01" },
+      { id: "japan", market_key: "japan", name: "Japan", created_at: "2026-01-01" },
+      { id: "us", market_key: "us", name: "US", created_at: "2026-01-01" },
+      {
+        id: "philippines",
+        market_key: "philippines",
+        name: "Philippine",
+        created_at: "2026-01-01"
+      },
+      { id: "eu", market_key: "eu", name: "EU", created_at: "2026-01-01" }
+    ];
+
+    expect(sortJobMarketsByUsage(markets, new Map()).map((market) => market.id)).toEqual([
+      "us",
+      "eu",
+      "philippines",
+      "japan",
+      "custom"
+    ]);
+    expect(
+      sortJobMarketsByUsage(
+        markets,
+        new Map([
+          ["custom", 4],
+          ["japan", 2]
+        ])
+      ).map((market) => market.id)
+    ).toEqual(["custom", "japan", "us", "eu", "philippines"]);
   });
 });
