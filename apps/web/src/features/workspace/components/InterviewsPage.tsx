@@ -13,13 +13,15 @@ import {
   X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Modal } from "../../../components/shared/Modal";
 import { errorMessage } from "../../../errors";
+import { paths } from "../../../routing/paths";
 import type { AuthSession } from "../../../services/auth.service";
 import {
   createInterviewRecord,
   deleteInterviewRecord,
+  fetchInterview,
   fetchInterviews,
   updateInterviewRecord,
   type BidRecord,
@@ -37,16 +39,14 @@ import {
 import { fieldValue, optionalFieldValue } from "../../../utils/form";
 import { searchTimeZones, timeZoneInputLabel } from "../../../utils/timezone-search";
 import { matchingJobs } from "../job-match";
+import {
+  clearTrackingModalParams,
+  trackingListQueryFromParams,
+  updateTrackingListParams
+} from "../tracking-list-url";
 import { PaginationControls } from "./PaginationControls";
 import { TrackingListControls } from "./TrackingListControls";
 import { WorkspaceShell } from "./WorkspaceShell";
-
-const initialQuery: TrackingListQuery = {
-  page: 1,
-  pageSize: 20,
-  sortBy: "datetime",
-  sortDirection: "desc"
-};
 
 export function InterviewsPage({
   session,
@@ -62,26 +62,48 @@ export function InterviewsPage({
   const slug = workspaceSession.workspace.slug;
   const memberId = workspaceSession.member.id;
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedBidId = searchParams.get("bidId");
+  const searchParamsValue = searchParams.toString();
+  const listQuery = useMemo(
+    () => trackingListQueryFromParams(new URLSearchParams(searchParamsValue)),
+    [searchParamsValue]
+  );
+  const creating = searchParams.get("modal") === "new";
+  const requestedBidId = creating ? searchParams.get("bidId") : null;
+  const requestedInterviewId = searchParams.get("interviewId");
   const queryClient = useQueryClient();
-  const [listQuery, setListQuery] = useState<TrackingListQuery>(initialQuery);
-  const [creating, setCreating] = useState(false);
-  const [editingInterview, setEditingInterview] = useState<InterviewRecord | null>(null);
-  const [selectedInterview, setSelectedInterview] = useState<InterviewRecord | null>(null);
   const [deletingInterviewId, setDeletingInterviewId] = useState<string | null>(null);
   const interviewsQuery = useQuery({
     queryKey: ["tracking-interviews", slug, memberId, listQuery],
-    queryFn: () => fetchInterviews(session, slug, listQuery)
+    queryFn: () => fetchInterviews(session, slug, listQuery),
+    placeholderData: (previousData) => previousData
   });
-  const updateListQuery = useCallback((change: Partial<TrackingListQuery>) => {
-    setListQuery((current) => ({ ...current, ...change }));
-  }, []);
+  const requestedInterviewQuery = useQuery({
+    queryKey: ["tracking-interview", slug, memberId, requestedInterviewId],
+    queryFn: () => fetchInterview(session, slug, requestedInterviewId as string),
+    enabled: Boolean(requestedInterviewId)
+  });
+  const modalInterview =
+    interviewsQuery.data?.interviews.find((interview) => interview.id === requestedInterviewId) ??
+    requestedInterviewQuery.data?.interview ??
+    null;
+  const editingInterview =
+    modalInterview && canEditInterview(modalInterview, memberId) ? modalInterview : null;
+  const selectedInterview = modalInterview && !editingInterview ? modalInterview : null;
+  const updateListQuery = useCallback(
+    (change: Partial<TrackingListQuery>) => {
+      setSearchParams(updateTrackingListParams(new URLSearchParams(searchParamsValue), change), {
+        replace: true
+      });
+    },
+    [searchParamsValue, setSearchParams]
+  );
   const createMutation = useMutation({
     mutationFn: (input: Parameters<typeof createInterviewRecord>[2]) =>
       createInterviewRecord(session, slug, input),
     onSuccess: async () => {
-      setCreating(false);
-      setSearchParams({}, { replace: true });
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
@@ -97,8 +119,9 @@ export function InterviewsPage({
       input: Parameters<typeof updateInterviewRecord>[3];
     }) => updateInterviewRecord(session, slug, interviewId, input),
     onSuccess: async () => {
-      setCreating(false);
-      setEditingInterview(null);
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
@@ -125,7 +148,6 @@ export function InterviewsPage({
     interviewsQuery.data?.interviews.some((interview) => canDeleteInterview(interview, memberId))
   );
   const interviewMutationPending = createMutation.isPending || updateMutation.isPending;
-  const modalInterview = editingInterview ?? selectedInterview;
   const interviewFormBids = useMemo(() => {
     const bids = interviewsQuery.data?.bids ?? [];
     if (!modalInterview || bids.some((bid) => bid.id === modalInterview.bidId)) {
@@ -135,33 +157,23 @@ export function InterviewsPage({
   }, [interviewsQuery.data?.bids, modalInterview]);
 
   useEffect(() => {
-    setCreating(false);
-    setEditingInterview(null);
-    setSelectedInterview(null);
+    setDeletingInterviewId(null);
   }, [memberId]);
 
   function closeInterviewForm() {
     if (!interviewMutationPending) {
-      setCreating(false);
-      setEditingInterview(null);
-      setSelectedInterview(null);
-      setSearchParams({}, { replace: true });
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
     }
   }
 
   function openInterview(interview: InterviewRecord) {
-    setSearchParams({}, { replace: true });
-    if (canEditInterview(interview, memberId)) {
-      setEditingInterview(interview);
-      setSelectedInterview(null);
-      createMutation.reset();
-      updateMutation.reset();
-      setCreating(true);
-      return;
-    }
-    setEditingInterview(null);
-    setSelectedInterview(interview);
-    setCreating(false);
+    const next = clearTrackingModalParams(new URLSearchParams(searchParamsValue));
+    next.set("interviewId", interview.id);
+    setSearchParams(next);
+    createMutation.reset();
+    updateMutation.reset();
   }
 
   return (
@@ -203,9 +215,9 @@ export function InterviewsPage({
                 onClick={() => {
                   createMutation.reset();
                   updateMutation.reset();
-                  setEditingInterview(null);
-                  setSearchParams({}, { replace: true });
-                  setCreating(true);
+                  const next = clearTrackingModalParams(new URLSearchParams(searchParamsValue));
+                  next.set("modal", "new");
+                  setSearchParams(next);
                 }}
               >
                 <Plus aria-hidden="true" />
@@ -220,19 +232,19 @@ export function InterviewsPage({
             query={listQuery}
             profiles={interviewsQuery.data.filterProfiles}
             markets={interviewsQuery.data.filterMarkets}
-            disabled={interviewsQuery.isFetching}
+            disabled={false}
             onChange={updateListQuery}
           />
         ) : null}
 
-        {interviewsQuery.isError ? (
+        {interviewsQuery.isError && !interviewsQuery.data ? (
           <p className="form-error">{errorMessage(interviewsQuery.error)}</p>
         ) : interviewsQuery.isLoading ? (
           <div className="admin-empty-state">
             <LoaderCircle className="spin-icon" aria-hidden="true" />
             <span>Loading interviews</span>
           </div>
-        ) : interviewsQuery.data?.interviews.length ? (
+        ) : interviewsQuery.data ? (
           <>
             <div className="table-wrap">
               <table className="tracking-table tracking-record-table">
@@ -250,99 +262,110 @@ export function InterviewsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {interviewsQuery.data.interviews.map((interview) => (
-                    <tr
-                      key={interview.id}
-                      className={`tracking-row-clickable${
-                        deletingInterviewId === interview.id ? " tenant-row-pending" : ""
-                      }`}
-                      tabIndex={0}
-                      onClick={() => openInterview(interview)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openInterview(interview);
-                        }
-                      }}
-                      aria-busy={deletingInterviewId === interview.id}
-                    >
-                      <td>
-                        <strong>{interview.jobTitle}</strong>
-                        <span>
-                          {interview.company}
-                          {interview.bidDeleted ? " (deleted bid)" : ""}
-                        </span>
-                      </td>
-                      <td>
-                        <span className="market-pill">
-                          {interview.jobMarket.name}
-                          {interview.jobMarket.deletedAt ? " (deleted)" : ""}
-                        </span>
-                      </td>
-                      <td>{interview.step}</td>
-                      <td>
-                        {interview.profileName}
-                        {interview.profileDeleted ? " (deleted profile)" : ""}
-                      </td>
-                      <td>
-                        <strong>
-                          {displayZonedDateTimeRange(
-                            interview.startAt,
-                            interview.endAt,
-                            interview.timeZone
-                          )}
-                        </strong>
-                        <span>{interview.timeZone ?? "Legacy schedule"}</span>
-                      </td>
-                      <td>
-                        <span>Bidder: {interview.bidder?.name ?? "Former member"}</span>
-                        <span>Interviewer: {interview.interviewer?.name ?? "Former member"}</span>
-                      </td>
-                      <td>
-                        <a
-                          className="record-link"
-                          href={interview.interviewLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <ExternalLink aria-hidden="true" />
-                          Open
-                        </a>
-                      </td>
-                      <td>
-                        <p className="plain-notes">{interview.notes ?? "No notes"}</p>
-                      </td>
-                      {showActions ? (
+                  {interviewsQuery.isFetching ? (
+                    <TableLoadingRow
+                      colSpan={showActions ? 9 : 8}
+                      label="Loading interview results"
+                    />
+                  ) : interviewsQuery.data.interviews.length ? (
+                    interviewsQuery.data.interviews.map((interview) => (
+                      <tr
+                        key={interview.id}
+                        className={`tracking-row-clickable${
+                          deletingInterviewId === interview.id ? " tenant-row-pending" : ""
+                        }`}
+                        tabIndex={0}
+                        onClick={() => openInterview(interview)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openInterview(interview);
+                          }
+                        }}
+                        aria-busy={deletingInterviewId === interview.id}
+                      >
                         <td>
-                          {canDeleteInterview(interview, memberId) ? (
-                            <button
-                              className="secondary-action compact-action danger-action"
-                              type="button"
-                              disabled={deletingInterviewId === interview.id}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                const confirmed = window.confirm(
-                                  `Delete the "${interview.step}" interview for ${interview.jobTitle}?`
-                                );
-                                if (confirmed) {
-                                  setDeletingInterviewId(interview.id);
-                                  deleteMutation.mutate(interview.id);
-                                }
-                              }}
-                            >
-                              {deletingInterviewId === interview.id ? (
-                                <LoaderCircle className="spin-icon" aria-hidden="true" />
-                              ) : (
-                                <Trash2 aria-hidden="true" />
-                              )}
-                              {deletingInterviewId === interview.id ? "Deleting" : "Delete"}
-                            </button>
-                          ) : null}
+                          <strong>{interview.jobTitle}</strong>
+                          <span>
+                            {interview.company}
+                            {interview.bidDeleted ? " (deleted bid)" : ""}
+                          </span>
                         </td>
-                      ) : null}
+                        <td>
+                          <span className="market-pill">
+                            {interview.jobMarket.name}
+                            {interview.jobMarket.deletedAt ? " (deleted)" : ""}
+                          </span>
+                        </td>
+                        <td>{interview.step}</td>
+                        <td>
+                          {interview.profileName}
+                          {interview.profileDeleted ? " (deleted profile)" : ""}
+                        </td>
+                        <td>
+                          <strong>
+                            {displayZonedDateTimeRange(
+                              interview.startAt,
+                              interview.endAt,
+                              interview.timeZone
+                            )}
+                          </strong>
+                          <span>{interview.timeZone ?? "Legacy schedule"}</span>
+                        </td>
+                        <td>
+                          <span>Bidder: {interview.bidder?.name ?? "Former member"}</span>
+                          <span>Interviewer: {interview.interviewer?.name ?? "Former member"}</span>
+                        </td>
+                        <td>
+                          <a
+                            className="record-link"
+                            href={interview.interviewLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <ExternalLink aria-hidden="true" />
+                            Open
+                          </a>
+                        </td>
+                        <td>
+                          <p className="plain-notes">{interview.notes ?? "No notes"}</p>
+                        </td>
+                        {showActions ? (
+                          <td>
+                            {canDeleteInterview(interview, memberId) ? (
+                              <button
+                                className="secondary-action compact-action danger-action"
+                                type="button"
+                                disabled={deletingInterviewId === interview.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const confirmed = window.confirm(
+                                    `Delete the "${interview.step}" interview for ${interview.jobTitle}?`
+                                  );
+                                  if (confirmed) {
+                                    setDeletingInterviewId(interview.id);
+                                    deleteMutation.mutate(interview.id);
+                                  }
+                                }}
+                              >
+                                {deletingInterviewId === interview.id ? (
+                                  <LoaderCircle className="spin-icon" aria-hidden="true" />
+                                ) : (
+                                  <Trash2 aria-hidden="true" />
+                                )}
+                                {deletingInterviewId === interview.id ? "Deleting" : "Delete"}
+                              </button>
+                            ) : null}
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="tracking-table-empty-row">
+                      <td colSpan={showActions ? 9 : 8}>No interviews match the current view.</td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -352,20 +375,24 @@ export function InterviewsPage({
               onPageChange={(page) => updateListQuery({ page })}
               onPageSizeChange={(pageSize) => updateListQuery({ pageSize, page: 1 })}
             />
+            {interviewsQuery.isError ? (
+              <p className="form-error">{errorMessage(interviewsQuery.error)}</p>
+            ) : null}
           </>
-        ) : (
-          <div className="admin-empty-state">
-            <span>No interviews match the current view.</span>
-          </div>
-        )}
+        ) : null}
         {deleteMutation.isError ? (
           <p className="form-error">{errorMessage(deleteMutation.error)}</p>
+        ) : null}
+        {requestedInterviewQuery.isError ? (
+          <p className="form-error">{errorMessage(requestedInterviewQuery.error)}</p>
         ) : null}
       </section>
 
       {showInterviewForm && interviewsQuery.data ? (
         <InterviewForm
+          key={modalInterview?.id ?? requestedBid?.id ?? "new-interview"}
           bids={interviewFormBids}
+          workspaceSlug={slug}
           initialBidId={editingInterview?.bidId ?? selectedInterview?.bidId ?? requestedBid?.id}
           initialInterview={editingInterview ?? selectedInterview ?? undefined}
           readOnly={Boolean(selectedInterview)}
@@ -390,6 +417,7 @@ export function InterviewsPage({
 
 function InterviewForm({
   bids,
+  workspaceSlug,
   initialBidId,
   initialInterview,
   readOnly,
@@ -399,6 +427,7 @@ function InterviewForm({
   onSubmit
 }: {
   bids: Awaited<ReturnType<typeof fetchInterviews>>["bids"];
+  workspaceSlug: string;
   initialBidId?: string;
   initialInterview?: InterviewRecord;
   readOnly: boolean;
@@ -489,6 +518,9 @@ function InterviewForm({
           <div className="selected-job-summary">
             <span className="market-pill">{selectedBid.jobMarket.name}</span>
             <span>Bid created by: {selectedBid.bidder?.name ?? "Former member"}</span>
+            <Link className="record-link" to={paths.workspaceBid(workspaceSlug, selectedBid.id)}>
+              View bid record
+            </Link>
             {initialInterview ? (
               <span>
                 Interview created by: {initialInterview.interviewer?.name ?? "Former member"}
@@ -881,6 +913,17 @@ function defaultInterviewRange() {
     startTime: localTimeValue(start),
     endTime: localTimeValue(end)
   };
+}
+
+function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return (
+    <tr className="tracking-table-loading-row">
+      <td colSpan={colSpan}>
+        <LoaderCircle className="spin-icon" aria-hidden="true" />
+        <span>{label}</span>
+      </td>
+    </tr>
+  );
 }
 
 function canEditInterview(interview: InterviewRecord, memberId: string): boolean {

@@ -22,6 +22,10 @@ export function TrackingListControls({
   const [search, setSearch] = useState(query.search ?? "");
 
   useEffect(() => {
+    setSearch(query.search ?? "");
+  }, [query.search]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       if (search !== (query.search ?? "")) {
         onChange({ search, page: 1 });
