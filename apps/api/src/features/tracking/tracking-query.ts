@@ -72,6 +72,46 @@ export function paginate<T>(
   };
 }
 
+export function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let offset = 0; offset < values.length; offset += size) {
+    chunks.push(values.slice(offset, offset + size));
+  }
+  return chunks;
+}
+
+export function sortJobMarketsByUsage<
+  T extends {
+    id: string;
+    market_key: string | null;
+    name: string;
+    created_at: string;
+  }
+>(markets: T[], usageByMarketId: ReadonlyMap<string, number>): T[] {
+  const builtInOrder = new Map([
+    ["us", 0],
+    ["eu", 1],
+    ["philippines", 2],
+    ["japan", 3]
+  ]);
+
+  return [...markets].sort((left, right) => {
+    const usageDifference =
+      (usageByMarketId.get(right.id) ?? 0) - (usageByMarketId.get(left.id) ?? 0);
+    if (usageDifference) {
+      return usageDifference;
+    }
+
+    const leftRank = builtInOrder.get(left.market_key ?? "") ?? 4;
+    const rightRank = builtInOrder.get(right.market_key ?? "") ?? 4;
+    return (
+      leftRank - rightRank ||
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.created_at.localeCompare(right.created_at)
+    );
+  });
+}
+
 export function inDateRange(value: string, from: string, to: string): boolean {
   const timestamp = new Date(value).getTime();
   return timestamp >= new Date(from).getTime() && timestamp < new Date(to).getTime();

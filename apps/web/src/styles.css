@@ -1431,6 +1431,36 @@ td span {
   min-width: 1380px;
 }
 
+.tracking-table-loading-row td,
+.tracking-table-empty-row td {
+  height: 150px;
+  color: #68736d;
+  text-align: center;
+}
+
+.tracking-table-loading-row td {
+  background: #fbfcf9;
+}
+
+.tracking-table-loading-row svg,
+.tracking-table-loading-row span {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.tracking-table-loading-row svg {
+  width: 20px;
+  height: 20px;
+  margin-right: 8px;
+  color: #2f8f75;
+}
+
+.tracking-table-loading-row span {
+  margin: 0;
+  color: #56625c;
+  font-weight: 800;
+}
+
 .market-pill {
   display: inline-flex;
   align-items: center;

@@ -237,6 +237,19 @@ export function registerTrackingRoutes(app: ApiApp): void {
     }
   );
 
+  app.get(
+    "/v1/workspaces/:slug/tracking/bids/:bidId",
+    zValidator("param", bidRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(await service.getBid(c.req.param("slug"), c.req.valid("param").bidId, user));
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
   app.post(
     "/v1/workspaces/:slug/tracking/bids",
     zValidator("json", bidRecordInput, (result, c) => {
@@ -314,6 +327,21 @@ export function registerTrackingRoutes(app: ApiApp): void {
         const { service, user } = await requestContext(c);
         return c.json(
           await service.listInterviews(c.req.param("slug"), user, c.req.valid("query"))
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/interviews/:interviewId",
+    zValidator("param", interviewRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.getInterview(c.req.param("slug"), c.req.valid("param").interviewId, user)
         );
       } catch (error) {
         return trackingError(c, error);
