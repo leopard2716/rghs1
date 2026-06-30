@@ -31,6 +31,7 @@ import { TrackingListQueryBuilder } from "./tracking-list-query.builder";
 import { TrackingAccessService, type TrackingContext } from "./tracking-access.service";
 import {
   TrackingRecordMapper,
+  type BidInterviewReferenceResponse,
   type BidResponse,
   type JobMarketResponse,
   type MemberSummary,
@@ -435,9 +436,9 @@ export class TrackingService {
     ]);
     const { pagination, records: pageRows } = pageResult;
     const visibleIds = [...new Set([...pageRows, ...suggestionRows].map((row) => row.id))];
-    const assignments = visibleIds.length
-      ? (
-          await Promise.all(
+    const [assignments, referenceInterviewRows] = visibleIds.length
+      ? await Promise.all([
+          Promise.all(
             chunkValues(visibleIds, 100).map((bidIds) =>
               this.selectAllPages<BidRecordProfileRow>(
                 "bid_record_profiles",
@@ -448,10 +449,16 @@ export class TrackingService {
                 }
               )
             )
-          )
-        ).flat()
-      : [];
+          ).then((pages) => pages.flat()),
+          this.loadInterviewsForBids(context.workspace.id, visibleIds)
+        ])
+      : ([[], []] as [BidRecordProfileRow[], InterviewRecordRow[]]);
     const assignmentsByBid = groupAssignmentsByBid(assignments);
+    const referenceInterviewsByBid = this.referenceInterviewsByBid(
+      referenceInterviewRows,
+      allProfiles,
+      members
+    );
     const canManageBids = context.roleKeys.includes("bidder");
     const lookups = this.records.lookups(allProfiles, allMarkets, members);
     const responseFor = (row: BidRecordRow) =>
@@ -460,7 +467,8 @@ export class TrackingService {
         assignmentsByBid.get(row.id) ?? [],
         lookups,
         context.member.id,
-        canManageBids
+        canManageBids,
+        referenceInterviewsByBid.get(row.id) ?? []
       );
 
     return {
@@ -490,23 +498,30 @@ export class TrackingService {
 
   async getBid(slug: string, bidId: string, user: AuthUser) {
     const context = await this.access.requireContext(slug, user.id);
-    const [profiles, markets, members, rows, assignments] = await Promise.all([
-      this.loadProfiles(context.workspace.id, true),
-      this.loadMarkets(context.workspace.id, true, context.member.id),
-      this.loadMembers(context.workspace.id),
-      this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, {
-        workspace_id: `eq.${context.workspace.id}`,
-        id: `eq.${bidId}`
-      }),
-      this.supabase.select<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
-        workspace_id: `eq.${context.workspace.id}`,
-        bid_id: `eq.${bidId}`
-      })
-    ]);
+    const [profiles, markets, members, rows, assignments, referenceInterviewRows] =
+      await Promise.all([
+        this.loadProfiles(context.workspace.id, true),
+        this.loadMarkets(context.workspace.id, true, context.member.id),
+        this.loadMembers(context.workspace.id),
+        this.supabase.select<BidRecordRow>("bid_records", bidRecordFields, {
+          workspace_id: `eq.${context.workspace.id}`,
+          id: `eq.${bidId}`
+        }),
+        this.supabase.select<BidRecordProfileRow>("bid_record_profiles", bidRecordProfileFields, {
+          workspace_id: `eq.${context.workspace.id}`,
+          bid_id: `eq.${bidId}`
+        }),
+        this.loadInterviewsForBids(context.workspace.id, [bidId])
+      ]);
     const [row] = rows;
     if (!row) {
       throw apiError(404, "Bid was not found.", "bid_record_not_found");
     }
+    const referenceInterviewsByBid = this.referenceInterviewsByBid(
+      referenceInterviewRows,
+      profiles,
+      members
+    );
 
     return {
       bid: this.records.bid(
@@ -514,7 +529,8 @@ export class TrackingService {
         assignments,
         this.records.lookups(profiles, markets, members),
         context.member.id,
-        context.roleKeys.includes("bidder")
+        context.roleKeys.includes("bidder"),
+        referenceInterviewsByBid.get(row.id) ?? []
       )
     };
   }
@@ -716,6 +732,7 @@ export class TrackingService {
       this.loadMarkets(context.workspace.id, true),
       this.loadMembers(context.workspace.id)
     ]);
+    const referenceInterviewsByBid = this.referenceInterviewsByBid(interviews, profiles, members);
     return {
       bid: this.records.bid(
         updated,
@@ -728,7 +745,8 @@ export class TrackingService {
         })),
         this.records.lookups(profiles, markets, members),
         context.member.id,
-        true
+        true,
+        referenceInterviewsByBid.get(bidId) ?? []
       )
     };
   }
@@ -1355,6 +1373,47 @@ export class TrackingService {
       },
       { order: "id.asc" }
     );
+  }
+
+  private async loadInterviewsForBids(workspaceId: string, bidIds: string[]) {
+    if (!bidIds.length) {
+      return [];
+    }
+
+    return (
+      await Promise.all(
+        chunkValues([...new Set(bidIds)], 100).map((ids) =>
+          this.selectAllPages<InterviewRecordRow>("interview_records", interviewRecordFields, {
+            workspace_id: `eq.${workspaceId}`,
+            bid_id: `in.(${ids.join(",")})`,
+            deleted_at: "is.null"
+          })
+        )
+      )
+    ).flat();
+  }
+
+  private referenceInterviewsByBid(
+    rows: InterviewRecordRow[],
+    profiles: ProfileResponse[],
+    members: MemberSummary[]
+  ): Map<string, BidInterviewReferenceResponse[]> {
+    const grouped = new Map<string, BidInterviewReferenceResponse[]>();
+
+    for (const reference of this.records.bidInterviewReferences(rows, profiles, members)) {
+      const current = grouped.get(reference.bidId) ?? [];
+      current.push(reference);
+      grouped.set(reference.bidId, current);
+    }
+
+    for (const references of grouped.values()) {
+      references.sort(
+        (left, right) =>
+          right.startAt.localeCompare(left.startAt) || right.id.localeCompare(left.id)
+      );
+    }
+
+    return grouped;
   }
 
   private async audit(

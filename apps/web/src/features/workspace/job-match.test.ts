@@ -44,6 +44,7 @@ function bid(id: string, company: string, jobTitle: string): BidRecord {
       canDelete: false
     },
     profiles: [],
+    referenceInterviews: [],
     bidder: null,
     createdAt: "2026-06-18T12:00:00.000Z",
     deletedAt: null,

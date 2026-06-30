@@ -2,6 +2,8 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   LayoutDashboard,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldCheck,
   UserRound,
   Users
@@ -10,6 +12,7 @@ import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { AccountMenu } from "../../../components/shared/AccountMenu";
 import { NotificationCenter } from "../../../components/shared/NotificationCenter";
+import { usePersistentSidebarState } from "../../../components/shared/usePersistentSidebarState";
 import { paths } from "../../../routing/paths";
 import type { AuthSession } from "../../../services/auth.service";
 import type { WorkspaceSession } from "../../../services/workspace.service";
@@ -33,50 +36,77 @@ export function WorkspaceShell({
 }) {
   const isAdmin = workspaceSession.member.roleKeys.includes("admin");
   const slug = workspaceSession.workspace.slug;
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentSidebarState(
+    "workspace-sidebar-collapsed"
+  );
 
   return (
-    <div className="admin-shell">
+    <div className={`admin-shell${sidebarCollapsed ? " admin-shell-collapsed" : ""}`}>
       <aside className="admin-sidebar">
-        <div className="brand-mark">
-          <ShieldCheck aria-hidden="true" />
-          <span>{workspaceSession.workspace.name}</span>
+        <div className="sidebar-brand-row">
+          <div
+            className="brand-mark"
+            title={sidebarCollapsed ? workspaceSession.workspace.name : undefined}
+          >
+            <ShieldCheck aria-hidden="true" />
+            <span>{workspaceSession.workspace.name}</span>
+          </div>
+          <button
+            className="sidebar-collapse-button icon-button"
+            type="button"
+            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-pressed={sidebarCollapsed}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen aria-hidden="true" />
+            ) : (
+              <PanelLeftClose aria-hidden="true" />
+            )}
+          </button>
         </div>
         <nav className="sidebar-nav" aria-label="Workspace sections">
           <NavLink
             to={paths.workspaceDashboard(slug)}
+            title="Overview"
             className={({ isActive }) => (isActive ? "active" : undefined)}
           >
             <LayoutDashboard aria-hidden="true" />
-            Overview
+            <span>Overview</span>
           </NavLink>
           <NavLink
             to={paths.workspaceProfiles(slug)}
+            title="Profiles"
             className={({ isActive }) => (isActive ? "active" : undefined)}
           >
             <UserRound aria-hidden="true" />
-            Profiles
+            <span>Profiles</span>
           </NavLink>
           <NavLink
             to={paths.workspaceBids(slug)}
+            title="Bids"
             className={({ isActive }) => (isActive ? "active" : undefined)}
           >
             <BriefcaseBusiness aria-hidden="true" />
-            Bids
+            <span>Bids</span>
           </NavLink>
           <NavLink
             to={paths.workspaceInterviews(slug)}
+            title="Interviews"
             className={({ isActive }) => (isActive ? "active" : undefined)}
           >
             <CalendarClock aria-hidden="true" />
-            Interviews
+            <span>Interviews</span>
           </NavLink>
           {isAdmin ? (
             <NavLink
               to={paths.workspaceUsers(slug)}
+              title="User management"
               className={({ isActive }) => (isActive ? "active" : undefined)}
             >
               <Users aria-hidden="true" />
-              User management
+              <span>User management</span>
             </NavLink>
           ) : null}
         </nav>

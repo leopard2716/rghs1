@@ -27,6 +27,22 @@ export type TrackingMemberSummary = {
   name: string;
 };
 
+export type BidInterviewReference = {
+  id: string;
+  bidId: string;
+  profileId: string;
+  profileName: string;
+  profileDeleted: boolean;
+  step: string;
+  startAt: string;
+  endAt: string | null;
+  timeZone: string | null;
+  interviewLink: string;
+  interviewer: TrackingMemberSummary | null;
+  notes: string | null;
+  createdAt: string;
+};
+
 export type BidRecord = {
   id: string;
   createdByMemberId: string | null;
@@ -37,6 +53,7 @@ export type BidRecord = {
   jobDescription: RichTextDocument | string | null;
   jobMarket: TrackingJobMarket;
   profiles: TrackingBidProfile[];
+  referenceInterviews: BidInterviewReference[];
   bidder: TrackingMemberSummary | null;
   createdAt: string;
   deletedAt: string | null;

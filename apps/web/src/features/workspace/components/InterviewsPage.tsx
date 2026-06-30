@@ -771,6 +771,7 @@ function historicalBidForInterview(interview: InterviewRecord): BidRecord {
         resume: null
       }
     ],
+    referenceInterviews: [],
     bidder: interview.bidder,
     createdAt: interview.createdAt,
     deletedAt: interview.bidDeleted ? interview.createdAt : null,
