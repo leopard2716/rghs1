@@ -6,6 +6,11 @@ import {
   bidRecordParams,
   interviewRecordInput,
   interviewRecordParams,
+  jobRecordInput,
+  paymentAnalysisQuery,
+  paymentListQuery,
+  paymentPayInput,
+  paymentRecordInput,
   trackingDashboardQuery,
   trackingJobMarketInput,
   trackingProfileParams,
@@ -17,6 +22,9 @@ import {
 const profileId = "36d3bc70-8739-49c3-bf51-fe4ed570cc8b";
 const secondProfileId = "6f20f129-5f73-4f1c-99a7-e381cb4b6ac9";
 const marketId = "21d18b42-b50c-44f8-baf1-f4a297fbd790";
+const memberId = "fb48a37c-6f8c-45ee-8ea5-82efe277f246";
+const secondMemberId = "e4ba0761-6845-43d7-970a-98be7a1b44a2";
+const thirdMemberId = "fe9ef742-0577-4f6d-84d5-d1c9decd3117";
 
 describe("tracking schemas", () => {
   it("accepts optional multiline resumes for selected profiles", () => {
@@ -206,6 +214,83 @@ describe("tracking schemas", () => {
         interviewLink: "https://meet.example.com/interview"
       }).success
     ).toBe(false);
+  });
+
+  it("validates job record rate totals and payment amounts", () => {
+    expect(
+      jobRecordInput.safeParse({
+        bidId: "6f20f129-5f73-4f1c-99a7-e381cb4b6ac9",
+        bidderMemberId: memberId,
+        callerMemberId: secondMemberId,
+        workerMemberId: thirdMemberId,
+        bidderRate: 20,
+        callerRate: 20,
+        workerRate: 55,
+        discountRate: 5
+      }).success
+    ).toBe(true);
+    expect(
+      jobRecordInput.safeParse({
+        bidId: "6f20f129-5f73-4f1c-99a7-e381cb4b6ac9",
+        bidderMemberId: memberId,
+        callerMemberId: secondMemberId,
+        workerMemberId: thirdMemberId,
+        bidderRate: 20,
+        callerRate: 20,
+        workerRate: 55,
+        discountRate: 4
+      }).success
+    ).toBe(false);
+    expect(
+      paymentRecordInput.safeParse({
+        jobRecordId: "36d3bc70-8739-49c3-bf51-fe4ed570cc8b",
+        paymentAmount: 1250.5
+      }).success
+    ).toBe(true);
+    expect(
+      paymentRecordInput.safeParse({
+        jobRecordId: "36d3bc70-8739-49c3-bf51-fe4ed570cc8b",
+        paymentAmount: 0
+      }).success
+    ).toBe(false);
+  });
+
+  it("validates payment analysis mode and date ranges", () => {
+    expect(paymentAnalysisQuery.parse({})).toMatchObject({ status: "pending" });
+    expect(
+      paymentAnalysisQuery.safeParse({
+        status: "paid",
+        dateFrom: "2026-06-01T00:00:00.000Z",
+        dateTo: "2026-07-01T00:00:00.000Z"
+      }).success
+    ).toBe(true);
+    expect(
+      paymentAnalysisQuery.safeParse({
+        status: "paid",
+        dateFrom: "2026-07-01T00:00:00.000Z",
+        dateTo: "2026-06-01T00:00:00.000Z"
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts payment list status filters while ignoring removed range filters", () => {
+    const parsed = paymentListQuery.parse({
+      status: "paid",
+      dateFrom: "2026-06-01T00:00:00.000Z",
+      dateTo: "2026-07-01T00:00:00.000Z",
+      amountMin: "100",
+      amountMax: "500"
+    });
+
+    expect(parsed).toMatchObject({ status: "paid" });
+    expect("dateFrom" in parsed).toBe(false);
+    expect("amountMin" in parsed).toBe(false);
+  });
+
+  it("requires selected payment ids for marking payments paid", () => {
+    expect(paymentPayInput.safeParse({ paymentRecordIds: [memberId] }).success).toBe(true);
+    expect(paymentPayInput.safeParse({ paymentRecordIds: [] }).success).toBe(false);
+    expect(paymentPayInput.safeParse({ paymentRecordIds: ["not-a-uuid"] }).success).toBe(false);
   });
 
   it("trims and validates profile names", () => {

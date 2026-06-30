@@ -110,6 +110,67 @@ describe("TrackingService deletion ownership", () => {
   });
 });
 
+describe("TrackingService payment notifications", () => {
+  it("notifies each allocated user with the amount marked paid to them", async () => {
+    const paymentOneId = "9df4620e-5d19-4d48-90d2-2a08450b13c4";
+    const paymentTwoId = "9df4620e-5d19-4d48-90d2-2a08450b13c5";
+    const supabase = payPendingPaymentsSupabase(paymentOneId, paymentTwoId);
+    const service = new TrackingService(supabase as unknown as SupabaseRestClient);
+
+    await expect(
+      service.payPendingPayments(
+        "rg-team",
+        { id: authUserId },
+        { paymentRecordIds: [paymentOneId, paymentTwoId] }
+      )
+    ).resolves.toEqual({ paid: 2 });
+
+    const notificationInsert = supabase.insert.mock.calls.find(
+      ([table]) => table === "notifications"
+    );
+    expect(notificationInsert?.[1]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          recipient_auth_user_id: "46f7256a-d1cb-4ee3-a8f9-36899fce62a1",
+          title: "Payment marked paid",
+          message: "Workspace Admin marked $6,500.00 as paid to you.",
+          action_url: "/rg-team/payments",
+          entity_type: "payment_record",
+          entity_id: null,
+          metadata: expect.objectContaining({
+            amount: 6500,
+            paymentRecordIds: [paymentOneId, paymentTwoId],
+            paidByMemberId: memberId
+          })
+        }),
+        expect.objectContaining({
+          recipient_auth_user_id: "e96819e1-6c28-4f15-84e9-14a66de27b13",
+          title: "Payment marked paid",
+          message: "Workspace Admin marked $4,500.00 as paid to you.",
+          action_url: "/rg-team/payments",
+          entity_type: "payment_record",
+          entity_id: null,
+          metadata: expect.objectContaining({
+            amount: 4500,
+            paymentRecordIds: [paymentOneId, paymentTwoId],
+            paidByMemberId: memberId
+          })
+        })
+      ])
+    );
+    expect(notificationInsert?.[1]).toHaveLength(2);
+    expect(supabase.insert).toHaveBeenCalledWith(
+      "audit_logs",
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "tracking.payment.paid",
+          metadata: { count: 2 }
+        })
+      ])
+    );
+  });
+});
+
 describe("TrackingService profile filtering", () => {
   it("includes active interview references on bid list records", async () => {
     const supabase = listBidsWithReferenceInterviewsSupabase();
@@ -306,6 +367,164 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
     }),
     insert: vi.fn(async () => []),
     delete: vi.fn(async () => [])
+  };
+}
+
+function payPendingPaymentsSupabase(paymentOneId: string, paymentTwoId: string) {
+  const paidMemberOne = {
+    id: "3c8ce1f7-cb3f-43b4-90e8-0b79a127c8b1",
+    workspace_id: workspaceId,
+    auth_user_id: "46f7256a-d1cb-4ee3-a8f9-36899fce62a1",
+    display_name: "Frank",
+    email: "frank@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const paidMemberTwo = {
+    id: "45a54997-19e0-42e8-9f1d-8eaaeb1c3b60",
+    workspace_id: workspaceId,
+    auth_user_id: "e96819e1-6c28-4f15-84e9-14a66de27b13",
+    display_name: "Noah",
+    email: "noah@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const adminMember = {
+    id: memberId,
+    workspace_id: workspaceId,
+    auth_user_id: authUserId,
+    display_name: "Workspace Admin",
+    email: "admin@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const payments = [
+    paymentRow(paymentOneId, {
+      bidderMemberId: paidMemberTwo.id,
+      callerMemberId: paidMemberOne.id,
+      workerMemberId: paidMemberOne.id,
+      paymentManagerMemberId: paidMemberOne.id,
+      bidderAmount: 250,
+      callerAmount: 1125,
+      workerAmount: 1000,
+      paymentManagerAmount: 125,
+      paymentAmount: 2500
+    }),
+    paymentRow(paymentTwoId, {
+      bidderMemberId: paidMemberTwo.id,
+      callerMemberId: paidMemberOne.id,
+      workerMemberId: paidMemberTwo.id,
+      paymentManagerMemberId: paidMemberOne.id,
+      bidderAmount: 850,
+      callerAmount: 3825,
+      workerAmount: 3400,
+      paymentManagerAmount: 425,
+      paymentAmount: 8500
+    })
+  ];
+  const insert = vi.fn(async (_table: string, _rows: unknown[]) => []);
+
+  return {
+    select: vi.fn(async (table: string, _fields?: string, filters?: Record<string, string>) => {
+      if (table === "workspaces") {
+        return [
+          {
+            id: workspaceId,
+            name: "RG Team",
+            slug: "rg-team",
+            status: "active",
+            created_at: "2026-06-18T00:00:00.000Z"
+          }
+        ];
+      }
+      if (table === "workspace_members") {
+        if (filters?.auth_user_id === `eq.${authUserId}`) {
+          return [adminMember];
+        }
+        if (filters?.id?.startsWith("in.")) {
+          return [paidMemberOne, paidMemberTwo];
+        }
+        if (filters?.auth_user_id?.startsWith("in.")) {
+          return [paidMemberOne, paidMemberTwo];
+        }
+        return [];
+      }
+      if (table === "workspace_roles") {
+        return [
+          {
+            id: "role-admin",
+            workspace_id: workspaceId,
+            name: "Admin",
+            key: "admin",
+            system: true,
+            deleted_at: null
+          }
+        ];
+      }
+      if (table === "workspace_member_roles") {
+        return [{ workspace_id: workspaceId, member_id: memberId, role_id: "role-admin" }];
+      }
+      if (table === "payment_records") {
+        return payments;
+      }
+      return [];
+    }),
+    update: vi.fn(async (table: string) => {
+      if (table === "payment_records") {
+        return payments.map((payment) => ({
+          ...payment,
+          status: "paid" as const,
+          paid_by_member_id: memberId,
+          paid_at: "2026-06-18T01:00:00.000Z"
+        }));
+      }
+      return [];
+    }),
+    insert,
+    delete: vi.fn(async () => [])
+  };
+}
+
+function paymentRow(
+  id: string,
+  input: {
+    bidderMemberId: string;
+    callerMemberId: string;
+    workerMemberId: string;
+    paymentManagerMemberId: string;
+    bidderAmount: number;
+    callerAmount: number;
+    workerAmount: number;
+    paymentManagerAmount: number;
+    paymentAmount: number;
+  }
+) {
+  return {
+    id,
+    workspace_id: workspaceId,
+    job_record_id: "90107d6c-14e5-4a21-aace-8790384ab326",
+    payment_amount: input.paymentAmount,
+    bidder_member_id: input.bidderMemberId,
+    caller_member_id: input.callerMemberId,
+    worker_member_id: input.workerMemberId,
+    payment_manager_member_id: input.paymentManagerMemberId,
+    bidder_amount: input.bidderAmount,
+    caller_amount: input.callerAmount,
+    worker_amount: input.workerAmount,
+    payment_manager_amount: input.paymentManagerAmount,
+    status: "pending" as const,
+    created_by_member_id: memberId,
+    paid_by_member_id: null,
+    paid_at: null,
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
   };
 }
 

@@ -54,6 +54,8 @@ function renderShell(roleKeys: string[], view: WorkspaceView) {
     profiles: "/rg-team/profiles",
     bids: "/rg-team/bids",
     interviews: "/rg-team/interviews",
+    jobs: "/rg-team/jobs",
+    payments: "/rg-team/payments",
     users: "/rg-team/users"
   };
 
@@ -84,6 +86,8 @@ describe("WorkspaceShell navigation", () => {
     expect(markup).toContain("/rg-team/profiles");
     expect(markup).toContain("/rg-team/bids");
     expect(markup).toContain("/rg-team/interviews");
+    expect(markup).toContain("/rg-team/jobs");
+    expect(markup).toContain("/rg-team/payments");
     expect(markup).toContain("/rg-team/users");
   });
 
@@ -100,6 +104,8 @@ describe("WorkspaceShell navigation", () => {
     expect(markup).toContain("/rg-team/profiles");
     expect(markup).toContain("/rg-team/bids");
     expect(markup).toContain("/rg-team/interviews");
+    expect(markup).toContain("/rg-team/jobs");
+    expect(markup).toContain("/rg-team/payments");
     expect(markup).not.toContain("/rg-team/users");
   });
 });

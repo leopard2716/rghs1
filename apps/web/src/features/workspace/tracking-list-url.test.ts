@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   clearTrackingModalParams,
+  paymentListQueryFromParams,
   trackingListQueryFromParams,
+  updatePaymentListParams,
   updateTrackingListParams
 } from "./tracking-list-url";
 
@@ -45,5 +47,31 @@ describe("tracking list URL state", () => {
     );
 
     expect(params.toString()).toBe("profileId=profile-1&sortBy=jobTitle");
+  });
+
+  it("round-trips payment status filters", () => {
+    const params = updatePaymentListParams(new URLSearchParams("paymentRecordId=payment-1"), {
+      status: "pending",
+      page: 1
+    });
+
+    expect(params.get("paymentRecordId")).toBe("payment-1");
+    expect(params.get("status")).toBe("pending");
+    expect(paymentListQueryFromParams(params).status).toBe("pending");
+  });
+
+  it("removes deprecated payment range filters when updating payment URLs", () => {
+    const params = updatePaymentListParams(
+      new URLSearchParams(
+        "dateFrom=2026-06-01T00%3A00%3A00.000Z&dateTo=2026-07-01T00%3A00%3A00.000Z&amountMin=100&amountMax=500&status=paid"
+      ),
+      { status: "pending" }
+    );
+
+    expect(params.has("dateFrom")).toBe(false);
+    expect(params.has("dateTo")).toBe(false);
+    expect(params.has("amountMin")).toBe(false);
+    expect(params.has("amountMax")).toBe(false);
+    expect(params.get("status")).toBe("pending");
   });
 });

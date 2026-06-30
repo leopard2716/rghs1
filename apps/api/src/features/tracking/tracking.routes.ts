@@ -13,6 +13,14 @@ import {
   interviewListQuery,
   interviewRecordInput,
   interviewRecordParams,
+  jobListQuery,
+  jobRecordInput,
+  jobRecordParams,
+  paymentAnalysisQuery,
+  paymentListQuery,
+  paymentPayInput,
+  paymentRecordInput,
+  paymentRecordParams,
   trackingDashboardQuery,
   trackingJobMarketInput,
   trackingJobMarketParams,
@@ -383,6 +391,223 @@ export function registerTrackingRoutes(app: ApiApp): void {
         const { service, user } = await requestContext(c);
         return c.json(
           await service.deleteInterview(c.req.param("slug"), c.req.valid("param").interviewId, user)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/jobs",
+    zValidator("query", jobListQuery, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the job-record query and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(await service.listJobs(c.req.param("slug"), user, c.req.valid("query")));
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/jobs/:jobRecordId",
+    zValidator("param", jobRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.getJob(c.req.param("slug"), c.req.valid("param").jobRecordId, user)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.post(
+    "/v1/workspaces/:slug/tracking/jobs",
+    zValidator("json", jobRecordInput, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the job-record fields and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(await service.createJob(c.req.param("slug"), user, c.req.valid("json")), 201);
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.put(
+    "/v1/workspaces/:slug/tracking/jobs/:jobRecordId",
+    zValidator("param", jobRecordParams),
+    zValidator("json", jobRecordInput),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.updateJob(
+            c.req.param("slug"),
+            c.req.valid("param").jobRecordId,
+            user,
+            c.req.valid("json")
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/payments",
+    zValidator("query", paymentListQuery, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the payment query and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(await service.listPayments(c.req.param("slug"), user, c.req.valid("query")));
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/payments/analysis",
+    zValidator("query", paymentAnalysisQuery, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the payment analysis query and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.paymentAnalysis(c.req.param("slug"), user, c.req.valid("query"))
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.post(
+    "/v1/workspaces/:slug/tracking/payments/pay-pending",
+    zValidator("json", paymentPayInput, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Select pending payments to pay and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.payPendingPayments(c.req.param("slug"), user, c.req.valid("json"))
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/payments/:paymentRecordId",
+    zValidator("param", paymentRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.getPayment(c.req.param("slug"), c.req.valid("param").paymentRecordId, user)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.post(
+    "/v1/workspaces/:slug/tracking/payments",
+    zValidator("json", paymentRecordInput, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the payment fields and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.createPayment(c.req.param("slug"), user, c.req.valid("json")),
+          201
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.put(
+    "/v1/workspaces/:slug/tracking/payments/:paymentRecordId",
+    zValidator("param", paymentRecordParams),
+    zValidator("json", paymentRecordInput),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.updatePayment(
+            c.req.param("slug"),
+            c.req.valid("param").paymentRecordId,
+            user,
+            c.req.valid("json")
+          )
         );
       } catch (error) {
         return trackingError(c, error);
