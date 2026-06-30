@@ -111,6 +111,42 @@ describe("TrackingService deletion ownership", () => {
 });
 
 describe("TrackingService profile filtering", () => {
+  it("includes active interview references on bid list records", async () => {
+    const supabase = listBidsWithReferenceInterviewsSupabase();
+    const service = new TrackingService(supabase as unknown as SupabaseRestClient);
+
+    await expect(
+      service.listBids(
+        "rg-team",
+        { id: authUserId },
+        {
+          page: 1,
+          pageSize: 20,
+          sortBy: "datetime",
+          sortDirection: "desc"
+        }
+      )
+    ).resolves.toMatchObject({
+      bids: [
+        {
+          id: recordId,
+          referenceInterviews: [
+            {
+              id: "9df4620e-5d19-4d48-90d2-2a08450b13c4",
+              bidId: recordId,
+              profileName: "Frank",
+              step: "HR Interview",
+              interviewer: {
+                id: memberId,
+                name: "Workspace Member"
+              }
+            }
+          ]
+        }
+      ]
+    });
+  });
+
   it("chunks a heavily used profile instead of building one oversized bid-id filter", async () => {
     const profileId = "5c6757ac-ef52-40e3-a875-c5c0bf2a1e75";
     const assignments = Array.from({ length: 251 }, (_, index) => ({
@@ -268,6 +304,154 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
         }
       ];
     }),
+    insert: vi.fn(async () => []),
+    delete: vi.fn(async () => [])
+  };
+}
+
+function listBidsWithReferenceInterviewsSupabase() {
+  const profileId = "5c6757ac-ef52-40e3-a875-c5c0bf2a1e75";
+  const marketId = "a79a47ef-bf8c-4821-8b31-ff5200fd5061";
+  const bidRow = {
+    id: recordId,
+    workspace_id: workspaceId,
+    created_by_member_id: memberId,
+    job_title: "Platform Engineer",
+    company: "Acme",
+    job_link: "https://example.com/job",
+    bid_at: "2026-06-23T12:00:00.000Z",
+    job_description: null,
+    job_market_id: marketId,
+    created_at: "2026-06-23T12:00:00.000Z",
+    updated_at: "2026-06-23T12:00:00.000Z",
+    deleted_at: null
+  };
+  const profile = {
+    id: profileId,
+    workspace_id: workspaceId,
+    name: "Frank",
+    created_by_member_id: memberId,
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const member = {
+    id: memberId,
+    workspace_id: workspaceId,
+    auth_user_id: authUserId,
+    display_name: "Workspace Member",
+    email: "member@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const interview = {
+    id: "9df4620e-5d19-4d48-90d2-2a08450b13c4",
+    workspace_id: workspaceId,
+    bid_id: recordId,
+    profile_id: profileId,
+    created_by_member_id: memberId,
+    step: "HR Interview",
+    start_at: "2026-06-24T13:00:00.000Z",
+    end_at: "2026-06-24T14:00:00.000Z",
+    time_zone: "UTC",
+    interview_link: "https://example.com/interview",
+    notes: "Prep notes",
+    created_at: "2026-06-23T13:00:00.000Z",
+    updated_at: "2026-06-23T13:00:00.000Z",
+    deleted_at: null
+  };
+
+  const select = vi.fn(async (table: string) => {
+    if (table === "workspaces") {
+      return [
+        {
+          id: workspaceId,
+          name: "RG Team",
+          slug: "rg-team",
+          status: "active",
+          created_at: "2026-06-18T00:00:00.000Z"
+        }
+      ];
+    }
+    if (table === "workspace_members") {
+      return [member];
+    }
+    if (table === "workspace_roles") {
+      return [
+        {
+          id: "role-1",
+          workspace_id: workspaceId,
+          name: "Bidder",
+          key: "bidder",
+          system: true,
+          deleted_at: null
+        }
+      ];
+    }
+    if (table === "workspace_member_roles") {
+      return [{ workspace_id: workspaceId, member_id: memberId, role_id: "role-1" }];
+    }
+    if (table === "tracking_job_markets") {
+      return [
+        {
+          id: marketId,
+          workspace_id: workspaceId,
+          market_key: "us",
+          name: "US Job Market",
+          system: true,
+          created_by_member_id: null,
+          created_at: "2026-06-18T00:00:00.000Z",
+          updated_at: "2026-06-18T00:00:00.000Z",
+          deleted_at: null
+        }
+      ];
+    }
+    if (table === "bid_records") {
+      return [bidRow];
+    }
+    return [];
+  });
+
+  return {
+    select,
+    selectAll: vi.fn(async (table: string) => {
+      if (table === "tracking_profiles") {
+        return [profile];
+      }
+      if (table === "workspace_members") {
+        return [member];
+      }
+      return [];
+    }),
+    selectPage: vi.fn(async (table: string, fields: string, _filters: Record<string, string>) => {
+      if (table === "bid_records" && fields === "job_market_id") {
+        return { records: [{ job_market_id: marketId }], total: 1 };
+      }
+      if (table === "bid_records") {
+        return { records: [bidRow], total: 1 };
+      }
+      if (table === "bid_record_profiles") {
+        return {
+          records: [
+            {
+              workspace_id: workspaceId,
+              bid_id: recordId,
+              profile_id: profileId,
+              resume: null,
+              created_at: "2026-06-23T12:00:00.000Z"
+            }
+          ],
+          total: 1
+        };
+      }
+      if (table === "interview_records") {
+        return { records: [interview], total: 1 };
+      }
+      return { records: [], total: 0 };
+    }),
+    update: vi.fn(async () => []),
     insert: vi.fn(async () => []),
     delete: vi.fn(async () => [])
   };

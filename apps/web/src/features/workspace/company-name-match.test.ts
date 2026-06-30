@@ -65,6 +65,7 @@ function bid(id: string, company: string, bidAt: string): BidRecord {
       canDelete: false
     },
     profiles: [],
+    referenceInterviews: [],
     bidder: null,
     createdAt: bidAt,
     deletedAt: null,
