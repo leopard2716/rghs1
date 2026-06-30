@@ -11,8 +11,8 @@ export const workspaceMemberStatusInput = z.object({
 
 export const workspaceMemberRolesInput = z.object({
   roleKeys: z
-    .array(z.enum(["bidder", "interviewer"]))
-    .max(2)
+    .array(z.enum(["bidder", "interviewer", "payment_manager"]))
+    .max(3)
     .transform((roleKeys) => [...new Set(roleKeys)])
 });
 

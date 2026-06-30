@@ -356,8 +356,8 @@ export class WorkspaceAccessService {
         }
       )
     ]);
-    const assignableRoles = roles.filter(
-      (role) => role.key === "bidder" || role.key === "interviewer"
+    const assignableRoles = roles.filter((role) =>
+      ["bidder", "interviewer", "payment_manager"].includes(role.key)
     );
     const rolesByKey = new Map(assignableRoles.map((role) => [role.key, role]));
     const unknownRole = input.roleKeys.find((key) => !rolesByKey.has(key));
@@ -665,7 +665,7 @@ export class WorkspaceAccessService {
 }
 
 function roleSortOrder(roleKey: string): number {
-  const order = ["admin", "bidder", "interviewer"];
+  const order = ["admin", "bidder", "interviewer", "payment_manager"];
   const index = order.indexOf(roleKey);
   return index === -1 ? order.length : index;
 }

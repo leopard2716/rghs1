@@ -31,10 +31,10 @@ describe("workspace member schemas", () => {
     expect(workspaceMemberStatusInput.safeParse({ status: "pending" }).success).toBe(false);
   });
 
-  it("accepts only bidder and interviewer role assignments", () => {
+  it("accepts only assignable workspace role assignments", () => {
     expect(
       workspaceMemberRolesInput.safeParse({
-        roleKeys: ["bidder", "interviewer"]
+        roleKeys: ["bidder", "interviewer", "payment_manager"]
       }).success
     ).toBe(true);
     expect(

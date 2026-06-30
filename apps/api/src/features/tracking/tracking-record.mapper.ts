@@ -4,6 +4,8 @@ import type {
   BidRecordProfileRow,
   BidRecordRow,
   InterviewRecordRow,
+  JobRecordRow,
+  PaymentRecordRow,
   TrackingJobMarketRow,
   TrackingProfileRow
 } from "./tracking.types";
@@ -88,6 +90,58 @@ export type InterviewResponse = {
   notes: string | null;
   createdAt: string;
   canDelete: boolean;
+  canEdit: boolean;
+};
+
+export type JobRateResponse = {
+  bidder: number;
+  caller: number;
+  worker: number;
+  discount: number;
+};
+
+export type PaymentAmountResponse = {
+  bidder: number;
+  caller: number;
+  worker: number;
+  paymentManager: number;
+};
+
+export type JobRecordResponse = {
+  id: string;
+  createdByMemberId: string | null;
+  bidId: string;
+  jobTitle: string;
+  company: string;
+  jobMarket: JobMarketResponse;
+  bidDeleted: boolean;
+  bidder: MemberSummary | null;
+  caller: MemberSummary | null;
+  worker: MemberSummary | null;
+  rates: JobRateResponse;
+  createdAt: string;
+  deletedAt: string | null;
+  canEdit: boolean;
+};
+
+export type PaymentRecordResponse = {
+  id: string;
+  createdByMemberId: string | null;
+  jobRecordId: string;
+  jobTitle: string;
+  company: string;
+  jobMarket: JobMarketResponse;
+  bidder: MemberSummary | null;
+  caller: MemberSummary | null;
+  worker: MemberSummary | null;
+  paymentManager: MemberSummary | null;
+  amounts: PaymentAmountResponse;
+  paymentAmount: number;
+  status: "pending" | "paid";
+  createdBy: MemberSummary | null;
+  paidBy: MemberSummary | null;
+  createdAt: string;
+  paidAt: string | null;
   canEdit: boolean;
 };
 
@@ -281,6 +335,92 @@ export class TrackingRecordMapper {
           : null,
         notes: row.notes,
         createdAt: row.created_at
+      };
+    });
+  }
+
+  jobs(
+    rows: JobRecordRow[],
+    bids: BidResponse[],
+    members: MemberSummary[],
+    currentMemberId: string,
+    canManage: boolean
+  ): JobRecordResponse[] {
+    const bidsById = new Map(bids.map((bid) => [bid.id, bid]));
+    const membersById = new Map(members.map((member) => [member.id, member]));
+
+    return rows.map((row) => {
+      const bid = bidsById.get(row.bid_id);
+      if (!bid) {
+        throw apiError(500, "Job record bid relationship is incomplete.", "job_bid_invalid");
+      }
+      const ownedByCurrentMember = row.created_by_member_id === currentMemberId;
+      return {
+        id: row.id,
+        createdByMemberId: row.created_by_member_id,
+        bidId: row.bid_id,
+        jobTitle: bid.jobTitle,
+        company: bid.company,
+        jobMarket: bid.jobMarket,
+        bidDeleted: Boolean(bid.deletedAt),
+        bidder: membersById.get(row.bidder_member_id) ?? null,
+        caller: membersById.get(row.caller_member_id) ?? null,
+        worker: membersById.get(row.worker_member_id) ?? null,
+        rates: {
+          bidder: Number(row.bidder_rate),
+          caller: Number(row.caller_rate),
+          worker: Number(row.worker_rate),
+          discount: Number(row.discount_rate)
+        },
+        createdAt: row.created_at,
+        deletedAt: row.deleted_at,
+        canEdit: canManage && ownedByCurrentMember && !row.deleted_at && !bid.deletedAt
+      };
+    });
+  }
+
+  payments(
+    rows: PaymentRecordRow[],
+    jobs: JobRecordResponse[],
+    members: MemberSummary[],
+    currentMemberId: string,
+    canManage: boolean
+  ): PaymentRecordResponse[] {
+    const jobsById = new Map(jobs.map((job) => [job.id, job]));
+    const membersById = new Map(members.map((member) => [member.id, member]));
+
+    return rows.map((row) => {
+      const job = jobsById.get(row.job_record_id);
+      if (!job) {
+        throw apiError(500, "Payment job relationship is incomplete.", "payment_job_invalid");
+      }
+      const ownedByCurrentMember = row.created_by_member_id === currentMemberId;
+      return {
+        id: row.id,
+        createdByMemberId: row.created_by_member_id,
+        jobRecordId: row.job_record_id,
+        jobTitle: job.jobTitle,
+        company: job.company,
+        jobMarket: job.jobMarket,
+        bidder: membersById.get(row.bidder_member_id) ?? job.bidder,
+        caller: membersById.get(row.caller_member_id) ?? job.caller,
+        worker: membersById.get(row.worker_member_id) ?? job.worker,
+        paymentManager: membersById.get(row.payment_manager_member_id) ?? null,
+        amounts: {
+          bidder: Number(row.bidder_amount),
+          caller: Number(row.caller_amount),
+          worker: Number(row.worker_amount),
+          paymentManager: Number(row.payment_manager_amount)
+        },
+        paymentAmount: Number(row.payment_amount),
+        status: row.status,
+        createdBy: row.created_by_member_id
+          ? (membersById.get(row.created_by_member_id) ?? null)
+          : null,
+        paidBy: row.paid_by_member_id ? (membersById.get(row.paid_by_member_id) ?? null) : null,
+        createdAt: row.created_at,
+        paidAt: row.paid_at,
+        canEdit: canManage && ownedByCurrentMember && row.status === "pending"
       };
     });
   }
