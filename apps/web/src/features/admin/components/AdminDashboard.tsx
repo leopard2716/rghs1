@@ -3,6 +3,8 @@ import {
   Activity,
   Building2,
   CheckCircle2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCcw,
   ShieldCheck,
@@ -12,10 +14,11 @@ import {
 } from "lucide-react";
 import { FormEvent, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { MetricCard } from "../../../components/shared/MetricCard";
 import { AccountMenu } from "../../../components/shared/AccountMenu";
+import { MetricCard } from "../../../components/shared/MetricCard";
 import { NotificationCenter } from "../../../components/shared/NotificationCenter";
 import { PanelHeader } from "../../../components/shared/PanelHeader";
+import { usePersistentSidebarState } from "../../../components/shared/usePersistentSidebarState";
 import {
   assignWorkspaceAdmin,
   cancelWorkspaceDeletion,
@@ -49,6 +52,8 @@ export function AdminDashboard({
   const [pendingTenantActions, setPendingTenantActions] = useState<
     Record<string, TenantPendingAction>
   >({});
+  const [sidebarCollapsed, setSidebarCollapsed] =
+    usePersistentSidebarState("admin-sidebar-collapsed");
   const tenantLocks = useRef(new Set<string>());
   const overviewQuery = useQuery({
     queryKey: ["admin-overview", session.user.id],
@@ -135,26 +140,44 @@ export function AdminDashboard({
   const workspaces = overviewQuery.data?.workspaces ?? [];
 
   return (
-    <div className="admin-shell">
+    <div className={`admin-shell${sidebarCollapsed ? " admin-shell-collapsed" : ""}`}>
       <aside className="admin-sidebar">
-        <div className="brand-mark">
-          <ShieldCheck aria-hidden="true" />
-          <span>RGHS1</span>
+        <div className="sidebar-brand-row">
+          <div className="brand-mark" title={sidebarCollapsed ? "RGHS1" : undefined}>
+            <ShieldCheck aria-hidden="true" />
+            <span>RGHS1</span>
+          </div>
+          <button
+            className="sidebar-collapse-button icon-button"
+            type="button"
+            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-pressed={sidebarCollapsed}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen aria-hidden="true" />
+            ) : (
+              <PanelLeftClose aria-hidden="true" />
+            )}
+          </button>
         </div>
         <nav className="sidebar-nav" aria-label="Global admin sections">
           <NavLink
             to={paths.adminTenants}
+            title="Tenants"
             className={({ isActive }) => (isActive ? "active" : undefined)}
           >
             <Building2 aria-hidden="true" />
-            Tenants
+            <span>Tenants</span>
           </NavLink>
           <NavLink
             to={paths.adminTenantCreate}
+            title="Create"
             className={({ isActive }) => (isActive ? "active" : undefined)}
           >
             <Plus aria-hidden="true" />
-            Create
+            <span>Create</span>
           </NavLink>
         </nav>
       </aside>

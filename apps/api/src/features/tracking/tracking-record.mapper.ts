@@ -33,6 +33,22 @@ export type BidProfileResponse = ProfileResponse & {
   resume: string | null;
 };
 
+export type BidInterviewReferenceResponse = {
+  id: string;
+  bidId: string;
+  profileId: string;
+  profileName: string;
+  profileDeleted: boolean;
+  step: string;
+  startAt: string;
+  endAt: string | null;
+  timeZone: string | null;
+  interviewLink: string;
+  interviewer: MemberSummary | null;
+  notes: string | null;
+  createdAt: string;
+};
+
 export type BidResponse = {
   id: string;
   createdByMemberId: string | null;
@@ -43,6 +59,7 @@ export type BidResponse = {
   jobDescription: RichTextDocument | string | null;
   jobMarket: JobMarketResponse;
   profiles: BidProfileResponse[];
+  referenceInterviews: BidInterviewReferenceResponse[];
   bidder: MemberSummary | null;
   createdAt: string;
   deletedAt: string | null;
@@ -125,7 +142,8 @@ export class TrackingRecordMapper {
     assignments: BidRecordProfileRow[],
     lookups: TrackingLookups,
     currentMemberId?: string,
-    canManage = false
+    canManage = false,
+    referenceInterviews: BidInterviewReferenceResponse[] = []
   ): BidResponse {
     const market = lookups.marketsById.get(row.job_market_id);
     if (!market) {
@@ -162,6 +180,7 @@ export class TrackingRecordMapper {
       jobDescription: row.job_description,
       jobMarket: market,
       profiles,
+      referenceInterviews,
       bidder: row.created_by_member_id
         ? (lookups.membersById.get(row.created_by_member_id) ?? null)
         : null,
@@ -224,6 +243,44 @@ export class TrackingRecordMapper {
         createdAt: row.created_at,
         canDelete: canManage && ownedByCurrentMember,
         canEdit: canManage && ownedByCurrentMember && !bid.deletedAt && !profile.deletedAt
+      };
+    });
+  }
+
+  bidInterviewReferences(
+    rows: InterviewRecordRow[],
+    profiles: ProfileResponse[],
+    members: MemberSummary[]
+  ): BidInterviewReferenceResponse[] {
+    const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+    const membersById = new Map(members.map((member) => [member.id, member]));
+
+    return rows.map((row) => {
+      const profile = profilesById.get(row.profile_id);
+      if (!profile) {
+        throw apiError(
+          500,
+          "Interview profile relationship is incomplete.",
+          "interview_profile_relationship_invalid"
+        );
+      }
+
+      return {
+        id: row.id,
+        bidId: row.bid_id,
+        profileId: row.profile_id,
+        profileName: profile.name,
+        profileDeleted: Boolean(profile.deletedAt),
+        step: row.step,
+        startAt: row.start_at,
+        endAt: row.end_at,
+        timeZone: row.time_zone,
+        interviewLink: row.interview_link,
+        interviewer: row.created_by_member_id
+          ? (membersById.get(row.created_by_member_id) ?? null)
+          : null,
+        notes: row.notes,
+        createdAt: row.created_at
       };
     });
   }

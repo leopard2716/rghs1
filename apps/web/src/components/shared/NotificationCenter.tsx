@@ -40,8 +40,7 @@ export function NotificationCenter({
   const queryKey = ["notifications", session.user.id, notificationScope, workspaceSlug];
   const notificationsQuery = useQuery({
     queryKey,
-    queryFn: () => fetchNotifications(session, scope),
-    refetchInterval: 60_000
+    queryFn: () => fetchNotifications(session, scope)
   });
   const markReadMutation = useMutation({
     mutationFn: (notificationId: string) => markNotificationRead(session, notificationId),

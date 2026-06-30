@@ -13,7 +13,7 @@ import {
   X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Modal } from "../../../components/shared/Modal";
 import { errorMessage } from "../../../errors";
 import { paths } from "../../../routing/paths";
@@ -24,11 +24,17 @@ import {
   fetchBid,
   fetchBids,
   updateBid,
+  type BidInterviewReference,
   type BidRecord,
   type TrackingListQuery
 } from "../../../services/tracking.service";
 import type { WorkspaceSession } from "../../../services/workspace.service";
-import { displayDate, localDateTimeToIso, localDateTimeValue } from "../../../utils/datetime";
+import {
+  displayDate,
+  displayZonedDateTimeRange,
+  localDateTimeToIso,
+  localDateTimeValue
+} from "../../../utils/datetime";
 import { fieldValue } from "../../../utils/form";
 import { matchingCompanyBids } from "../company-name-match";
 import { plainTextToRichText } from "../csv-bid-import";
@@ -365,13 +371,14 @@ export function BidsPage({
                     <th>Resumes</th>
                     <th>Bidder</th>
                     <th>Bid date</th>
+                    <th>Reference interviews</th>
                     <th>Job link</th>
                     {showActions ? <th>Actions</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {bidsQuery.isFetching ? (
-                    <TableLoadingRow colSpan={showActions ? 8 : 7} label="Loading bid results" />
+                    <TableLoadingRow colSpan={showActions ? 9 : 8} label="Loading bid results" />
                   ) : bidsQuery.data.bids.length ? (
                     bidsQuery.data.bids.map((bid) => (
                       <tr
@@ -440,6 +447,13 @@ export function BidsPage({
                         <td>{bid.bidder?.name ?? "Former member"}</td>
                         <td>{displayDate(bid.bidAt)}</td>
                         <td>
+                          <BidReferenceInterviews
+                            interviews={bid.referenceInterviews}
+                            workspaceSlug={slug}
+                            compact
+                          />
+                        </td>
+                        <td>
                           <div className="record-links">
                             <a
                               href={bid.jobLink}
@@ -501,7 +515,7 @@ export function BidsPage({
                     ))
                   ) : (
                     <tr className="tracking-table-empty-row">
-                      <td colSpan={showActions ? 8 : 7}>No bids match the current view.</td>
+                      <td colSpan={showActions ? 9 : 8}>No bids match the current view.</td>
                     </tr>
                   )}
                 </tbody>
@@ -732,6 +746,15 @@ export function BidsPage({
                 disabled={bidFormDisabled}
               />
             </label>
+            {modalBid ? (
+              <section className="bid-reference-section">
+                <h4>Reference interviews</h4>
+                <BidReferenceInterviews
+                  interviews={modalBid.referenceInterviews}
+                  workspaceSlug={slug}
+                />
+              </section>
+            ) : null}
             <label>
               <span>
                 Job description <span className="optional-label">Optional</span>
@@ -850,6 +873,77 @@ export function BidsPage({
       ) : null}
     </WorkspaceShell>
   );
+}
+
+function BidReferenceInterviews({
+  interviews,
+  workspaceSlug,
+  compact = false
+}: {
+  interviews: BidInterviewReference[];
+  workspaceSlug: string;
+  compact?: boolean;
+}) {
+  if (!interviews.length) {
+    return <span className="record-muted">No reference interviews</span>;
+  }
+
+  const list = (
+    <ol className={`reference-interview-list${compact ? " compact-reference-list" : ""}`}>
+      {interviews.map((interview) => (
+        <li key={interview.id}>
+          <div>
+            <strong>{interview.step}</strong>
+            <span>
+              {interview.profileName}
+              {interview.profileDeleted ? " (deleted profile)" : ""}
+            </span>
+          </div>
+          <span>
+            {displayZonedDateTimeRange(interview.startAt, interview.endAt, interview.timeZone)}
+          </span>
+          <span>Interviewer: {interview.interviewer?.name ?? "Former member"}</span>
+          <div className="record-links">
+            <Link
+              to={paths.workspaceInterview(workspaceSlug, interview.id)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ExternalLink aria-hidden="true" />
+              Record
+            </Link>
+            <a
+              href={interview.interviewLink}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ExternalLink aria-hidden="true" />
+              Link
+            </a>
+          </div>
+          {interview.notes ? <p className="plain-notes">{interview.notes}</p> : null}
+        </li>
+      ))}
+    </ol>
+  );
+
+  if (!compact) {
+    return list;
+  }
+
+  return (
+    <details
+      className="record-details reference-interviews"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <summary>{interviewCountLabel(interviews.length)}</summary>
+      {list}
+    </details>
+  );
+}
+
+function interviewCountLabel(count: number): string {
+  return count === 1 ? "1 interview" : `${count} interviews`;
 }
 
 function RecordLoading({ label }: { label: string }) {

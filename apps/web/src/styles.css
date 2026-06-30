@@ -505,13 +505,22 @@ button {
   grid-template-columns: 248px minmax(0, 1fr);
 }
 
+.admin-shell-collapsed {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
 .admin-sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow: hidden;
   padding: 20px;
   color: #f5fff9;
   background: #17211c;
+}
+
+.admin-shell-collapsed .admin-sidebar {
+  padding: 20px 14px;
 }
 
 .admin-main {
@@ -759,6 +768,37 @@ button {
   font-size: 1.15rem;
 }
 
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-collapse-button.icon-button {
+  flex: 0 0 auto;
+  color: #dff7ef;
+  background: #24352d;
+}
+
+.sidebar-collapse-button.icon-button:hover {
+  background: #2d463b;
+}
+
+.admin-shell-collapsed .sidebar-brand-row {
+  align-items: center;
+  flex-direction: column;
+}
+
+.admin-shell-collapsed .brand-mark {
+  justify-content: center;
+}
+
+.admin-shell-collapsed .brand-mark span,
+.admin-shell-collapsed .sidebar-nav a span {
+  display: none;
+}
+
 .sidebar-nav {
   display: grid;
   gap: 8px;
@@ -774,6 +814,15 @@ button {
   color: #cddbd3;
   text-decoration: none;
   border-radius: 8px;
+}
+
+.sidebar-nav a svg {
+  flex: 0 0 auto;
+}
+
+.admin-shell-collapsed .sidebar-nav a {
+  justify-content: center;
+  padding: 0;
 }
 
 .sidebar-nav a.active,
@@ -1428,7 +1477,7 @@ td span {
 }
 
 .tracking-record-table {
-  min-width: 1380px;
+  min-width: 1480px;
 }
 
 .tracking-table-loading-row td,
@@ -1503,6 +1552,77 @@ td span {
   color: #4d5953;
   font-size: 0.84rem;
   white-space: pre-wrap;
+}
+
+.record-muted {
+  color: #7b8580;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bid-reference-section {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #f7f8f4;
+  border: 1px solid #e1e4dd;
+  border-radius: 8px;
+}
+
+.bid-reference-section h4 {
+  margin: 0;
+  color: #34423b;
+}
+
+.reference-interviews {
+  min-width: 190px;
+}
+
+.reference-interview-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reference-interview-list li {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  color: #4d5953;
+  background: #ffffff;
+  border: 1px solid #e1e4dd;
+  border-radius: 7px;
+}
+
+.reference-interview-list li > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reference-interview-list strong,
+.reference-interview-list span {
+  font-size: 0.82rem;
+}
+
+.reference-interview-list span {
+  color: #66716b;
+}
+
+.reference-interview-list .record-links {
+  gap: 8px;
+}
+
+.compact-reference-list {
+  min-width: 260px;
+}
+
+.compact-reference-list li {
+  padding: 8px;
 }
 
 .plain-resume {
