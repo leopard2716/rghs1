@@ -20,6 +20,10 @@ type NotificationInput = {
   metadata?: Record<string, unknown>;
 };
 
+type RecipientNotificationInput = NotificationInput & {
+  recipientAuthUserId: string;
+};
+
 export class NotificationService {
   constructor(private readonly supabase: SupabaseRestClient) {}
 
@@ -139,12 +143,61 @@ export class NotificationService {
     await this.insertRecipients(recipientIds, workspaceId, "workspace", input);
   }
 
+  async notifyWorkspaceRecipients(workspaceId: string, inputs: RecipientNotificationInput[]) {
+    const recipientAuthUserIds = [...new Set(inputs.map((input) => input.recipientAuthUserId))];
+    if (!recipientAuthUserIds.length) {
+      return;
+    }
+    const activeMembers = await this.supabase.select<WorkspaceMemberRow>(
+      "workspace_members",
+      "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
+      {
+        workspace_id: `eq.${workspaceId}`,
+        auth_user_id: `in.(${recipientAuthUserIds.join(",")})`,
+        status: "eq.active",
+        deleted_at: "is.null"
+      }
+    );
+    const activeAuthUserIds = new Set(activeMembers.map((member) => member.auth_user_id));
+    await this.insertRecipientInputs(
+      inputs.filter((input) => activeAuthUserIds.has(input.recipientAuthUserId)),
+      workspaceId,
+      "workspace"
+    );
+  }
+
   async notifyPlatformAdmins(actorAuthUserId: string | null, input: NotificationInput) {
     const rows = await this.supabase.select<{ user_id: string }>("platform_admins", "user_id");
     const recipientIds = [...new Set(rows.map((row) => row.user_id))].filter(
       (id) => id !== actorAuthUserId
     );
     await this.insertRecipients(recipientIds, null, "admin", input);
+  }
+
+  private async insertRecipientInputs(
+    inputs: RecipientNotificationInput[],
+    workspaceId: string | null,
+    scope: "admin" | "workspace"
+  ) {
+    if (!inputs.length) {
+      return;
+    }
+    await this.supabase.insert(
+      "notifications",
+      inputs.map((input) => ({
+        recipient_auth_user_id: input.recipientAuthUserId,
+        workspace_id: workspaceId,
+        scope,
+        priority: input.priority,
+        event_type: input.eventType,
+        title: input.title,
+        message: input.message,
+        action_url: input.actionUrl ?? null,
+        entity_type: input.entityType ?? null,
+        entity_id: input.entityId ?? null,
+        metadata: input.metadata ?? {}
+      }))
+    );
   }
 
   private async insertRecipients(

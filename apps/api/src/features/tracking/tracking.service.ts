@@ -9,6 +9,12 @@ import type {
   BidRecordInput,
   InterviewListQuery,
   InterviewRecordInput,
+  JobListQuery,
+  JobRecordInput,
+  PaymentAnalysisQuery,
+  PaymentListQuery,
+  PaymentPayInput,
+  PaymentRecordInput,
   TrackingDashboardQuery,
   TrackingJobMarketInput,
   TrackingProfileRequestInput,
@@ -33,14 +39,18 @@ import {
   TrackingRecordMapper,
   type BidInterviewReferenceResponse,
   type BidResponse,
+  type JobRecordResponse,
   type JobMarketResponse,
   type MemberSummary,
+  type PaymentRecordResponse,
   type ProfileResponse
 } from "./tracking-record.mapper";
 import type {
   BidRecordProfileRow,
   BidRecordRow,
   InterviewRecordRow,
+  JobRecordRow,
+  PaymentRecordRow,
   TrackingJobMarketRow,
   TrackingProfileRequestRow,
   TrackingProfileRow
@@ -49,6 +59,8 @@ import {
   bidRecordFields,
   bidRecordProfileFields,
   interviewRecordFields,
+  jobRecordFields,
+  paymentRecordFields,
   trackingJobMarketFields,
   trackingProfileFields,
   trackingProfileRequestFields
@@ -1056,6 +1068,390 @@ export class TrackingService {
     return { ok: true, interviewId: interview.id };
   }
 
+  async listJobs(slug: string, user: AuthUser, query: JobListQuery) {
+    const context = await this.access.requireContext(slug, user.id);
+    const [jobRows, activeMembers, referenceData] = await Promise.all([
+      this.loadJobs(context.workspace.id),
+      this.loadActiveMembers(context.workspace.id),
+      this.jobReferenceData(context)
+    ]);
+    const jobs = this.records.jobs(
+      jobRows,
+      referenceData.allBids,
+      referenceData.members,
+      context.member.id,
+      context.roleKeys.includes("admin")
+    );
+    const search = normalizeSearch(query.search);
+    const filtered = jobs.filter(
+      (job) =>
+        matchesJobSearch(job, search) &&
+        (!query.jobMarketId || job.jobMarket.id === query.jobMarketId) &&
+        (!query.memberId ||
+          job.bidder?.id === query.memberId ||
+          job.caller?.id === query.memberId ||
+          job.worker?.id === query.memberId)
+    );
+    const sorted = sortJobRecords(
+      filtered,
+      query.sortBy,
+      query.sortDirection,
+      (job) => job.createdAt
+    );
+    const result = paginate(sorted, query.page, query.pageSize);
+    const activeBids = referenceData.allBids.filter((bid) => !bid.deletedAt);
+
+    return {
+      workspace: workspaceResponse(context.workspace),
+      canCreate: context.roleKeys.includes("admin"),
+      bids: activeBids,
+      members: activeMembers,
+      filterMembers: referenceData.members,
+      markets: referenceData.markets.filter((market) => !market.deletedAt),
+      filterMarkets: referenceData.markets,
+      jobs: result.records,
+      pagination: result.pagination
+    };
+  }
+
+  async createJob(slug: string, user: AuthUser, input: JobRecordInput) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    await Promise.all([
+      this.access.requireJobRelation(context.workspace.id, input),
+      this.access.requireActiveMembers(context.workspace.id, [
+        input.bidderMemberId,
+        input.callerMemberId,
+        input.workerMemberId
+      ])
+    ]);
+    const id = crypto.randomUUID();
+    const [job] = await this.supabase.insert<JobRecordRow>("job_records", [
+      {
+        id,
+        workspace_id: context.workspace.id,
+        bid_id: input.bidId,
+        bidder_member_id: input.bidderMemberId,
+        caller_member_id: input.callerMemberId,
+        worker_member_id: input.workerMemberId,
+        bidder_rate: input.bidderRate,
+        caller_rate: input.callerRate,
+        worker_rate: input.workerRate,
+        discount_rate: input.discountRate,
+        created_by_member_id: context.member.id
+      }
+    ]);
+    if (!job) {
+      throw apiError(502, "Job record creation did not return a row.", "job_record_create_failed");
+    }
+    await this.audit(context, "tracking.job.created", job.id, {
+      bidId: input.bidId
+    });
+    return { job: await this.jobResponse(context, job) };
+  }
+
+  async getJob(slug: string, jobRecordId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    const [job] = await this.supabase.select<JobRecordRow>("job_records", jobRecordFields, {
+      workspace_id: `eq.${context.workspace.id}`,
+      id: `eq.${jobRecordId}`,
+      deleted_at: "is.null"
+    });
+    if (!job) {
+      throw apiError(404, "Job record was not found.", "job_record_not_found");
+    }
+    return { job: await this.jobResponse(context, job) };
+  }
+
+  async updateJob(slug: string, jobRecordId: string, user: AuthUser, input: JobRecordInput) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    await this.access.requireOwnedJob(context, jobRecordId, "edit");
+    await Promise.all([
+      this.access.requireJobRelation(context.workspace.id, input),
+      this.access.requireActiveMembers(context.workspace.id, [
+        input.bidderMemberId,
+        input.callerMemberId,
+        input.workerMemberId
+      ])
+    ]);
+    const [job] = await this.supabase.update<JobRecordRow>(
+      "job_records",
+      {
+        bid_id: input.bidId,
+        bidder_member_id: input.bidderMemberId,
+        caller_member_id: input.callerMemberId,
+        worker_member_id: input.workerMemberId,
+        bidder_rate: input.bidderRate,
+        caller_rate: input.callerRate,
+        worker_rate: input.workerRate,
+        discount_rate: input.discountRate,
+        updated_at: new Date().toISOString()
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${jobRecordId}`,
+        created_by_member_id: `eq.${context.member.id}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!job) {
+      throw apiError(
+        404,
+        "Job record was not found or was not created by this workspace member.",
+        "job_record_not_found"
+      );
+    }
+    await this.refreshPendingPaymentAllocationsForJob(context, job);
+    await this.audit(context, "tracking.job.updated", job.id, {});
+    return { job: await this.jobResponse(context, job) };
+  }
+
+  async listPayments(slug: string, user: AuthUser, query: PaymentListQuery) {
+    const context = await this.access.requireContext(slug, user.id);
+    const canManagePayments = this.canManagePayments(context);
+    const [paymentRows, jobRows, referenceData] = await Promise.all([
+      this.loadPayments(context.workspace.id),
+      this.loadJobs(context.workspace.id, true),
+      this.jobReferenceData(context)
+    ]);
+    const allJobs = this.records.jobs(
+      jobRows,
+      referenceData.allBids,
+      referenceData.members,
+      context.member.id,
+      context.roleKeys.includes("admin")
+    );
+    const allPayments = this.records.payments(
+      paymentRows,
+      allJobs,
+      referenceData.members,
+      context.member.id,
+      this.canEditPayments(context)
+    );
+    const payments = allPayments.filter((payment) =>
+      this.canViewPayment(payment, context, canManagePayments)
+    );
+    const visibleJobIds = new Set(payments.map((payment) => payment.jobRecordId));
+    const visibleJobs = this.visiblePaymentJobs(allJobs, context, canManagePayments, visibleJobIds);
+    const filtered = payments.filter(
+      (payment) =>
+        (!query.jobRecordId || payment.jobRecordId === query.jobRecordId) &&
+        (!query.status || payment.status === query.status)
+    );
+    const sorted = sortPayments(filtered, query);
+    const result = paginate(sorted, query.page, query.pageSize);
+
+    return {
+      workspace: workspaceResponse(context.workspace),
+      canCreate: this.canEditPayments(context),
+      canPay: context.roleKeys.includes("admin"),
+      jobRecords: visibleJobs.filter((job) => !job.deletedAt && !job.bidDeleted),
+      payments: result.records,
+      pagination: result.pagination
+    };
+  }
+
+  async createPayment(slug: string, user: AuthUser, input: PaymentRecordInput) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "payment_manager");
+    const job = await this.access.requireActiveJobRecord(context.workspace.id, input.jobRecordId);
+    const id = crypto.randomUUID();
+    const allocation = paymentAllocationValues(job, input.paymentAmount, context.member.id);
+    const [payment] = await this.supabase.insert<PaymentRecordRow>("payment_records", [
+      {
+        id,
+        workspace_id: context.workspace.id,
+        job_record_id: input.jobRecordId,
+        payment_amount: input.paymentAmount,
+        ...allocation,
+        status: "pending",
+        created_by_member_id: context.member.id
+      }
+    ]);
+    if (!payment) {
+      throw apiError(
+        502,
+        "Payment record creation did not return a row.",
+        "payment_record_create_failed"
+      );
+    }
+    await this.audit(context, "tracking.payment.created", payment.id, {
+      jobRecordId: input.jobRecordId
+    });
+    return { payment: await this.paymentResponse(context, payment) };
+  }
+
+  async getPayment(slug: string, paymentRecordId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    const [payment] = await this.supabase.select<PaymentRecordRow>(
+      "payment_records",
+      paymentRecordFields,
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${paymentRecordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!payment) {
+      throw apiError(404, "Payment record was not found.", "payment_record_not_found");
+    }
+    const response = await this.paymentResponse(context, payment);
+    if (!this.canViewPayment(response, context, this.canManagePayments(context))) {
+      throw apiError(
+        403,
+        "This payment record is not related to your account.",
+        "payment_forbidden"
+      );
+    }
+    return { payment: response };
+  }
+
+  async updatePayment(
+    slug: string,
+    paymentRecordId: string,
+    user: AuthUser,
+    input: PaymentRecordInput
+  ) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "payment_manager");
+    const [, job] = await Promise.all([
+      this.access.requireOwnedPendingPayment(context, paymentRecordId),
+      this.access.requireActiveJobRecord(context.workspace.id, input.jobRecordId)
+    ]);
+    const allocation = paymentAllocationValues(job, input.paymentAmount, context.member.id);
+    const [payment] = await this.supabase.update<PaymentRecordRow>(
+      "payment_records",
+      {
+        job_record_id: input.jobRecordId,
+        payment_amount: input.paymentAmount,
+        ...allocation,
+        updated_at: new Date().toISOString()
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${paymentRecordId}`,
+        created_by_member_id: `eq.${context.member.id}`,
+        status: "eq.pending",
+        deleted_at: "is.null"
+      }
+    );
+    if (!payment) {
+      throw apiError(
+        404,
+        "Pending payment record was not found or was not created by this workspace member.",
+        "payment_record_not_found"
+      );
+    }
+    await this.audit(context, "tracking.payment.updated", payment.id, {});
+    return { payment: await this.paymentResponse(context, payment) };
+  }
+
+  async paymentAnalysis(slug: string, user: AuthUser, query: PaymentAnalysisQuery) {
+    const context = await this.access.requireContext(slug, user.id);
+    const canManagePayments = this.canManagePayments(context);
+    const [paymentRows, jobRows, referenceData] = await Promise.all([
+      this.loadPayments(context.workspace.id, false, query.status),
+      this.loadJobs(context.workspace.id, true),
+      this.jobReferenceData(context)
+    ]);
+    const allJobs = this.records.jobs(
+      jobRows,
+      referenceData.allBids,
+      referenceData.members,
+      context.member.id,
+      context.roleKeys.includes("admin")
+    );
+    const allAnalyzedPayments = this.records.payments(
+      paymentRows,
+      allJobs,
+      referenceData.members,
+      context.member.id,
+      this.canEditPayments(context)
+    );
+    const analyzedPayments = allAnalyzedPayments.filter(
+      (payment) =>
+        this.canViewPayment(payment, context, canManagePayments) &&
+        paymentInAnalysisRange(payment, query)
+    );
+    const totals = paymentAllocationTotals(analyzedPayments);
+    const currentUserTotal = currentMemberPaymentTotal(analyzedPayments, context, totals);
+
+    return {
+      workspace: workspaceResponse(context.workspace),
+      status: query.status,
+      dateFrom: query.dateFrom ?? null,
+      dateTo: query.dateTo ?? null,
+      canPay: query.status === "pending" && context.roleKeys.includes("admin"),
+      payments: analyzedPayments,
+      pendingPayments: query.status === "pending" ? analyzedPayments : [],
+      currentUserTotal,
+      userTotals: context.roleKeys.includes("admin")
+        ? [...totals.values()].sort(
+            (left, right) =>
+              right.pendingAmount - left.pendingAmount ||
+              left.member.name.localeCompare(right.member.name)
+          )
+        : []
+    };
+  }
+
+  async payPendingPayments(slug: string, user: AuthUser, input: PaymentPayInput) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    const paymentRecordIds = [...new Set(input.paymentRecordIds)];
+    const paymentRecordIdChunks = chunkValues(paymentRecordIds, 100);
+    const pendingRows = (
+      await Promise.all(
+        paymentRecordIdChunks.map((paymentRecordIdChunk) =>
+          this.supabase.select<PaymentRecordRow>("payment_records", paymentRecordFields, {
+            workspace_id: `eq.${context.workspace.id}`,
+            id: `in.(${paymentRecordIdChunk.join(",")})`,
+            status: "eq.pending",
+            deleted_at: "is.null"
+          })
+        )
+      )
+    ).flat();
+    if (new Set(pendingRows.map((payment) => payment.id)).size !== paymentRecordIds.length) {
+      throw apiError(
+        409,
+        "One or more selected payment records are no longer pending.",
+        "payment_record_not_pending"
+      );
+    }
+
+    const now = new Date().toISOString();
+    const paid = (
+      await Promise.all(
+        paymentRecordIdChunks.map((paymentRecordIdChunk) =>
+          this.supabase.update<PaymentRecordRow>(
+            "payment_records",
+            {
+              status: "paid",
+              paid_by_member_id: context.member.id,
+              paid_at: now,
+              updated_at: now
+            },
+            {
+              workspace_id: `eq.${context.workspace.id}`,
+              id: `in.(${paymentRecordIdChunk.join(",")})`,
+              status: "eq.pending",
+              deleted_at: "is.null"
+            }
+          )
+        )
+      )
+    ).flat();
+    if (paid.length) {
+      await this.notifyPaidPaymentRecipients(context, paid);
+      await this.audit(context, "tracking.payment.paid", paid[0]!.id, {
+        count: paid.length
+      });
+    }
+    return { paid: paid.length };
+  }
+
   async dashboard(slug: string, user: AuthUser, query: TrackingDashboardQuery) {
     const context = await this.access.requireContext(slug, user.id);
     const [profiles, markets, members, interviewRows] = await Promise.all([
@@ -1314,6 +1710,25 @@ export class TrackingService {
     }));
   }
 
+  private async loadActiveMembers(workspaceId: string): Promise<MemberSummary[]> {
+    const rows = await this.supabase.selectAll<WorkspaceMemberRow>(
+      "workspace_members",
+      "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
+      {
+        workspace_id: `eq.${workspaceId}`,
+        status: "eq.active",
+        deleted_at: "is.null"
+      },
+      { order: "id.asc" }
+    );
+    return rows
+      .map((member) => ({
+        id: member.id,
+        name: member.display_name || member.email
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
   private async memberById(workspaceId: string, memberId: string) {
     const [member] = await this.supabase.select<WorkspaceMemberRow>(
       "workspace_members",
@@ -1363,14 +1778,51 @@ export class TrackingService {
     );
   }
 
-  private async loadInterviews(workspaceId: string) {
+  private async loadInterviews(workspaceId: string, includeDeleted = false) {
+    const filters: Record<string, string> = {
+      workspace_id: `eq.${workspaceId}`
+    };
+    if (!includeDeleted) {
+      filters.deleted_at = "is.null";
+    }
     return this.supabase.selectAll<InterviewRecordRow>(
       "interview_records",
       interviewRecordFields,
-      {
-        workspace_id: `eq.${workspaceId}`,
-        deleted_at: "is.null"
-      },
+      filters,
+      { order: "id.asc" }
+    );
+  }
+
+  private async loadJobs(workspaceId: string, includeDeleted = false) {
+    const filters: Record<string, string> = {
+      workspace_id: `eq.${workspaceId}`
+    };
+    if (!includeDeleted) {
+      filters.deleted_at = "is.null";
+    }
+    return this.supabase.selectAll<JobRecordRow>("job_records", jobRecordFields, filters, {
+      order: "id.asc"
+    });
+  }
+
+  private async loadPayments(
+    workspaceId: string,
+    includeDeleted = false,
+    status?: PaymentRecordRow["status"]
+  ) {
+    const filters: Record<string, string> = {
+      workspace_id: `eq.${workspaceId}`
+    };
+    if (!includeDeleted) {
+      filters.deleted_at = "is.null";
+    }
+    if (status) {
+      filters.status = `eq.${status}`;
+    }
+    return this.supabase.selectAll<PaymentRecordRow>(
+      "payment_records",
+      paymentRecordFields,
+      filters,
       { order: "id.asc" }
     );
   }
@@ -1416,6 +1868,141 @@ export class TrackingService {
     return grouped;
   }
 
+  private async jobReferenceData(context: TrackingContext) {
+    const [profiles, markets, members] = await Promise.all([
+      this.loadProfiles(context.workspace.id, true),
+      this.loadMarkets(context.workspace.id, true, context.member.id),
+      this.loadMembers(context.workspace.id)
+    ]);
+    const allBids = await this.loadBids(context.workspace.id, profiles, markets, members, {
+      includeDeleted: true
+    });
+    return {
+      profiles,
+      markets,
+      members,
+      allBids
+    };
+  }
+
+  private async jobResponse(
+    context: TrackingContext,
+    row: JobRecordRow
+  ): Promise<JobRecordResponse> {
+    const referenceData = await this.jobReferenceData(context);
+    const [job] = this.records.jobs(
+      [row],
+      referenceData.allBids,
+      referenceData.members,
+      context.member.id,
+      context.roleKeys.includes("admin")
+    );
+    if (!job) {
+      throw apiError(404, "Job record was not found.", "job_record_not_found");
+    }
+    return job;
+  }
+
+  private async paymentResponse(
+    context: TrackingContext,
+    row: PaymentRecordRow
+  ): Promise<PaymentRecordResponse> {
+    const [jobRows, referenceData] = await Promise.all([
+      this.loadJobs(context.workspace.id, true),
+      this.jobReferenceData(context)
+    ]);
+    const jobs = this.records.jobs(
+      jobRows,
+      referenceData.allBids,
+      referenceData.members,
+      context.member.id,
+      context.roleKeys.includes("admin")
+    );
+    const [payment] = this.records.payments(
+      [row],
+      jobs,
+      referenceData.members,
+      context.member.id,
+      this.canEditPayments(context)
+    );
+    if (!payment) {
+      throw apiError(404, "Payment record was not found.", "payment_record_not_found");
+    }
+    return payment;
+  }
+
+  private canManagePayments(context: TrackingContext): boolean {
+    return context.roleKeys.includes("admin") || context.roleKeys.includes("payment_manager");
+  }
+
+  private canEditPayments(context: TrackingContext): boolean {
+    return context.roleKeys.includes("payment_manager");
+  }
+
+  private visiblePaymentJobs(
+    jobs: JobRecordResponse[],
+    context: TrackingContext,
+    canManagePayments: boolean,
+    relatedJobIds = new Set<string>()
+  ): JobRecordResponse[] {
+    if (canManagePayments) {
+      return jobs;
+    }
+    return jobs.filter(
+      (job) => relatedJobIds.has(job.id) || paymentJobRelatedToMember(job, context.member.id)
+    );
+  }
+
+  private canViewPayment(
+    payment: PaymentRecordResponse,
+    context: TrackingContext,
+    canManagePayments: boolean
+  ): boolean {
+    return canManagePayments || paymentRelatedToMember(payment, context.member.id);
+  }
+
+  private async refreshPendingPaymentAllocationsForJob(
+    context: TrackingContext,
+    job: JobRecordRow
+  ): Promise<void> {
+    const payments = await this.selectAllPages<PaymentRecordRow>(
+      "payment_records",
+      paymentRecordFields,
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        job_record_id: `eq.${job.id}`,
+        status: "eq.pending",
+        deleted_at: "is.null"
+      }
+    );
+    if (!payments.length) {
+      return;
+    }
+
+    const updatedAt = new Date().toISOString();
+    await Promise.all(
+      payments.map((payment) =>
+        this.supabase.update<PaymentRecordRow>(
+          "payment_records",
+          {
+            ...paymentAllocationValues(
+              job,
+              Number(payment.payment_amount),
+              payment.payment_manager_member_id
+            ),
+            updated_at: updatedAt
+          },
+          {
+            workspace_id: `eq.${context.workspace.id}`,
+            id: `eq.${payment.id}`,
+            status: "eq.pending",
+            deleted_at: "is.null"
+          }
+        )
+      )
+    );
+  }
+
   private async audit(
     context: TrackingContext,
     action: string,
@@ -1445,6 +2032,47 @@ export class TrackingService {
       });
     }
   }
+
+  private async notifyPaidPaymentRecipients(
+    context: TrackingContext,
+    payments: PaymentRecordRow[]
+  ) {
+    const totals = paidPaymentMemberTotals(payments);
+    if (!totals.size) {
+      return;
+    }
+    const members = await this.supabase.select<WorkspaceMemberRow>(
+      "workspace_members",
+      "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `in.(${[...totals.keys()].join(",")})`,
+        status: "eq.active",
+        deleted_at: "is.null"
+      }
+    );
+    await this.notifications.notifyWorkspaceRecipients(
+      context.workspace.id,
+      members.map((member) => {
+        const amount = totals.get(member.id) ?? 0;
+        return {
+          recipientAuthUserId: member.auth_user_id,
+          priority: "success" as const,
+          eventType: "tracking.payment.paid_to_user",
+          title: "Payment marked paid",
+          message: `${context.member.display_name} marked ${formatCurrency(amount)} as paid to you.`,
+          actionUrl: `/${context.workspace.slug}/payments`,
+          entityType: "payment_record",
+          entityId: payments.length === 1 ? payments[0]!.id : undefined,
+          metadata: {
+            amount,
+            paymentRecordIds: payments.map((payment) => payment.id),
+            paidByMemberId: context.member.id
+          }
+        };
+      })
+    );
+  }
 }
 
 function workspaceResponse(workspace: WorkspaceRow) {
@@ -1459,6 +2087,203 @@ function uniqueMembers(members: MemberSummary[]) {
   return [...new Map(members.map((member) => [member.id, member])).values()].sort((left, right) =>
     left.name.localeCompare(right.name)
   );
+}
+
+const farFutureIso = "9999-12-31T23:59:59.999Z";
+
+function sortPayments(
+  rows: PaymentRecordResponse[],
+  query: PaymentListQuery
+): PaymentRecordResponse[] {
+  const direction = query.sortDirection === "asc" ? 1 : -1;
+  return [...rows].sort((left, right) => {
+    const comparison =
+      query.sortBy === "amount"
+        ? left.paymentAmount - right.paymentAmount
+        : left.createdAt.localeCompare(right.createdAt);
+    return comparison * direction || left.id.localeCompare(right.id) * direction;
+  });
+}
+
+function paymentJobRelatedToMember(job: JobRecordResponse, memberId: string): boolean {
+  return job.bidder?.id === memberId || job.caller?.id === memberId || job.worker?.id === memberId;
+}
+
+function paymentRelatedToMember(payment: PaymentRecordResponse, memberId: string): boolean {
+  return (
+    payment.bidder?.id === memberId ||
+    payment.caller?.id === memberId ||
+    payment.worker?.id === memberId ||
+    payment.paymentManager?.id === memberId
+  );
+}
+
+function paymentInAnalysisRange(
+  payment: PaymentRecordResponse,
+  query: PaymentAnalysisQuery
+): boolean {
+  if (query.status === "pending") {
+    return true;
+  }
+  if (!payment.paidAt) {
+    return false;
+  }
+  if (
+    query.dateFrom &&
+    !inDateRange(payment.paidAt, query.dateFrom, query.dateTo ?? farFutureIso)
+  ) {
+    return false;
+  }
+  if (query.dateTo && new Date(payment.paidAt).getTime() >= new Date(query.dateTo).getTime()) {
+    return false;
+  }
+  return true;
+}
+
+function paymentAllocationTotals(payments: PaymentRecordResponse[]) {
+  const totals = new Map<string, { member: MemberSummary; pendingAmount: number }>();
+  for (const payment of payments) {
+    addPaymentAllocation(totals, payment.bidder, payment.amounts.bidder);
+    addPaymentAllocation(totals, payment.caller, payment.amounts.caller);
+    addPaymentAllocation(totals, payment.worker, payment.amounts.worker);
+    addPaymentAllocation(totals, payment.paymentManager, payment.amounts.paymentManager);
+  }
+  return totals;
+}
+
+function currentMemberPaymentTotal(
+  payments: PaymentRecordResponse[],
+  context: TrackingContext,
+  totals: Map<string, { member: MemberSummary; pendingAmount: number }>
+) {
+  if (context.roleKeys.includes("payment_manager") && !context.roleKeys.includes("admin")) {
+    return roundCurrency(
+      payments.reduce(
+        (total, payment) =>
+          payment.paymentManager?.id === context.member.id
+            ? total + payment.amounts.paymentManager
+            : total,
+        0
+      )
+    );
+  }
+
+  return totals.get(context.member.id)?.pendingAmount ?? 0;
+}
+
+function addPaymentAllocation(
+  totals: Map<string, { member: MemberSummary; pendingAmount: number }>,
+  member: MemberSummary | null,
+  amount: number
+) {
+  if (!member || amount <= 0) {
+    return;
+  }
+  const current = totals.get(member.id);
+  totals.set(member.id, {
+    member,
+    pendingAmount: roundCurrency((current?.pendingAmount ?? 0) + amount)
+  });
+}
+
+function paymentAllocationValues(
+  job: JobRecordRow,
+  paymentAmount: number,
+  paymentManagerMemberId: string
+) {
+  const amounts = allocatePaymentAmounts(paymentAmount, {
+    bidder: Number(job.bidder_rate),
+    caller: Number(job.caller_rate),
+    worker: Number(job.worker_rate),
+    paymentManager: Number(job.discount_rate)
+  });
+
+  return {
+    bidder_member_id: job.bidder_member_id,
+    caller_member_id: job.caller_member_id,
+    worker_member_id: job.worker_member_id,
+    payment_manager_member_id: paymentManagerMemberId,
+    bidder_amount: amounts.bidder,
+    caller_amount: amounts.caller,
+    worker_amount: amounts.worker,
+    payment_manager_amount: amounts.paymentManager
+  };
+}
+
+function allocatePaymentAmounts(
+  paymentAmount: number,
+  rates: { bidder: number; caller: number; worker: number; paymentManager: number }
+) {
+  const totalCents = Math.round(paymentAmount * 100);
+  const entries = [
+    { key: "bidder" as const, rate: rates.bidder },
+    { key: "caller" as const, rate: rates.caller },
+    { key: "worker" as const, rate: rates.worker },
+    { key: "paymentManager" as const, rate: rates.paymentManager }
+  ].map((entry, index) => {
+    const rawCents = (totalCents * Math.round(entry.rate * 100)) / 10000;
+    return {
+      ...entry,
+      index,
+      cents: Math.floor(rawCents),
+      remainder: rawCents - Math.floor(rawCents)
+    };
+  });
+  let remainingCents = totalCents - entries.reduce((total, entry) => total + entry.cents, 0);
+  for (const entry of [...entries].sort(
+    (left, right) => right.remainder - left.remainder || left.index - right.index
+  )) {
+    if (remainingCents <= 0) {
+      break;
+    }
+    entry.cents += 1;
+    remainingCents -= 1;
+  }
+
+  return {
+    bidder: entries[0]!.cents / 100,
+    caller: entries[1]!.cents / 100,
+    worker: entries[2]!.cents / 100,
+    paymentManager: entries[3]!.cents / 100
+  };
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function paidPaymentMemberTotals(payments: PaymentRecordRow[]) {
+  const totals = new Map<string, number>();
+  for (const payment of payments) {
+    addPaidPaymentMemberTotal(totals, payment.bidder_member_id, payment.bidder_amount);
+    addPaidPaymentMemberTotal(totals, payment.caller_member_id, payment.caller_amount);
+    addPaidPaymentMemberTotal(totals, payment.worker_member_id, payment.worker_amount);
+    addPaidPaymentMemberTotal(
+      totals,
+      payment.payment_manager_member_id,
+      payment.payment_manager_amount
+    );
+  }
+  return totals;
+}
+
+function addPaidPaymentMemberTotal(
+  totals: Map<string, number>,
+  memberId: string,
+  amount: number | string
+) {
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return;
+  }
+  totals.set(memberId, roundCurrency((totals.get(memberId) ?? 0) + numericAmount));
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD"
+  }).format(value);
 }
 
 function groupAssignmentsByBid(
@@ -1549,6 +2374,34 @@ function trackingNotification(action: string, actorName: string) {
       message: `${actorName} deleted an interview.`
     };
   }
+  if (action === "tracking.job.created") {
+    return {
+      priority: "success" as const,
+      title: "Job record added",
+      message: `${actorName} added a job record.`
+    };
+  }
+  if (action === "tracking.job.updated") {
+    return {
+      priority: "info" as const,
+      title: "Job record updated",
+      message: `${actorName} updated a job record.`
+    };
+  }
+  if (action === "tracking.payment.created") {
+    return {
+      priority: "info" as const,
+      title: "Payment record added",
+      message: `${actorName} added a payment record.`
+    };
+  }
+  if (action === "tracking.payment.updated") {
+    return {
+      priority: "info" as const,
+      title: "Payment record updated",
+      message: `${actorName} updated a payment record.`
+    };
+  }
   if (action === "tracking.profile.created" || action === "tracking.job_market.created") {
     return {
       priority: "success" as const,
@@ -1567,6 +2420,8 @@ function trackingNotification(action: string, actorName: string) {
 }
 
 function trackingActionPath(action: string): string {
+  if (action.includes("payment")) return "payments";
+  if (action.includes(".job.")) return "jobs";
   if (action.includes("interview")) return "interviews";
   if (action.includes("profile") || action.includes("job_market")) return "profiles";
   return "bids";

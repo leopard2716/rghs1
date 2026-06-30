@@ -1,1 +1,8 @@
-export type WorkspaceView = "overview" | "profiles" | "bids" | "interviews" | "users";
+export type WorkspaceView =
+  | "overview"
+  | "profiles"
+  | "bids"
+  | "interviews"
+  | "jobs"
+  | "payments"
+  | "users";

@@ -6,9 +6,21 @@ import type {
   WorkspaceRoleRow,
   WorkspaceRow
 } from "../workspace/workspace-access.types";
-import type { InterviewRecordInput } from "./tracking.schemas";
-import type { BidRecordProfileRow, BidRecordRow, InterviewRecordRow } from "./tracking.types";
-import { bidRecordFields, bidRecordProfileFields, interviewRecordFields } from "./tracking.types";
+import type { InterviewRecordInput, JobRecordInput } from "./tracking.schemas";
+import type {
+  BidRecordProfileRow,
+  BidRecordRow,
+  InterviewRecordRow,
+  JobRecordRow,
+  PaymentRecordRow
+} from "./tracking.types";
+import {
+  bidRecordFields,
+  bidRecordProfileFields,
+  interviewRecordFields,
+  jobRecordFields,
+  paymentRecordFields
+} from "./tracking.types";
 
 export type TrackingContext = {
   workspace: WorkspaceRow;
@@ -73,13 +85,25 @@ export class TrackingAccessService {
     };
   }
 
-  requireRole(context: TrackingContext, roleKey: "admin" | "bidder" | "interviewer"): void {
+  requireRole(
+    context: TrackingContext,
+    roleKey: "admin" | "bidder" | "interviewer" | "payment_manager"
+  ): void {
     if (!context.roleKeys.includes(roleKey)) {
       throw apiError(
         403,
         `The ${roleKey} workspace role is required.`,
         `workspace_${roleKey}_required`
       );
+    }
+  }
+
+  requireAnyRole(
+    context: TrackingContext,
+    roleKeys: Array<"admin" | "bidder" | "interviewer" | "payment_manager">
+  ): void {
+    if (!roleKeys.some((roleKey) => context.roleKeys.includes(roleKey))) {
+      throw apiError(403, "A permitted workspace role is required.", "workspace_role_required");
     }
   }
 
@@ -106,6 +130,19 @@ export class TrackingAccessService {
     });
     if (!markets.length) {
       throw apiError(400, "Select an active job market from this workspace.", "job_market_invalid");
+    }
+  }
+
+  async requireActiveMembers(workspaceId: string, memberIds: string[]): Promise<void> {
+    const uniqueIds = [...new Set(memberIds)];
+    const members = await this.supabase.select<{ id: string }>("workspace_members", "id", {
+      workspace_id: `eq.${workspaceId}`,
+      id: `in.(${uniqueIds.join(",")})`,
+      status: "eq.active",
+      deleted_at: "is.null"
+    });
+    if (members.length !== uniqueIds.length) {
+      throw apiError(400, "Select active users from this workspace.", "workspace_members_invalid");
     }
   }
 
@@ -184,5 +221,80 @@ export class TrackingAccessService {
         "interview_profile_not_on_bid"
       );
     }
+  }
+
+  async requireJobRelation(workspaceId: string, input: JobRecordInput): Promise<void> {
+    const bids = await this.supabase.select<{ id: string }>("bid_records", "id", {
+      workspace_id: `eq.${workspaceId}`,
+      id: `eq.${input.bidId}`,
+      deleted_at: "is.null"
+    });
+    if (bids.length === 0) {
+      throw apiError(400, "Job record requires an active bid.", "job_record_bid_invalid");
+    }
+  }
+
+  async requireOwnedJob(
+    context: TrackingContext,
+    jobRecordId: string,
+    action: "edit" | "delete"
+  ): Promise<JobRecordRow> {
+    const [job] = await this.supabase.select<JobRecordRow>("job_records", jobRecordFields, {
+      workspace_id: `eq.${context.workspace.id}`,
+      id: `eq.${jobRecordId}`,
+      deleted_at: "is.null"
+    });
+    if (!job) {
+      throw apiError(404, "Job record was not found.", "job_record_not_found");
+    }
+    if (job.created_by_member_id !== context.member.id) {
+      throw apiError(
+        403,
+        `Only the workspace member who created this job record can ${action} it.`,
+        "job_record_owner_required"
+      );
+    }
+    return job;
+  }
+
+  async requireActiveJobRecord(workspaceId: string, jobRecordId: string): Promise<JobRecordRow> {
+    const [job] = await this.supabase.select<JobRecordRow>("job_records", jobRecordFields, {
+      workspace_id: `eq.${workspaceId}`,
+      id: `eq.${jobRecordId}`,
+      deleted_at: "is.null"
+    });
+    if (!job) {
+      throw apiError(400, "Select an active job record.", "job_record_invalid");
+    }
+    return job;
+  }
+
+  async requireOwnedPendingPayment(
+    context: TrackingContext,
+    paymentRecordId: string
+  ): Promise<PaymentRecordRow> {
+    const [payment] = await this.supabase.select<PaymentRecordRow>(
+      "payment_records",
+      paymentRecordFields,
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${paymentRecordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!payment) {
+      throw apiError(404, "Payment record was not found.", "payment_record_not_found");
+    }
+    if (payment.status !== "pending") {
+      throw apiError(409, "Only pending payment records can be edited.", "payment_record_paid");
+    }
+    if (payment.created_by_member_id !== context.member.id) {
+      throw apiError(
+        403,
+        "Only the workspace member who created this payment record can edit it.",
+        "payment_record_owner_required"
+      );
+    }
+    return payment;
   }
 }
