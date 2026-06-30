@@ -2,7 +2,7 @@ import type { WorkspaceRow } from "./admin.types";
 
 export function titleCaseRole(key: string): string {
   return key
-    .split("-")
+    .split(/[-_]/)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(" ");
 }

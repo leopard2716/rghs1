@@ -47,6 +47,14 @@ export const interviewRecordParams = z.object({
   interviewId: z.string().uuid()
 });
 
+export const jobRecordParams = z.object({
+  jobRecordId: z.string().uuid()
+});
+
+export const paymentRecordParams = z.object({
+  paymentRecordId: z.string().uuid()
+});
+
 export const bidRecordInput = z
   .object({
     jobTitle: z.string().trim().min(2).max(180),
@@ -117,6 +125,44 @@ export const interviewRecordInput = z
     }
   });
 
+const paymentRate = z.coerce.number().min(0).max(100).multipleOf(0.01);
+
+export const jobRecordInput = z
+  .object({
+    bidId: z.string().uuid(),
+    bidderMemberId: z.string().uuid(),
+    callerMemberId: z.string().uuid(),
+    workerMemberId: z.string().uuid(),
+    bidderRate: paymentRate,
+    callerRate: paymentRate,
+    workerRate: paymentRate,
+    discountRate: paymentRate
+  })
+  .superRefine((input, context) => {
+    const totalBasisPoints = [
+      input.bidderRate,
+      input.callerRate,
+      input.workerRate,
+      input.discountRate
+    ].reduce((total, rate) => total + Math.round(rate * 100), 0);
+    if (totalBasisPoints !== 10000) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["discountRate"],
+        message: "Bidder, caller, worker, and discount rates must total 100%."
+      });
+    }
+  });
+
+export const paymentRecordInput = z.object({
+  jobRecordId: z.string().uuid(),
+  paymentAmount: z.coerce.number().positive().max(999999999).multipleOf(0.01)
+});
+
+export const paymentPayInput = z.object({
+  paymentRecordIds: z.array(z.string().uuid()).min(1)
+});
+
 export const bulkBidRecordInput = z.object({
   records: z.array(bidRecordInput).min(1)
 });
@@ -137,6 +183,40 @@ export const bidListQuery = listQueryBase.extend({
 export const interviewListQuery = listQueryBase.extend({
   sortBy: z.enum(["company", "jobTitle", "datetime"]).default("datetime")
 });
+
+export const jobListQuery = listQueryBase.extend({
+  sortBy: z.enum(["company", "jobTitle", "datetime"]).default("datetime"),
+  memberId: z.string().uuid().optional()
+});
+
+export const paymentListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(10).max(100).default(20),
+  sortBy: z.enum(["datetime", "amount"]).default("datetime"),
+  sortDirection: z.enum(["asc", "desc"]).default("desc"),
+  jobRecordId: z.string().uuid().optional(),
+  status: z.enum(["pending", "paid"]).optional()
+});
+
+export const paymentAnalysisQuery = z
+  .object({
+    status: z.enum(["pending", "paid"]).default("pending"),
+    dateFrom: z.string().datetime().optional(),
+    dateTo: z.string().datetime().optional()
+  })
+  .superRefine((input, context) => {
+    if (
+      input.dateFrom &&
+      input.dateTo &&
+      new Date(input.dateTo).getTime() <= new Date(input.dateFrom).getTime()
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateTo"],
+        message: "Payment analysis date range end must be after its start."
+      });
+    }
+  });
 
 export const trackingDashboardQuery = z
   .object({
@@ -175,8 +255,14 @@ export type TrackingJobMarketInput = z.infer<typeof trackingJobMarketInput>;
 export type BidRecordInput = z.infer<typeof bidRecordInput>;
 export type BulkBidRecordInput = z.infer<typeof bulkBidRecordInput>;
 export type InterviewRecordInput = z.infer<typeof interviewRecordInput>;
+export type JobRecordInput = z.infer<typeof jobRecordInput>;
+export type PaymentRecordInput = z.infer<typeof paymentRecordInput>;
+export type PaymentPayInput = z.infer<typeof paymentPayInput>;
 export type BidListQuery = z.infer<typeof bidListQuery>;
 export type InterviewListQuery = z.infer<typeof interviewListQuery>;
+export type JobListQuery = z.infer<typeof jobListQuery>;
+export type PaymentListQuery = z.infer<typeof paymentListQuery>;
+export type PaymentAnalysisQuery = z.infer<typeof paymentAnalysisQuery>;
 export type TrackingDashboardQuery = z.infer<typeof trackingDashboardQuery>;
 
 function isTimeZone(value: string): boolean {

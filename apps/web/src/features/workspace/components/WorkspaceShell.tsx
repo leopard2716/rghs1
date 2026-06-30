@@ -1,6 +1,8 @@
 import {
   BriefcaseBusiness,
   CalendarClock,
+  ClipboardList,
+  CreditCard,
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
@@ -99,6 +101,22 @@ export function WorkspaceShell({
             <CalendarClock aria-hidden="true" />
             <span>Interviews</span>
           </NavLink>
+          <NavLink
+            to={paths.workspaceJobs(slug)}
+            title="Jobs"
+            className={({ isActive }) => (isActive ? "active" : undefined)}
+          >
+            <ClipboardList aria-hidden="true" />
+            <span>Jobs</span>
+          </NavLink>
+          <NavLink
+            to={paths.workspacePayments(slug)}
+            title="Payment management"
+            className={({ isActive }) => (isActive ? "active" : undefined)}
+          >
+            <CreditCard aria-hidden="true" />
+            <span>Payments</span>
+          </NavLink>
           {isAdmin ? (
             <NavLink
               to={paths.workspaceUsers(slug)}
@@ -167,6 +185,20 @@ function workspaceViewCopy(view: WorkspaceView) {
     return {
       eyebrow: "Interview tracking",
       title: (workspaceName: string) => `${workspaceName} Interviews`
+    };
+  }
+
+  if (view === "jobs") {
+    return {
+      eyebrow: "Job tracking",
+      title: (workspaceName: string) => `${workspaceName} Jobs`
+    };
+  }
+
+  if (view === "payments") {
+    return {
+      eyebrow: "Payment management",
+      title: (workspaceName: string) => `${workspaceName} Payments`
     };
   }
 

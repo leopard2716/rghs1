@@ -17,6 +17,12 @@ export const paths = {
     `/${encodeURIComponent(slug)}/interviews?interviewId=${encodeURIComponent(interviewId)}`,
   workspaceInterviewForBid: (slug: string, bidId: string) =>
     `/${encodeURIComponent(slug)}/interviews?modal=new&bidId=${encodeURIComponent(bidId)}`,
+  workspaceJobs: (slug: string) => `/${encodeURIComponent(slug)}/jobs`,
+  workspaceJob: (slug: string, jobRecordId: string) =>
+    `/${encodeURIComponent(slug)}/jobs?jobRecordId=${encodeURIComponent(jobRecordId)}`,
+  workspacePayments: (slug: string) => `/${encodeURIComponent(slug)}/payments`,
+  workspacePayment: (slug: string, paymentRecordId: string) =>
+    `/${encodeURIComponent(slug)}/payments?paymentRecordId=${encodeURIComponent(paymentRecordId)}`,
   workspaceUsers: (slug: string) => `/${encodeURIComponent(slug)}/users`
 } as const;
 

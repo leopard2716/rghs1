@@ -263,7 +263,14 @@ export class SupabaseRestClient {
       message.includes("interview_link") ||
       message.includes("bid_records") ||
       message.includes("bid_record_profiles") ||
-      message.includes("interview_records")
+      message.includes("interview_records") ||
+      message.includes("job_records") ||
+      message.includes("caller_member_id") ||
+      message.includes("caller_rate") ||
+      message.includes("payment_records") ||
+      message.includes("payment_amount") ||
+      message.includes("payment_manager_amount") ||
+      message.includes("payment_manager")
     ) {
       return apiError(
         503,

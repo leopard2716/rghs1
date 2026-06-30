@@ -34,7 +34,7 @@ const authErrorMessages: Record<string, string> = {
   tenant_identity_migration_required:
     "Apply Supabase migration 0006 before using workspace identity features.",
   tracking_schema_migration_required:
-    "Apply the latest Supabase tracking migrations before using bid and interview tracking.",
+    "Apply the latest Supabase tracking migrations before using tracking records.",
   weak_password: "Choose a stronger password.",
   same_password: "The new password must be different from the current password.",
   auth_upstream_unreachable:

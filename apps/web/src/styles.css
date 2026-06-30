@@ -1431,6 +1431,16 @@ td span {
   border-radius: 8px;
 }
 
+.modal-form input[type="checkbox"],
+.tracking-table input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: #2f8f75;
+}
+
 .modal-form textarea {
   resize: vertical;
 }
@@ -1478,6 +1488,14 @@ td span {
 
 .tracking-record-table {
   min-width: 1480px;
+}
+
+.tracking-table th.tracking-table-select-cell,
+.tracking-table td.tracking-table-select-cell,
+.tracking-table td:first-child.tracking-table-select-cell {
+  width: 44px;
+  min-width: 44px;
+  text-align: center;
 }
 
 .tracking-table-loading-row td,

@@ -34,6 +34,16 @@ const InterviewsPage = lazy(() =>
     default: module.InterviewsPage
   }))
 );
+const JobsPage = lazy(() =>
+  import("../components/JobsPage").then((module) => ({
+    default: module.JobsPage
+  }))
+);
+const PaymentManagementPage = lazy(() =>
+  import("../components/PaymentManagementPage").then((module) => ({
+    default: module.PaymentManagementPage
+  }))
+);
 const TrackingProfilesPage = lazy(() =>
   import("../components/TrackingProfilesPage").then((module) => ({
     default: module.TrackingProfilesPage
@@ -152,6 +162,14 @@ export function WorkspaceBidsRoute() {
 
 export function WorkspaceInterviewsRoute() {
   return <WorkspaceProtectedRoute view="interviews" />;
+}
+
+export function WorkspaceJobsRoute() {
+  return <WorkspaceProtectedRoute view="jobs" />;
+}
+
+export function WorkspacePaymentsRoute() {
+  return <WorkspaceProtectedRoute view="payments" />;
 }
 
 function WorkspaceProtectedRoute({ view }: { view: WorkspaceView }) {
@@ -343,6 +361,28 @@ function WorkspaceMfaContent({
         <InterviewsPage
           {...sharedProps}
           onRecoverPassword={() => navigate(recoveryPath(paths.workspaceInterviews(workspaceSlug)))}
+        />
+      </Suspense>
+    );
+  }
+
+  if (view === "jobs") {
+    return (
+      <Suspense fallback={<LoadingSurface label="Loading jobs" />}>
+        <JobsPage
+          {...sharedProps}
+          onRecoverPassword={() => navigate(recoveryPath(paths.workspaceJobs(workspaceSlug)))}
+        />
+      </Suspense>
+    );
+  }
+
+  if (view === "payments") {
+    return (
+      <Suspense fallback={<LoadingSurface label="Loading payments" />}>
+        <PaymentManagementPage
+          {...sharedProps}
+          onRecoverPassword={() => navigate(recoveryPath(paths.workspacePayments(workspaceSlug)))}
         />
       </Suspense>
     );

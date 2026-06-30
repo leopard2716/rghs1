@@ -85,6 +85,58 @@ export type InterviewRecord = {
   canEdit: boolean;
 };
 
+export type JobRateBreakdown = {
+  bidder: number;
+  caller: number;
+  worker: number;
+  discount: number;
+};
+
+export type PaymentAmountBreakdown = {
+  bidder: number;
+  caller: number;
+  worker: number;
+  paymentManager: number;
+};
+
+export type JobRecord = {
+  id: string;
+  createdByMemberId: string | null;
+  bidId: string;
+  jobTitle: string;
+  company: string;
+  jobMarket: TrackingJobMarket;
+  bidDeleted: boolean;
+  bidder: TrackingMemberSummary | null;
+  caller: TrackingMemberSummary | null;
+  worker: TrackingMemberSummary | null;
+  rates: JobRateBreakdown;
+  createdAt: string;
+  deletedAt: string | null;
+  canEdit: boolean;
+};
+
+export type PaymentRecord = {
+  id: string;
+  createdByMemberId: string | null;
+  jobRecordId: string;
+  jobTitle: string;
+  company: string;
+  jobMarket: TrackingJobMarket;
+  bidder: TrackingMemberSummary | null;
+  caller: TrackingMemberSummary | null;
+  worker: TrackingMemberSummary | null;
+  paymentManager: TrackingMemberSummary | null;
+  amounts: PaymentAmountBreakdown;
+  paymentAmount: number;
+  status: "pending" | "paid";
+  createdBy: TrackingMemberSummary | null;
+  paidBy: TrackingMemberSummary | null;
+  createdAt: string;
+  paidAt: string | null;
+  canEdit: boolean;
+};
+
 export type TrackingProfileRequest = {
   id: string;
   name: string;
@@ -111,6 +163,25 @@ export type TrackingListQuery = {
   sortDirection?: "asc" | "desc";
   profileId?: string;
   jobMarketId?: string;
+};
+
+export type JobRecordListQuery = TrackingListQuery & {
+  memberId?: string;
+};
+
+export type PaymentListQuery = {
+  page?: number;
+  pageSize?: number;
+  sortBy?: "datetime" | "amount";
+  sortDirection?: "asc" | "desc";
+  jobRecordId?: string;
+  status?: "pending" | "paid";
+};
+
+export type PaymentAnalysisQuery = {
+  status?: "pending" | "paid";
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export type ProfilesResponse = {
@@ -142,6 +213,39 @@ export type InterviewsResponse = {
   bids: BidRecord[];
   interviews: InterviewRecord[];
   pagination: Pagination;
+};
+
+export type JobsResponse = {
+  canCreate: boolean;
+  bids: BidRecord[];
+  members: TrackingMemberSummary[];
+  filterMembers: TrackingMemberSummary[];
+  markets: TrackingJobMarket[];
+  filterMarkets: TrackingJobMarket[];
+  jobs: JobRecord[];
+  pagination: Pagination;
+};
+
+export type PaymentsResponse = {
+  canCreate: boolean;
+  canPay: boolean;
+  jobRecords: JobRecord[];
+  payments: PaymentRecord[];
+  pagination: Pagination;
+};
+
+export type PaymentAnalysisResponse = {
+  status: "pending" | "paid";
+  dateFrom: string | null;
+  dateTo: string | null;
+  canPay: boolean;
+  payments: PaymentRecord[];
+  pendingPayments: PaymentRecord[];
+  currentUserTotal: number;
+  userTotals: Array<{
+    member: TrackingMemberSummary;
+    pendingAmount: number;
+  }>;
 };
 
 export type TrackingDashboardQuery = {
@@ -536,6 +640,170 @@ export async function deleteInterviewRecord(
     }
   );
   return parseJson<{ ok: boolean; interviewId: string }>(response);
+}
+
+export async function fetchJobs(
+  session: AuthSession,
+  slug: string,
+  query: JobRecordListQuery = {}
+): Promise<JobsResponse> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/jobs${queryString(query)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<JobsResponse>(response);
+}
+
+export async function fetchJob(
+  session: AuthSession,
+  slug: string,
+  jobRecordId: string
+): Promise<{ job: JobRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/jobs/${encodeURIComponent(jobRecordId)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<{ job: JobRecord }>(response);
+}
+
+export async function createJobRecord(
+  session: AuthSession,
+  slug: string,
+  input: {
+    bidId: string;
+    bidderMemberId: string;
+    callerMemberId: string;
+    workerMemberId: string;
+    bidderRate: number;
+    callerRate: number;
+    workerRate: number;
+    discountRate: number;
+  }
+): Promise<{ job: JobRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/jobs`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ job: JobRecord }>(response);
+}
+
+export async function updateJobRecord(
+  session: AuthSession,
+  slug: string,
+  jobRecordId: string,
+  input: Parameters<typeof createJobRecord>[2]
+): Promise<{ job: JobRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/jobs/${jobRecordId}`,
+    {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ job: JobRecord }>(response);
+}
+
+export async function fetchPayments(
+  session: AuthSession,
+  slug: string,
+  query: PaymentListQuery = {}
+): Promise<PaymentsResponse> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments${queryString(query)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<PaymentsResponse>(response);
+}
+
+export async function fetchPayment(
+  session: AuthSession,
+  slug: string,
+  paymentRecordId: string
+): Promise<{ payment: PaymentRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/${encodeURIComponent(paymentRecordId)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<{ payment: PaymentRecord }>(response);
+}
+
+export async function createPaymentRecord(
+  session: AuthSession,
+  slug: string,
+  input: {
+    jobRecordId: string;
+    paymentAmount: number;
+  }
+): Promise<{ payment: PaymentRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ payment: PaymentRecord }>(response);
+}
+
+export async function updatePaymentRecord(
+  session: AuthSession,
+  slug: string,
+  paymentRecordId: string,
+  input: Parameters<typeof createPaymentRecord>[2]
+): Promise<{ payment: PaymentRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/${paymentRecordId}`,
+    {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ payment: PaymentRecord }>(response);
+}
+
+export async function fetchPaymentAnalysis(
+  session: AuthSession,
+  slug: string,
+  query: PaymentAnalysisQuery = {}
+): Promise<PaymentAnalysisResponse> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/analysis${queryString(query)}`,
+    { headers: authHeaders() }
+  );
+  return parseJson<PaymentAnalysisResponse>(response);
+}
+
+export async function payPendingPayments(
+  session: AuthSession,
+  slug: string,
+  paymentRecordIds: string[]
+): Promise<{ paid: number }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/pay-pending`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ paymentRecordIds })
+    }
+  );
+  return parseJson<{ paid: number }>(response);
 }
 
 export async function fetchTrackingDashboard(
