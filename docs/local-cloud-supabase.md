@@ -25,6 +25,10 @@ This includes:
 0010_realtime_notifications_and_profile_requests.sql
 0011_plaintext_tracking_columns.sql
 0012_finalize_plaintext_tracking.sql
+0013_job_payment_records.sql
+0014_caller_payment_allocations.sql
+0015_custom_payment_records.sql
+0016_workspace_member_profiles.sql
 ```
 
 If the project already contains tracking records, migration `0012` stops until the legacy
@@ -88,6 +92,9 @@ When the frontend is deployed, replace the Site URL with the production frontend
 the local URLs in the Redirect URLs list. Supabase Cloud does not read `supabase/config.toml`.
 Previously generated password recovery emails and MFA QR codes keep their old URL or issuer;
 request a new recovery email or start a new MFA enrollment after changing the setting.
+If a recovery email opens `http://localhost:3000/#access_token=...`, the Supabase Site URL or
+redirect allow-list is still pointing at the wrong frontend origin. Update the URL Configuration
+to the origin you are actually serving, then request a new recovery email.
 
 ## Apply Tenant Deletion Migration
 
@@ -153,6 +160,20 @@ VITE_SUPABASE_ANON_KEY=YOUR_ANON_KEY
 
 Do not put `SUPABASE_SERVICE_ROLE_KEY` in any frontend env file.
 
+The default Node API dev server uses a local file-backed R2-compatible bucket at
+`.local-r2/resume-bucket`. This prevents `RESUME_BUCKET` errors during local development, but files
+written there are not visible to the deployed dev Worker.
+
+When local dev and Cloudflare Pages dev share the same Supabase database and both need to read the
+same avatar/resume objects, run the API through the remote Worker dev server instead:
+
+```powershell
+npm run dev:worker:remote --workspace @rghs1/api
+```
+
+That command uses the `rghs1-resumes-dev` R2 bucket binding in `apps/api/wrangler.toml`. The
+Cloudflare R2 bucket and the Worker dev environment secrets must exist before using it.
+
 ## 3. Run
 
 After pulling code changes that add dependencies, run:
@@ -165,6 +186,13 @@ Terminal 1:
 
 ```powershell
 npm run dev --workspace @rghs1/api
+```
+
+Use this command instead of the API command above when you need real dev R2 objects shared with the
+cloud dev site:
+
+```powershell
+npm run dev:worker:remote --workspace @rghs1/api
 ```
 
 Terminal 2:
@@ -221,6 +249,16 @@ The /recover page consumes the Supabase recovery session.
 Complete MFA.
 Set and confirm a new password.
 Sign in again with the new password.
+```
+
+Tenant account profile:
+
+```txt
+Open the account menu and choose Profile.
+Change the tenant display name.
+Change the Supabase Auth password after MFA.
+Upload an avatar image, adjust the square crop, and save the cropped avatar.
+Avatars are stored privately in the configured R2 object bucket.
 ```
 
 Regular workspace registration:

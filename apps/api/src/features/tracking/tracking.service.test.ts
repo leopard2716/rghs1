@@ -69,6 +69,62 @@ describe("TrackingService deletion ownership", () => {
     expect(supabase.delete).not.toHaveBeenCalled();
   });
 
+  it("lets a tenant admin soft-delete any job record in the workspace", async () => {
+    const supabase = trackingSupabase(
+      "admin",
+      "job_records",
+      "9df4620e-5d19-4d48-90d2-2a08450b13c4"
+    );
+    const service = trackingService(supabase);
+
+    await expect(service.deleteJob("rg-team", recordId, { id: authUserId })).resolves.toEqual({
+      ok: true,
+      jobRecordId: recordId
+    });
+
+    expect(supabase.update).toHaveBeenCalledWith(
+      "job_records",
+      expect.objectContaining({
+        deleted_at: expect.any(String),
+        updated_at: expect.any(String)
+      }),
+      {
+        workspace_id: `eq.${workspaceId}`,
+        id: `eq.${recordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    expect(supabase.delete).not.toHaveBeenCalled();
+  });
+
+  it("lets a tenant admin soft-delete any payment record in the workspace", async () => {
+    const supabase = trackingSupabase(
+      "admin",
+      "payment_records",
+      "9df4620e-5d19-4d48-90d2-2a08450b13c4"
+    );
+    const service = trackingService(supabase);
+
+    await expect(service.deletePayment("rg-team", recordId, { id: authUserId })).resolves.toEqual({
+      ok: true,
+      paymentRecordId: recordId
+    });
+
+    expect(supabase.update).toHaveBeenCalledWith(
+      "payment_records",
+      expect.objectContaining({
+        deleted_at: expect.any(String),
+        updated_at: expect.any(String)
+      }),
+      {
+        workspace_id: `eq.${workspaceId}`,
+        id: `eq.${recordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    expect(supabase.delete).not.toHaveBeenCalled();
+  });
+
   it("rejects bid deletion when the member no longer has the bidder role", async () => {
     const supabase = trackingSupabase("admin", "bid_records");
     const service = trackingService(supabase);
@@ -198,6 +254,7 @@ describe("TrackingService payment ledger", () => {
           source: "custom",
           customRecordId: "4e1ed24a-a4ab-4eca-bc30-9abf781d73a1",
           jobName: "Adjustment",
+          sourceDetail: "Custom outcome",
           amount: 75,
           direction: "outcome",
           canEdit: true,
@@ -206,8 +263,19 @@ describe("TrackingService payment ledger", () => {
         {
           source: "job",
           jobName: "Platform Engineer",
+          sourceDetail: "Job payment: Bidder allocation",
           company: "Acme",
-          amount: 500,
+          amount: 200,
+          direction: "income",
+          canEdit: false,
+          canDelete: false
+        },
+        {
+          source: "job",
+          jobName: "Platform Engineer",
+          sourceDetail: "Job payment: Worker allocation",
+          company: "Acme",
+          amount: 300,
           direction: "income",
           canEdit: false,
           canDelete: false
@@ -388,6 +456,7 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
             id: recordId,
             workspace_id: workspaceId,
             created_by_member_id: recordOwnerMemberId,
+            status: "pending",
             created_at: "2026-06-18T00:00:00.000Z",
             updated_at: "2026-06-18T00:00:00.000Z",
             deleted_at: null
@@ -405,6 +474,7 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
           id: recordId,
           workspace_id: workspaceId,
           created_by_member_id: memberId,
+          status: "pending",
           created_at: "2026-06-18T00:00:00.000Z",
           updated_at: "2026-06-18T00:00:00.000Z",
           deleted_at: "2026-06-18T01:00:00.000Z"

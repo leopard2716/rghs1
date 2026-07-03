@@ -483,6 +483,21 @@ export function registerTrackingRoutes(app: ApiApp): void {
     }
   );
 
+  app.delete(
+    "/v1/workspaces/:slug/tracking/jobs/:jobRecordId",
+    zValidator("param", jobRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.deleteJob(c.req.param("slug"), c.req.valid("param").jobRecordId, user)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
   app.get(
     "/v1/workspaces/:slug/tracking/payment-ledger",
     zValidator("query", paymentLedgerQuery, (result, c) => {
@@ -699,6 +714,25 @@ export function registerTrackingRoutes(app: ApiApp): void {
             c.req.valid("param").paymentRecordId,
             user,
             c.req.valid("json")
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.delete(
+    "/v1/workspaces/:slug/tracking/payments/:paymentRecordId",
+    zValidator("param", paymentRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.deletePayment(
+            c.req.param("slug"),
+            c.req.valid("param").paymentRecordId,
+            user
           )
         );
       } catch (error) {

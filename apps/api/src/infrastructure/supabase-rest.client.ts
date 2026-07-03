@@ -227,6 +227,18 @@ export class SupabaseRestClient {
   private async responseError(response: Response, code: string) {
     const message = await upstreamErrorMessage(response);
     if (
+      message.includes("avatar_storage_key") ||
+      message.includes("avatar_mime_type") ||
+      message.includes("avatar_updated_at")
+    ) {
+      return apiError(
+        503,
+        "Workspace member profiles require Supabase migration 0016_workspace_member_profiles.sql.",
+        "workspace_member_profile_migration_required"
+      );
+    }
+
+    if (
       message.includes("auth_user_id") ||
       message.includes("workspace_member_roles.workspace_id") ||
       message.includes("workspace_role_permissions.workspace_id") ||

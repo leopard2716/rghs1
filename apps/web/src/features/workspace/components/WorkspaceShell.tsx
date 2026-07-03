@@ -14,7 +14,7 @@ import {
   Users
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { AccountMenu } from "../../../components/shared/AccountMenu";
 import { NotificationCenter } from "../../../components/shared/NotificationCenter";
 import { usePersistentSidebarState } from "../../../components/shared/usePersistentSidebarState";
@@ -41,6 +41,7 @@ export function WorkspaceShell({
 }) {
   const isAdmin = workspaceSession.member.roleKeys.includes("admin");
   const slug = workspaceSession.workspace.slug;
+  const navigate = useNavigate();
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentSidebarState(
     "workspace-sidebar-collapsed"
   );
@@ -200,6 +201,7 @@ export function WorkspaceShell({
             />
             <AccountMenu
               email={session.user.email}
+              onOpenProfile={() => navigate(paths.workspaceAccount(slug))}
               onRecoverPassword={onRecoverPassword}
               onSignOut={onSignOut}
             />
@@ -217,6 +219,13 @@ function workspaceViewCopy(view: WorkspaceView) {
     return {
       eyebrow: "Workspace administration",
       title: (workspaceName: string) => `${workspaceName} Users`
+    };
+  }
+
+  if (view === "account") {
+    return {
+      eyebrow: "Tenant account",
+      title: () => "Profile"
     };
   }
 

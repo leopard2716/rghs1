@@ -75,6 +75,7 @@ type PaymentLedgerRecordResponse = {
   source: "job" | "custom";
   customRecordId: string | null;
   jobName: string;
+  sourceDetail: string;
   company: string | null;
   amount: number;
   direction: "income" | "outcome";
@@ -1224,9 +1225,35 @@ export class TrackingService {
     return { job: await this.jobResponse(context, job) };
   }
 
+  async deleteJob(slug: string, jobRecordId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    const now = new Date().toISOString();
+    const [job] = await this.supabase.update<JobRecordRow>(
+      "job_records",
+      {
+        deleted_at: now,
+        updated_at: now
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${jobRecordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!job) {
+      throw apiError(404, "Job record was not found.", "job_record_not_found");
+    }
+
+    await this.audit(context, "tracking.job.deleted", job.id, {});
+    return { ok: true, jobRecordId: job.id };
+  }
+
   async listPayments(slug: string, user: AuthUser, query: PaymentListQuery) {
     const context = await this.access.requireContext(slug, user.id);
     const canManagePayments = this.canManagePayments(context);
+    const canEditPayments = this.canEditPayments(context);
+    const canDeletePayments = context.roleKeys.includes("admin");
     const [paymentRows, jobRows, referenceData] = await Promise.all([
       this.loadPayments(context.workspace.id),
       this.loadJobs(context.workspace.id, true),
@@ -1244,7 +1271,10 @@ export class TrackingService {
       allJobs,
       referenceData.members,
       context.member.id,
-      this.canEditPayments(context)
+      {
+        canEdit: canEditPayments,
+        canDelete: canDeletePayments
+      }
     );
     const payments = allPayments.filter((payment) =>
       this.canViewPayment(payment, context, canManagePayments)
@@ -1261,7 +1291,7 @@ export class TrackingService {
 
     return {
       workspace: workspaceResponse(context.workspace),
-      canCreate: this.canEditPayments(context),
+      canCreate: canEditPayments,
       canPay: context.roleKeys.includes("admin"),
       jobRecords: visibleJobs.filter((job) => !job.deletedAt && !job.bidDeleted),
       payments: result.records,
@@ -1364,6 +1394,32 @@ export class TrackingService {
     return { payment: await this.paymentResponse(context, payment) };
   }
 
+  async deletePayment(slug: string, paymentRecordId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    const now = new Date().toISOString();
+    const [payment] = await this.supabase.update<PaymentRecordRow>(
+      "payment_records",
+      {
+        deleted_at: now,
+        updated_at: now
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${paymentRecordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!payment) {
+      throw apiError(404, "Payment record was not found.", "payment_record_not_found");
+    }
+
+    await this.audit(context, "tracking.payment.deleted", payment.id, {
+      status: payment.status
+    });
+    return { ok: true, paymentRecordId: payment.id };
+  }
+
   async paymentLedger(slug: string, user: AuthUser, query: PaymentLedgerQuery) {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireRole(context, "admin");
@@ -1403,12 +1459,14 @@ export class TrackingService {
       allJobs,
       referenceData.members,
       context.member.id,
-      false
+      {
+        canEdit: false,
+        canDelete: false
+      }
     );
     const jobPaymentRecords = payments
       .filter((payment) => dateInOptionalRange(payment.createdAt, query.dateFrom, query.dateTo))
-      .map((payment) => paymentLedgerRecordForMember(payment, selectedMemberId))
-      .filter((record): record is PaymentLedgerRecordResponse => Boolean(record));
+      .flatMap((payment) => paymentLedgerRecordsForMember(payment, selectedMemberId));
     const customRecords = customRows
       .filter((row) => dateInOptionalRange(row.recorded_at, query.dateFrom, query.dateTo))
       .map((row) => customPaymentRecordResponse(row));
@@ -1538,7 +1596,10 @@ export class TrackingService {
       allJobs,
       referenceData.members,
       context.member.id,
-      this.canEditPayments(context)
+      {
+        canEdit: this.canEditPayments(context),
+        canDelete: context.roleKeys.includes("admin")
+      }
     );
     const analyzedPayments = allAnalyzedPayments.filter(
       (payment) =>
@@ -2105,13 +2166,10 @@ export class TrackingService {
       context.member.id,
       context.roleKeys.includes("admin")
     );
-    const [payment] = this.records.payments(
-      [row],
-      jobs,
-      referenceData.members,
-      context.member.id,
-      this.canEditPayments(context)
-    );
+    const [payment] = this.records.payments([row], jobs, referenceData.members, context.member.id, {
+      canEdit: this.canEditPayments(context),
+      canDelete: context.roleKeys.includes("admin")
+    });
     if (!payment) {
       throw apiError(404, "Payment record was not found.", "payment_record_not_found");
     }
@@ -2296,40 +2354,67 @@ function sortPaymentLedgerRecords(
   rows: PaymentLedgerRecordResponse[]
 ): PaymentLedgerRecordResponse[] {
   return [...rows].sort(
-    (left, right) => right.date.localeCompare(left.date) || right.id.localeCompare(left.id)
+    (left, right) =>
+      right.date.localeCompare(left.date) ||
+      paymentLedgerRoleRank(right) - paymentLedgerRoleRank(left) ||
+      right.id.localeCompare(left.id)
   );
 }
 
-function paymentLedgerRecordForMember(
+function paymentLedgerRecordsForMember(
   payment: PaymentRecordResponse,
   memberId: string
-): PaymentLedgerRecordResponse | null {
-  const amount = paymentAmountForMember(payment, memberId);
-  if (amount <= 0) {
-    return null;
-  }
+): PaymentLedgerRecordResponse[] {
+  const allocations = [
+    {
+      key: "bidder",
+      label: "Bidder",
+      memberId: payment.bidder?.id,
+      amount: payment.amounts.bidder
+    },
+    {
+      key: "caller",
+      label: "Caller",
+      memberId: payment.caller?.id,
+      amount: payment.amounts.caller
+    },
+    {
+      key: "worker",
+      label: "Worker",
+      memberId: payment.worker?.id,
+      amount: payment.amounts.worker
+    },
+    {
+      key: "payment-discount",
+      label: "Payment discount",
+      memberId: payment.paymentManager?.id,
+      amount: payment.amounts.paymentManager
+    }
+  ];
 
-  return {
-    id: `job:${payment.id}`,
-    source: "job",
-    customRecordId: null,
-    jobName: payment.jobTitle,
-    company: payment.company,
-    amount,
-    direction: "income",
-    date: payment.createdAt,
-    canEdit: false,
-    canDelete: false
-  };
+  return allocations
+    .filter((allocation) => allocation.memberId === memberId && allocation.amount > 0)
+    .map((allocation) => ({
+      id: `job:${payment.id}:${allocation.key}`,
+      source: "job" as const,
+      customRecordId: null,
+      jobName: payment.jobTitle,
+      sourceDetail: `Job payment: ${allocation.label} allocation`,
+      company: payment.company,
+      amount: roundCurrency(allocation.amount),
+      direction: "income" as const,
+      date: payment.createdAt,
+      canEdit: false,
+      canDelete: false
+    }));
 }
 
-function paymentAmountForMember(payment: PaymentRecordResponse, memberId: string): number {
-  let amount = 0;
-  if (payment.bidder?.id === memberId) amount += payment.amounts.bidder;
-  if (payment.caller?.id === memberId) amount += payment.amounts.caller;
-  if (payment.worker?.id === memberId) amount += payment.amounts.worker;
-  if (payment.paymentManager?.id === memberId) amount += payment.amounts.paymentManager;
-  return roundCurrency(amount);
+function paymentLedgerRoleRank(record: PaymentLedgerRecordResponse): number {
+  if (record.id.endsWith(":bidder")) return 4;
+  if (record.id.endsWith(":caller")) return 3;
+  if (record.id.endsWith(":worker")) return 2;
+  if (record.id.endsWith(":payment-discount")) return 1;
+  return 0;
 }
 
 function customPaymentRecordResponse(row: CustomPaymentRecordRow): PaymentLedgerRecordResponse {
@@ -2338,6 +2423,7 @@ function customPaymentRecordResponse(row: CustomPaymentRecordRow): PaymentLedger
     source: "custom",
     customRecordId: row.id,
     jobName: row.name,
+    sourceDetail: row.direction === "income" ? "Custom income" : "Custom outcome",
     company: null,
     amount: Number(row.amount),
     direction: row.direction,
@@ -2641,6 +2727,13 @@ function trackingNotification(action: string, actorName: string) {
       message: `${actorName} updated a job record.`
     };
   }
+  if (action === "tracking.job.deleted") {
+    return {
+      priority: "warning" as const,
+      title: "Job record deleted",
+      message: `${actorName} deleted a job record.`
+    };
+  }
   if (action === "tracking.payment.created") {
     return {
       priority: "info" as const,
@@ -2653,6 +2746,13 @@ function trackingNotification(action: string, actorName: string) {
       priority: "info" as const,
       title: "Payment record updated",
       message: `${actorName} updated a payment record.`
+    };
+  }
+  if (action === "tracking.payment.deleted") {
+    return {
+      priority: "warning" as const,
+      title: "Payment record deleted",
+      message: `${actorName} deleted a payment record.`
     };
   }
   if (action === "tracking.profile.created" || action === "tracking.job_market.created") {

@@ -114,6 +114,7 @@ export type JobRecord = {
   createdAt: string;
   deletedAt: string | null;
   canEdit: boolean;
+  canDelete: boolean;
 };
 
 export type PaymentRecord = {
@@ -135,6 +136,7 @@ export type PaymentRecord = {
   createdAt: string;
   paidAt: string | null;
   canEdit: boolean;
+  canDelete: boolean;
 };
 
 export type PaymentLedgerDirection = "income" | "outcome";
@@ -144,6 +146,7 @@ export type PaymentLedgerRecord = {
   source: "job" | "custom";
   customRecordId: string | null;
   jobName: string;
+  sourceDetail: string;
   company: string | null;
   amount: number;
   direction: PaymentLedgerDirection;
@@ -720,6 +723,22 @@ export async function updateJobRecord(
   return parseJson<{ job: JobRecord }>(response);
 }
 
+export async function deleteJobRecord(
+  session: AuthSession,
+  slug: string,
+  jobRecordId: string
+): Promise<{ ok: boolean; jobRecordId: string }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/jobs/${jobRecordId}`,
+    {
+      method: "DELETE",
+      headers: authHeaders()
+    }
+  );
+  return parseJson<{ ok: boolean; jobRecordId: string }>(response);
+}
+
 export async function fetchPayments(
   session: AuthSession,
   slug: string,
@@ -782,6 +801,22 @@ export async function updatePaymentRecord(
     }
   );
   return parseJson<{ payment: PaymentRecord }>(response);
+}
+
+export async function deletePaymentRecord(
+  session: AuthSession,
+  slug: string,
+  paymentRecordId: string
+): Promise<{ ok: boolean; paymentRecordId: string }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/${paymentRecordId}`,
+    {
+      method: "DELETE",
+      headers: authHeaders()
+    }
+  );
+  return parseJson<{ ok: boolean; paymentRecordId: string }>(response);
 }
 
 export async function fetchPaymentLedger(

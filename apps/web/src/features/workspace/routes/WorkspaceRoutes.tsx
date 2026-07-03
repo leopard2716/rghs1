@@ -4,7 +4,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { AccessErrorPanel } from "../../../components/shared/AccessErrorPanel";
 import { LoadingSurface } from "../../../components/shared/LoadingSurface";
 import { errorMessage, UserFacingError } from "../../../errors";
-import { paths, recoveryPath } from "../../../routing/paths";
+import { paths, workspaceRecoveryPath } from "../../../routing/paths";
 import {
   sessionMatchesAuthScope,
   signOut,
@@ -24,6 +24,11 @@ import { WorkspaceMembershipStatus } from "../components/WorkspaceMembershipStat
 import { WorkspaceRegisterPage } from "../components/WorkspaceRegisterPage";
 import type { WorkspaceView } from "../workspace.types";
 
+const WorkspaceAccountPage = lazy(() =>
+  import("../components/WorkspaceAccountPage").then((module) => ({
+    default: module.WorkspaceAccountPage
+  }))
+);
 const BidsPage = lazy(() =>
   import("../components/BidsPage").then((module) => ({
     default: module.BidsPage
@@ -99,7 +104,7 @@ export function WorkspaceEntryRoute() {
         setSession(nextSession);
         navigate(paths.workspaceDashboard(workspaceSlug), { replace: true });
       }}
-      onRecoverPassword={() => navigate(recoveryPath(paths.workspaceRoot(workspaceSlug)))}
+      onRecoverPassword={() => navigate(workspaceRecoveryPath(workspaceSlug))}
       onRegister={() => navigate(paths.workspaceRegister(workspaceSlug))}
     />
   );
@@ -151,6 +156,10 @@ export function WorkspaceRegisterRoute() {
 
 export function WorkspaceDashboardRoute() {
   return <WorkspaceProtectedRoute view="overview" />;
+}
+
+export function WorkspaceAccountRoute() {
+  return <WorkspaceProtectedRoute view="account" />;
 }
 
 export function WorkspaceUsersRoute() {
@@ -334,12 +343,27 @@ function WorkspaceMfaContent({
     onSignOut
   };
 
+  if (view === "account") {
+    return (
+      <Suspense fallback={<LoadingSurface label="Loading profile" />}>
+        <WorkspaceAccountPage
+          {...sharedProps}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceAccount(workspaceSlug)))
+          }
+        />
+      </Suspense>
+    );
+  }
+
   if (view === "users") {
     return (
       <Suspense fallback={<LoadingSurface label="Loading user management" />}>
         <WorkspaceUsersPage
           {...sharedProps}
-          onRecoverPassword={() => navigate(recoveryPath(paths.workspaceUsers(workspaceSlug)))}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceUsers(workspaceSlug)))
+          }
         />
       </Suspense>
     );
@@ -350,7 +374,9 @@ function WorkspaceMfaContent({
       <Suspense fallback={<LoadingSurface label="Loading profiles" />}>
         <TrackingProfilesPage
           {...sharedProps}
-          onRecoverPassword={() => navigate(recoveryPath(paths.workspaceProfiles(workspaceSlug)))}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceProfiles(workspaceSlug)))
+          }
         />
       </Suspense>
     );
@@ -361,7 +387,9 @@ function WorkspaceMfaContent({
       <Suspense fallback={<LoadingSurface label="Loading bids" />}>
         <BidsPage
           {...sharedProps}
-          onRecoverPassword={() => navigate(recoveryPath(paths.workspaceBids(workspaceSlug)))}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceBids(workspaceSlug)))
+          }
         />
       </Suspense>
     );
@@ -372,7 +400,9 @@ function WorkspaceMfaContent({
       <Suspense fallback={<LoadingSurface label="Loading interviews" />}>
         <InterviewsPage
           {...sharedProps}
-          onRecoverPassword={() => navigate(recoveryPath(paths.workspaceInterviews(workspaceSlug)))}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceInterviews(workspaceSlug)))
+          }
         />
       </Suspense>
     );
@@ -383,7 +413,9 @@ function WorkspaceMfaContent({
       <Suspense fallback={<LoadingSurface label="Loading jobs" />}>
         <JobsPage
           {...sharedProps}
-          onRecoverPassword={() => navigate(recoveryPath(paths.workspaceJobs(workspaceSlug)))}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceJobs(workspaceSlug)))
+          }
         />
       </Suspense>
     );
@@ -394,7 +426,9 @@ function WorkspaceMfaContent({
       <Suspense fallback={<LoadingSurface label="Loading payments" />}>
         <PaymentManagementPage
           {...sharedProps}
-          onRecoverPassword={() => navigate(recoveryPath(paths.workspacePayments(workspaceSlug)))}
+          onRecoverPassword={() =>
+            navigate(workspaceRecoveryPath(workspaceSlug, paths.workspacePayments(workspaceSlug)))
+          }
         />
       </Suspense>
     );
@@ -406,7 +440,9 @@ function WorkspaceMfaContent({
         <PaymentLedgerPage
           {...sharedProps}
           onRecoverPassword={() =>
-            navigate(recoveryPath(paths.workspacePaymentLedger(workspaceSlug)))
+            navigate(
+              workspaceRecoveryPath(workspaceSlug, paths.workspacePaymentLedger(workspaceSlug))
+            )
           }
         />
       </Suspense>
@@ -417,7 +453,9 @@ function WorkspaceMfaContent({
     <Suspense fallback={<LoadingSurface label="Loading dashboard" />}>
       <WorkspaceOverviewPage
         {...sharedProps}
-        onRecoverPassword={() => navigate(recoveryPath(paths.workspaceDashboard(workspaceSlug)))}
+        onRecoverPassword={() =>
+          navigate(workspaceRecoveryPath(workspaceSlug, paths.workspaceDashboard(workspaceSlug)))
+        }
       />
     </Suspense>
   );

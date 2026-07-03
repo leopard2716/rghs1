@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  workspaceAccountInput,
   workspaceMemberRolesInput,
   workspaceMemberStatusInput,
   workspaceRegistrationInput
@@ -42,5 +43,12 @@ describe("workspace member schemas", () => {
         roleKeys: ["viewer"]
       }).success
     ).toBe(false);
+  });
+
+  it("trims and validates tenant profile display names", () => {
+    expect(workspaceAccountInput.parse({ displayName: "  Workspace Member  " })).toEqual({
+      displayName: "Workspace Member"
+    });
+    expect(workspaceAccountInput.safeParse({ displayName: "A" }).success).toBe(false);
   });
 });

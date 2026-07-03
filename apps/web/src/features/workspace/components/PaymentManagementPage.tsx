@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CreditCard, LoaderCircle, Plus, RefreshCw, Save, X } from "lucide-react";
+import { CreditCard, LoaderCircle, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Modal } from "../../../components/shared/Modal";
@@ -7,6 +7,7 @@ import { errorMessage } from "../../../errors";
 import type { AuthSession } from "../../../services/auth.service";
 import {
   createPaymentRecord,
+  deletePaymentRecord,
   fetchPayment,
   fetchPayments,
   updatePaymentRecord,
@@ -49,6 +50,7 @@ export function PaymentManagementPage({
   const creating = searchParams.get("modal") === "new";
   const requestedPaymentId = searchParams.get("paymentRecordId");
   const queryClient = useQueryClient();
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const paymentsQuery = useQuery({
     queryKey: ["tracking-payments", slug, memberId, listQuery],
     queryFn: () => fetchPayments(session, slug, listQuery),
@@ -102,7 +104,18 @@ export function PaymentManagementPage({
       await refreshPaymentData(queryClient, slug);
     }
   });
+  const deleteMutation = useMutation({
+    mutationFn: (paymentId: string) => deletePaymentRecord(session, slug, paymentId),
+    onSuccess: async () => {
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
+      await refreshPaymentData(queryClient, slug);
+    },
+    onSettled: () => setDeletingPaymentId(null)
+  });
   const pending = createMutation.isPending || updateMutation.isPending;
+  const showActions = Boolean(paymentsQuery.data?.payments.some((payment) => payment.canDelete));
 
   function openPayment(payment: PaymentRecord) {
     const next = clearTrackingModalParams(new URLSearchParams(searchParamsValue));
@@ -206,16 +219,23 @@ export function PaymentManagementPage({
                     <th>Amount</th>
                     <th>People</th>
                     <th>Created</th>
+                    {showActions ? <th>Actions</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {paymentsQuery.isFetching ? (
-                    <TableLoadingRow colSpan={4} label="Loading payment results" />
+                    <TableLoadingRow
+                      colSpan={showActions ? 5 : 4}
+                      label="Loading payment results"
+                    />
                   ) : paymentsQuery.data.payments.length ? (
                     paymentsQuery.data.payments.map((payment) => (
                       <tr
                         key={payment.id}
-                        className="tracking-row-clickable"
+                        className={`tracking-row-clickable${
+                          deletingPaymentId === payment.id ? " tenant-row-pending" : ""
+                        }`}
+                        aria-busy={deletingPaymentId === payment.id}
                         tabIndex={0}
                         onClick={() => openPayment(payment)}
                         onKeyDown={(event) => {
@@ -252,11 +272,41 @@ export function PaymentManagementPage({
                           <strong>{displayDate(payment.createdAt)}</strong>
                           <span>By {payment.createdBy?.name ?? "Former member"}</span>
                         </td>
+                        {showActions ? (
+                          <td>
+                            {payment.canDelete ? (
+                              <button
+                                className="secondary-action compact-action danger-action"
+                                type="button"
+                                disabled={deletingPaymentId === payment.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const confirmed = window.confirm(
+                                    `Delete the ${formatCurrency(
+                                      payment.paymentAmount
+                                    )} payment for "${payment.jobTitle}" at ${payment.company}?`
+                                  );
+                                  if (confirmed) {
+                                    setDeletingPaymentId(payment.id);
+                                    deleteMutation.mutate(payment.id);
+                                  }
+                                }}
+                              >
+                                {deletingPaymentId === payment.id ? (
+                                  <LoaderCircle className="spin-icon" aria-hidden="true" />
+                                ) : (
+                                  <Trash2 aria-hidden="true" />
+                                )}
+                                {deletingPaymentId === payment.id ? "Deleting" : "Delete"}
+                              </button>
+                            ) : null}
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   ) : (
                     <tr className="tracking-table-empty-row">
-                      <td colSpan={4}>No payments match the current view.</td>
+                      <td colSpan={showActions ? 5 : 4}>No payments match the current view.</td>
                     </tr>
                   )}
                 </tbody>
@@ -272,6 +322,9 @@ export function PaymentManagementPage({
               <p className="form-error">{errorMessage(paymentsQuery.error)}</p>
             ) : null}
           </>
+        ) : null}
+        {deleteMutation.isError ? (
+          <p className="form-error">{errorMessage(deleteMutation.error)}</p>
         ) : null}
         {requestedPaymentQuery.isError ? (
           <p className="form-error">{errorMessage(requestedPaymentQuery.error)}</p>
@@ -508,6 +561,7 @@ function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string })
 async function refreshPaymentData(queryClient: ReturnType<typeof useQueryClient>, slug: string) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["tracking-payments", slug] }),
+    queryClient.invalidateQueries({ queryKey: ["tracking-payment", slug] }),
     queryClient.invalidateQueries({ queryKey: ["tracking-payment-ledger", slug] })
   ]);
 }
