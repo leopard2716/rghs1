@@ -56,6 +56,7 @@ function renderShell(roleKeys: string[], view: WorkspaceView) {
     interviews: "/rg-team/interviews",
     jobs: "/rg-team/jobs",
     payments: "/rg-team/payments",
+    "payment-ledger": "/rg-team/payments/ledger",
     users: "/rg-team/users"
   };
 
@@ -88,7 +89,18 @@ describe("WorkspaceShell navigation", () => {
     expect(markup).toContain("/rg-team/interviews");
     expect(markup).toContain("/rg-team/jobs");
     expect(markup).toContain("/rg-team/payments");
+    expect(markup).not.toContain("/rg-team/payments/ledger");
+    expect(markup).not.toContain("User ledger");
     expect(markup).toContain("/rg-team/users");
+  });
+
+  it("expands the payments submenu on payment ledger views", () => {
+    const markup = renderShell(["admin", "bidder"], "payment-ledger");
+
+    expect(markup).toContain("/rg-team/payments");
+    expect(markup).toContain("/rg-team/payments/ledger");
+    expect(markup).toContain("User ledger");
+    expect(markup).toContain('aria-expanded="true"');
   });
 
   it("does not expose administration navigation to regular users", () => {
@@ -96,6 +108,7 @@ describe("WorkspaceShell navigation", () => {
 
     expect(markup).not.toContain("Administration");
     expect(markup).not.toContain("User management");
+    expect(markup).not.toContain("User ledger");
   });
 
   it("exposes tracking duties to active regular workspace members", () => {
@@ -106,6 +119,7 @@ describe("WorkspaceShell navigation", () => {
     expect(markup).toContain("/rg-team/interviews");
     expect(markup).toContain("/rg-team/jobs");
     expect(markup).toContain("/rg-team/payments");
+    expect(markup).not.toContain("/rg-team/payments/ledger");
     expect(markup).not.toContain("/rg-team/users");
   });
 });

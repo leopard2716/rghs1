@@ -55,6 +55,10 @@ export const paymentRecordParams = z.object({
   paymentRecordId: z.string().uuid()
 });
 
+export const customPaymentRecordParams = z.object({
+  customRecordId: z.string().uuid()
+});
+
 export const bidRecordInput = z
   .object({
     jobTitle: z.string().trim().min(2).max(180),
@@ -159,6 +163,13 @@ export const paymentRecordInput = z.object({
   paymentAmount: z.coerce.number().positive().max(999999999).multipleOf(0.01)
 });
 
+export const customPaymentRecordInput = z.object({
+  memberId: z.string().uuid(),
+  name: z.string().trim().min(2).max(180),
+  amount: z.coerce.number().positive().max(999999999).multipleOf(0.01),
+  direction: z.enum(["income", "outcome"])
+});
+
 export const paymentPayInput = z.object({
   paymentRecordIds: z.array(z.string().uuid()).min(1)
 });
@@ -218,6 +229,26 @@ export const paymentAnalysisQuery = z
     }
   });
 
+export const paymentLedgerQuery = z
+  .object({
+    memberId: z.string().uuid().optional(),
+    dateFrom: z.string().datetime().optional(),
+    dateTo: z.string().datetime().optional()
+  })
+  .superRefine((input, context) => {
+    if (
+      input.dateFrom &&
+      input.dateTo &&
+      new Date(input.dateTo).getTime() <= new Date(input.dateFrom).getTime()
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dateTo"],
+        message: "Payment ledger date range end must be after its start."
+      });
+    }
+  });
+
 export const trackingDashboardQuery = z
   .object({
     from: z.string().datetime(),
@@ -257,12 +288,14 @@ export type BulkBidRecordInput = z.infer<typeof bulkBidRecordInput>;
 export type InterviewRecordInput = z.infer<typeof interviewRecordInput>;
 export type JobRecordInput = z.infer<typeof jobRecordInput>;
 export type PaymentRecordInput = z.infer<typeof paymentRecordInput>;
+export type CustomPaymentRecordInput = z.infer<typeof customPaymentRecordInput>;
 export type PaymentPayInput = z.infer<typeof paymentPayInput>;
 export type BidListQuery = z.infer<typeof bidListQuery>;
 export type InterviewListQuery = z.infer<typeof interviewListQuery>;
 export type JobListQuery = z.infer<typeof jobListQuery>;
 export type PaymentListQuery = z.infer<typeof paymentListQuery>;
 export type PaymentAnalysisQuery = z.infer<typeof paymentAnalysisQuery>;
+export type PaymentLedgerQuery = z.infer<typeof paymentLedgerQuery>;
 export type TrackingDashboardQuery = z.infer<typeof trackingDashboardQuery>;
 
 function isTimeZone(value: string): boolean {

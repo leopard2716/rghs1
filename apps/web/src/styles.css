@@ -805,6 +805,18 @@ button {
   margin-top: 34px;
 }
 
+.sidebar-nav-group {
+  display: grid;
+  gap: 5px;
+}
+
+.sidebar-parent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 4px;
+  align-items: center;
+}
+
 .sidebar-nav a {
   min-height: 42px;
   display: flex;
@@ -820,9 +832,60 @@ button {
   flex: 0 0 auto;
 }
 
+.sidebar-submenu-toggle {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #cddbd3;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+
+.sidebar-submenu-toggle:hover {
+  color: #ffffff;
+  background: #24352d;
+}
+
+.sidebar-submenu-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
 .admin-shell-collapsed .sidebar-nav a {
   justify-content: center;
   padding: 0;
+}
+
+.admin-shell-collapsed .sidebar-parent-row {
+  grid-template-columns: 1fr;
+}
+
+.admin-shell-collapsed .sidebar-submenu-toggle {
+  display: none;
+}
+
+.sidebar-subnav {
+  display: grid;
+  gap: 4px;
+  margin-left: 17px;
+}
+
+.sidebar-subnav a {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.86rem;
+}
+
+.sidebar-subnav a svg {
+  width: 16px;
+  height: 16px;
+}
+
+.admin-shell-collapsed .sidebar-subnav {
+  margin-left: 0;
 }
 
 .sidebar-nav a.active,
@@ -1456,6 +1519,14 @@ td span {
   border-radius: 8px;
 }
 
+.payment-ledger-controls {
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.7fr) repeat(2, minmax(150px, 0.55fr));
+}
+
+.payment-management-controls {
+  grid-template-columns: minmax(240px, 1fr) repeat(2, minmax(145px, 0.45fr));
+}
+
 .tracking-list-controls label,
 .dashboard-controls label {
   display: grid;
@@ -1496,6 +1567,42 @@ td span {
   width: 44px;
   min-width: 44px;
   text-align: center;
+}
+
+.payment-ledger-table {
+  min-width: 820px;
+}
+
+.payment-management-table {
+  min-width: 980px;
+}
+
+.payment-ledger-summary {
+  margin-bottom: 14px;
+}
+
+.payment-ledger-sum-row td {
+  background: #f7f8f4;
+  border-top: 2px solid #d9ded5;
+  font-weight: 800;
+}
+
+.payment-ledger-sum-row td span {
+  color: #65716b;
+}
+
+.payment-ledger-amount.income,
+.ledger-direction.income {
+  color: #135c4f;
+}
+
+.payment-ledger-amount.outcome,
+.ledger-direction.outcome {
+  color: #9d2f2f;
+}
+
+.ledger-direction {
+  font-weight: 800;
 }
 
 .tracking-table-loading-row td,

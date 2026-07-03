@@ -171,6 +171,52 @@ describe("TrackingService payment notifications", () => {
   });
 });
 
+describe("TrackingService payment ledger", () => {
+  it("lists selected-user job allocations with custom income and outcome records", async () => {
+    const selectedMemberId = "3c8ce1f7-cb3f-43b4-90e8-0b79a127c8b1";
+    const supabase = paymentLedgerSupabase(selectedMemberId);
+    const service = new TrackingService(supabase as unknown as SupabaseRestClient);
+
+    await expect(
+      service.paymentLedger(
+        "rg-team",
+        { id: authUserId },
+        {
+          memberId: selectedMemberId,
+          dateFrom: "2026-06-01T00:00:00.000Z",
+          dateTo: "2026-07-01T00:00:00.000Z"
+        }
+      )
+    ).resolves.toMatchObject({
+      selectedMemberId,
+      members: [
+        { id: selectedMemberId, name: "Frank" },
+        { id: memberId, name: "Workspace Admin" }
+      ],
+      records: [
+        {
+          source: "custom",
+          customRecordId: "4e1ed24a-a4ab-4eca-bc30-9abf781d73a1",
+          jobName: "Adjustment",
+          amount: 75,
+          direction: "outcome",
+          canEdit: true,
+          canDelete: true
+        },
+        {
+          source: "job",
+          jobName: "Platform Engineer",
+          company: "Acme",
+          amount: 500,
+          direction: "income",
+          canEdit: false,
+          canDelete: false
+        }
+      ]
+    });
+  });
+});
+
 describe("TrackingService profile filtering", () => {
   it("includes active interview references on bid list records", async () => {
     const supabase = listBidsWithReferenceInterviewsSupabase();
@@ -487,6 +533,184 @@ function payPendingPaymentsSupabase(paymentOneId: string, paymentTwoId: string) 
       return [];
     }),
     insert,
+    delete: vi.fn(async () => [])
+  };
+}
+
+function paymentLedgerSupabase(selectedMemberId: string) {
+  const marketId = "a79a47ef-bf8c-4821-8b31-ff5200fd5061";
+  const bidId = "5c6757ac-ef52-40e3-a875-c5c0bf2a1e75";
+  const jobRecordId = "90107d6c-14e5-4a21-aace-8790384ab326";
+  const adminMember = {
+    id: memberId,
+    workspace_id: workspaceId,
+    auth_user_id: authUserId,
+    display_name: "Workspace Admin",
+    email: "admin@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const selectedMember = {
+    id: selectedMemberId,
+    workspace_id: workspaceId,
+    auth_user_id: "46f7256a-d1cb-4ee3-a8f9-36899fce62a1",
+    display_name: "Frank",
+    email: "frank@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const market = {
+    id: marketId,
+    workspace_id: workspaceId,
+    market_key: "us",
+    name: "US Job Market",
+    system: true,
+    created_by_member_id: null,
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const bid = {
+    id: bidId,
+    workspace_id: workspaceId,
+    job_market_id: marketId,
+    job_title: "Platform Engineer",
+    company: "Acme",
+    job_link: "https://example.com/job",
+    bid_at: "2026-06-18T00:00:00.000Z",
+    job_description: null,
+    created_by_member_id: memberId,
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const job = {
+    id: jobRecordId,
+    workspace_id: workspaceId,
+    bid_id: bidId,
+    bidder_member_id: selectedMemberId,
+    caller_member_id: memberId,
+    worker_member_id: selectedMemberId,
+    bidder_rate: 30,
+    caller_rate: 10,
+    worker_rate: 60,
+    discount_rate: 0,
+    created_by_member_id: memberId,
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+  const payment = {
+    ...paymentRow("3b12c73b-64a0-4249-9f52-88afd27c6b33", {
+      bidderMemberId: selectedMemberId,
+      callerMemberId: memberId,
+      workerMemberId: selectedMemberId,
+      paymentManagerMemberId: memberId,
+      bidderAmount: 200,
+      callerAmount: 100,
+      workerAmount: 300,
+      paymentManagerAmount: 50,
+      paymentAmount: 650
+    }),
+    job_record_id: jobRecordId
+  };
+  const customRecords = [
+    {
+      id: "4e1ed24a-a4ab-4eca-bc30-9abf781d73a1",
+      workspace_id: workspaceId,
+      member_id: selectedMemberId,
+      name: "Adjustment",
+      amount: 75,
+      direction: "outcome" as const,
+      created_by_member_id: memberId,
+      recorded_at: "2026-06-20T00:00:00.000Z",
+      created_at: "2026-06-20T00:00:00.000Z",
+      updated_at: "2026-06-20T00:00:00.000Z",
+      deleted_at: null
+    },
+    {
+      id: "5e1ed24a-a4ab-4eca-bc30-9abf781d73a2",
+      workspace_id: workspaceId,
+      member_id: selectedMemberId,
+      name: "Old adjustment",
+      amount: 125,
+      direction: "income" as const,
+      created_by_member_id: memberId,
+      recorded_at: "2026-05-20T00:00:00.000Z",
+      created_at: "2026-05-20T00:00:00.000Z",
+      updated_at: "2026-05-20T00:00:00.000Z",
+      deleted_at: null
+    }
+  ];
+
+  const select = vi.fn(async (table: string, fields?: string, filters?: Record<string, string>) => {
+    if (table === "workspaces") {
+      return [
+        {
+          id: workspaceId,
+          name: "RG Team",
+          slug: "rg-team",
+          status: "active",
+          created_at: "2026-06-18T00:00:00.000Z"
+        }
+      ];
+    }
+    if (table === "workspace_members") {
+      if (filters?.auth_user_id === `eq.${authUserId}`) {
+        return [adminMember];
+      }
+      if (filters?.id === `in.(${selectedMemberId})`) {
+        return [selectedMember];
+      }
+      return [adminMember, selectedMember];
+    }
+    if (table === "workspace_roles") {
+      return [
+        {
+          id: "role-admin",
+          workspace_id: workspaceId,
+          name: "Admin",
+          key: "admin",
+          system: true,
+          deleted_at: null
+        }
+      ];
+    }
+    if (table === "workspace_member_roles") {
+      return [{ workspace_id: workspaceId, member_id: memberId, role_id: "role-admin" }];
+    }
+    if (table === "tracking_job_markets") {
+      return [market];
+    }
+    if (table === "bid_records" && fields === "job_market_id") {
+      return [];
+    }
+    return [];
+  });
+
+  return {
+    select,
+    selectAll: vi.fn(async (table: string) => {
+      if (table === "workspace_members") return [adminMember, selectedMember];
+      if (table === "payment_records") return [payment];
+      if (table === "custom_payment_records") return customRecords;
+      if (table === "job_records") return [job];
+      if (table === "tracking_profiles") return [];
+      if (table === "bid_records") return [bid];
+      return [];
+    }),
+    selectPage: vi.fn(async (table: string) => {
+      if (table === "bid_record_profiles" || table === "bid_records") {
+        return { records: [], total: 0 };
+      }
+      return { records: [], total: 0 };
+    }),
+    update: vi.fn(async () => []),
+    insert: vi.fn(async () => []),
     delete: vi.fn(async () => [])
   };
 }

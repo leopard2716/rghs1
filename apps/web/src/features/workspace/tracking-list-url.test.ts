@@ -49,15 +49,21 @@ describe("tracking list URL state", () => {
     expect(params.toString()).toBe("profileId=profile-1&sortBy=jobTitle");
   });
 
-  it("round-trips payment status filters", () => {
+  it("round-trips payment list filters without status flow", () => {
     const params = updatePaymentListParams(new URLSearchParams("paymentRecordId=payment-1"), {
-      status: "pending",
+      jobRecordId: "job-1",
+      sortBy: "amount",
       page: 1
     });
 
     expect(params.get("paymentRecordId")).toBe("payment-1");
-    expect(params.get("status")).toBe("pending");
-    expect(paymentListQueryFromParams(params).status).toBe("pending");
+    expect(params.get("paymentJobId")).toBe("job-1");
+    expect(params.get("sortBy")).toBe("amount");
+    expect(params.has("status")).toBe(false);
+    expect(paymentListQueryFromParams(params)).toMatchObject({
+      jobRecordId: "job-1",
+      sortBy: "amount"
+    });
   });
 
   it("removes deprecated payment range filters when updating payment URLs", () => {
@@ -65,13 +71,13 @@ describe("tracking list URL state", () => {
       new URLSearchParams(
         "dateFrom=2026-06-01T00%3A00%3A00.000Z&dateTo=2026-07-01T00%3A00%3A00.000Z&amountMin=100&amountMax=500&status=paid"
       ),
-      { status: "pending" }
+      { page: 1 }
     );
 
     expect(params.has("dateFrom")).toBe(false);
     expect(params.has("dateTo")).toBe(false);
     expect(params.has("amountMin")).toBe(false);
     expect(params.has("amountMax")).toBe(false);
-    expect(params.get("status")).toBe("pending");
+    expect(params.has("status")).toBe(false);
   });
 });
