@@ -114,6 +114,20 @@ export type PaymentRecordRow = {
   deleted_at: string | null;
 };
 
+export type CustomPaymentRecordRow = {
+  id: string;
+  workspace_id: string;
+  member_id: string;
+  name: string;
+  amount: number | string;
+  direction: "income" | "outcome";
+  created_by_member_id: string | null;
+  recorded_at: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+
 export const trackingProfileFields =
   "id,workspace_id,name,created_by_member_id,created_at,updated_at,deleted_at";
 
@@ -136,3 +150,6 @@ export const jobRecordFields =
 
 export const paymentRecordFields =
   "id,workspace_id,job_record_id,payment_amount,bidder_member_id,caller_member_id,worker_member_id,payment_manager_member_id,bidder_amount,caller_amount,worker_amount,payment_manager_amount,status,created_by_member_id,paid_by_member_id,paid_at,created_at,updated_at,deleted_at";
+
+export const customPaymentRecordFields =
+  "id,workspace_id,member_id,name,amount,direction,created_by_member_id,recorded_at,created_at,updated_at,deleted_at";

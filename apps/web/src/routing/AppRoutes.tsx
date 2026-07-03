@@ -13,6 +13,7 @@ import {
   WorkspaceEntryRoute,
   WorkspaceInterviewsRoute,
   WorkspaceJobsRoute,
+  WorkspacePaymentLedgerRoute,
   WorkspacePaymentsRoute,
   WorkspaceLoginAlias,
   WorkspaceProfilesRoute,
@@ -39,6 +40,7 @@ export function AppRoutes() {
       <Route path="/:workspaceSlug/bids" element={<WorkspaceBidsRoute />} />
       <Route path="/:workspaceSlug/interviews" element={<WorkspaceInterviewsRoute />} />
       <Route path="/:workspaceSlug/jobs" element={<WorkspaceJobsRoute />} />
+      <Route path="/:workspaceSlug/payments/ledger" element={<WorkspacePaymentLedgerRoute />} />
       <Route path="/:workspaceSlug/payments" element={<WorkspacePaymentsRoute />} />
       <Route path="/:workspaceSlug/users" element={<WorkspaceUsersRoute />} />
       <Route path="/:workspaceSlug" element={<WorkspaceEntryRoute />} />

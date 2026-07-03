@@ -1,16 +1,19 @@
 import {
   BriefcaseBusiness,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
   ClipboardList,
   CreditCard,
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
+  ReceiptText,
   ShieldCheck,
   UserRound,
   Users
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { AccountMenu } from "../../../components/shared/AccountMenu";
 import { NotificationCenter } from "../../../components/shared/NotificationCenter";
@@ -41,6 +44,15 @@ export function WorkspaceShell({
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentSidebarState(
     "workspace-sidebar-collapsed"
   );
+  const [paymentsExpanded, setPaymentsExpanded] = useState(
+    () => view === "payments" || view === "payment-ledger"
+  );
+
+  useEffect(() => {
+    if (view === "payments" || view === "payment-ledger") {
+      setPaymentsExpanded(true);
+    }
+  }, [view]);
 
   return (
     <div className={`admin-shell${sidebarCollapsed ? " admin-shell-collapsed" : ""}`}>
@@ -109,14 +121,55 @@ export function WorkspaceShell({
             <ClipboardList aria-hidden="true" />
             <span>Jobs</span>
           </NavLink>
-          <NavLink
-            to={paths.workspacePayments(slug)}
-            title="Payment management"
-            className={({ isActive }) => (isActive ? "active" : undefined)}
-          >
-            <CreditCard aria-hidden="true" />
-            <span>Payments</span>
-          </NavLink>
+          {isAdmin ? (
+            <div className="sidebar-nav-group">
+              <div className="sidebar-parent-row">
+                <NavLink
+                  to={paths.workspacePayments(slug)}
+                  title="Payment management"
+                  className={({ isActive }) => (isActive ? "active" : undefined)}
+                >
+                  <CreditCard aria-hidden="true" />
+                  <span>Payments</span>
+                </NavLink>
+                <button
+                  className="sidebar-submenu-toggle"
+                  type="button"
+                  title={paymentsExpanded ? "Collapse payment menu" : "Expand payment menu"}
+                  aria-label={paymentsExpanded ? "Collapse payment menu" : "Expand payment menu"}
+                  aria-expanded={paymentsExpanded}
+                  onClick={() => setPaymentsExpanded((expanded) => !expanded)}
+                >
+                  {paymentsExpanded ? (
+                    <ChevronDown aria-hidden="true" />
+                  ) : (
+                    <ChevronRight aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+              {paymentsExpanded ? (
+                <div className="sidebar-subnav">
+                  <NavLink
+                    to={paths.workspacePaymentLedger(slug)}
+                    title="User ledger"
+                    className={({ isActive }) => (isActive ? "active" : undefined)}
+                  >
+                    <ReceiptText aria-hidden="true" />
+                    <span>User ledger</span>
+                  </NavLink>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <NavLink
+              to={paths.workspacePayments(slug)}
+              title="Payment management"
+              className={({ isActive }) => (isActive ? "active" : undefined)}
+            >
+              <CreditCard aria-hidden="true" />
+              <span>Payments</span>
+            </NavLink>
+          )}
           {isAdmin ? (
             <NavLink
               to={paths.workspaceUsers(slug)}
@@ -199,6 +252,13 @@ function workspaceViewCopy(view: WorkspaceView) {
     return {
       eyebrow: "Payment management",
       title: (workspaceName: string) => `${workspaceName} Payments`
+    };
+  }
+
+  if (view === "payment-ledger") {
+    return {
+      eyebrow: "Payment records",
+      title: (workspaceName: string) => `${workspaceName} User Ledger`
     };
   }
 
