@@ -7,11 +7,13 @@ import type {
   BidListQuery,
   BulkBidRecordInput,
   BidRecordInput,
+  CustomPaymentRecordInput,
   InterviewListQuery,
   InterviewRecordInput,
   JobListQuery,
   JobRecordInput,
   PaymentAnalysisQuery,
+  PaymentLedgerQuery,
   PaymentListQuery,
   PaymentPayInput,
   PaymentRecordInput,
@@ -48,6 +50,7 @@ import {
 import type {
   BidRecordProfileRow,
   BidRecordRow,
+  CustomPaymentRecordRow,
   InterviewRecordRow,
   JobRecordRow,
   PaymentRecordRow,
@@ -58,6 +61,7 @@ import type {
 import {
   bidRecordFields,
   bidRecordProfileFields,
+  customPaymentRecordFields,
   interviewRecordFields,
   jobRecordFields,
   paymentRecordFields,
@@ -65,6 +69,19 @@ import {
   trackingProfileFields,
   trackingProfileRequestFields
 } from "./tracking.types";
+
+type PaymentLedgerRecordResponse = {
+  id: string;
+  source: "job" | "custom";
+  customRecordId: string | null;
+  jobName: string;
+  company: string | null;
+  amount: number;
+  direction: "income" | "outcome";
+  date: string;
+  canEdit: boolean;
+  canDelete: boolean;
+};
 
 export class TrackingService {
   private readonly notifications: NotificationService;
@@ -1347,6 +1364,160 @@ export class TrackingService {
     return { payment: await this.paymentResponse(context, payment) };
   }
 
+  async paymentLedger(slug: string, user: AuthUser, query: PaymentLedgerQuery) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    const members = await this.loadActiveMembers(context.workspace.id);
+    const selectedMemberId = query.memberId ?? members[0]?.id ?? null;
+
+    if (selectedMemberId) {
+      await this.access.requireActiveMembers(context.workspace.id, [selectedMemberId]);
+    }
+
+    if (!selectedMemberId) {
+      return {
+        workspace: workspaceResponse(context.workspace),
+        members,
+        selectedMemberId,
+        dateFrom: query.dateFrom ?? null,
+        dateTo: query.dateTo ?? null,
+        records: [] satisfies PaymentLedgerRecordResponse[]
+      };
+    }
+
+    const [paymentRows, customRows, jobRows, referenceData] = await Promise.all([
+      this.loadPayments(context.workspace.id),
+      this.loadCustomPaymentRecords(context.workspace.id, selectedMemberId),
+      this.loadJobs(context.workspace.id, true),
+      this.jobReferenceData(context)
+    ]);
+    const allJobs = this.records.jobs(
+      jobRows,
+      referenceData.allBids,
+      referenceData.members,
+      context.member.id,
+      true
+    );
+    const payments = this.records.payments(
+      paymentRows,
+      allJobs,
+      referenceData.members,
+      context.member.id,
+      false
+    );
+    const jobPaymentRecords = payments
+      .filter((payment) => dateInOptionalRange(payment.createdAt, query.dateFrom, query.dateTo))
+      .map((payment) => paymentLedgerRecordForMember(payment, selectedMemberId))
+      .filter((record): record is PaymentLedgerRecordResponse => Boolean(record));
+    const customRecords = customRows
+      .filter((row) => dateInOptionalRange(row.recorded_at, query.dateFrom, query.dateTo))
+      .map((row) => customPaymentRecordResponse(row));
+
+    return {
+      workspace: workspaceResponse(context.workspace),
+      members,
+      selectedMemberId,
+      dateFrom: query.dateFrom ?? null,
+      dateTo: query.dateTo ?? null,
+      records: sortPaymentLedgerRecords([...jobPaymentRecords, ...customRecords])
+    };
+  }
+
+  async createCustomPaymentRecord(slug: string, user: AuthUser, input: CustomPaymentRecordInput) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    await this.access.requireActiveMembers(context.workspace.id, [input.memberId]);
+    const id = crypto.randomUUID();
+    const [record] = await this.supabase.insert<CustomPaymentRecordRow>("custom_payment_records", [
+      {
+        id,
+        workspace_id: context.workspace.id,
+        member_id: input.memberId,
+        name: input.name,
+        amount: input.amount,
+        direction: input.direction,
+        created_by_member_id: context.member.id
+      }
+    ]);
+    if (!record) {
+      throw apiError(
+        502,
+        "Custom payment record creation did not return a row.",
+        "custom_payment_record_create_failed"
+      );
+    }
+    await this.audit(context, "tracking.payment.custom.created", record.id, {
+      memberId: input.memberId
+    });
+    return { record: customPaymentRecordResponse(record) };
+  }
+
+  async updateCustomPaymentRecord(
+    slug: string,
+    customRecordId: string,
+    user: AuthUser,
+    input: CustomPaymentRecordInput
+  ) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    await this.access.requireActiveMembers(context.workspace.id, [input.memberId]);
+    const [record] = await this.supabase.update<CustomPaymentRecordRow>(
+      "custom_payment_records",
+      {
+        member_id: input.memberId,
+        name: input.name,
+        amount: input.amount,
+        direction: input.direction,
+        updated_at: new Date().toISOString()
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${customRecordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!record) {
+      throw apiError(
+        404,
+        "Custom payment record was not found.",
+        "custom_payment_record_not_found"
+      );
+    }
+    await this.audit(context, "tracking.payment.custom.updated", record.id, {
+      memberId: input.memberId
+    });
+    return { record: customPaymentRecordResponse(record) };
+  }
+
+  async deleteCustomPaymentRecord(slug: string, customRecordId: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    const now = new Date().toISOString();
+    const [record] = await this.supabase.update<CustomPaymentRecordRow>(
+      "custom_payment_records",
+      {
+        deleted_at: now,
+        updated_at: now
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${customRecordId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!record) {
+      throw apiError(
+        404,
+        "Custom payment record was not found.",
+        "custom_payment_record_not_found"
+      );
+    }
+    await this.audit(context, "tracking.payment.custom.deleted", record.id, {
+      memberId: record.member_id
+    });
+    return { ok: true, customRecordId: record.id };
+  }
+
   async paymentAnalysis(slug: string, user: AuthUser, query: PaymentAnalysisQuery) {
     const context = await this.access.requireContext(slug, user.id);
     const canManagePayments = this.canManagePayments(context);
@@ -1827,6 +1998,22 @@ export class TrackingService {
     );
   }
 
+  private async loadCustomPaymentRecords(workspaceId: string, memberId?: string) {
+    const filters: Record<string, string> = {
+      workspace_id: `eq.${workspaceId}`,
+      deleted_at: "is.null"
+    };
+    if (memberId) {
+      filters.member_id = `eq.${memberId}`;
+    }
+    return this.supabase.selectAll<CustomPaymentRecordRow>(
+      "custom_payment_records",
+      customPaymentRecordFields,
+      filters,
+      { order: "id.asc" }
+    );
+  }
+
   private async loadInterviewsForBids(workspaceId: string, bidIds: string[]) {
     if (!bidIds.length) {
       return [];
@@ -2103,6 +2290,72 @@ function sortPayments(
         : left.createdAt.localeCompare(right.createdAt);
     return comparison * direction || left.id.localeCompare(right.id) * direction;
   });
+}
+
+function sortPaymentLedgerRecords(
+  rows: PaymentLedgerRecordResponse[]
+): PaymentLedgerRecordResponse[] {
+  return [...rows].sort(
+    (left, right) => right.date.localeCompare(left.date) || right.id.localeCompare(left.id)
+  );
+}
+
+function paymentLedgerRecordForMember(
+  payment: PaymentRecordResponse,
+  memberId: string
+): PaymentLedgerRecordResponse | null {
+  const amount = paymentAmountForMember(payment, memberId);
+  if (amount <= 0) {
+    return null;
+  }
+
+  return {
+    id: `job:${payment.id}`,
+    source: "job",
+    customRecordId: null,
+    jobName: payment.jobTitle,
+    company: payment.company,
+    amount,
+    direction: "income",
+    date: payment.createdAt,
+    canEdit: false,
+    canDelete: false
+  };
+}
+
+function paymentAmountForMember(payment: PaymentRecordResponse, memberId: string): number {
+  let amount = 0;
+  if (payment.bidder?.id === memberId) amount += payment.amounts.bidder;
+  if (payment.caller?.id === memberId) amount += payment.amounts.caller;
+  if (payment.worker?.id === memberId) amount += payment.amounts.worker;
+  if (payment.paymentManager?.id === memberId) amount += payment.amounts.paymentManager;
+  return roundCurrency(amount);
+}
+
+function customPaymentRecordResponse(row: CustomPaymentRecordRow): PaymentLedgerRecordResponse {
+  return {
+    id: `custom:${row.id}`,
+    source: "custom",
+    customRecordId: row.id,
+    jobName: row.name,
+    company: null,
+    amount: Number(row.amount),
+    direction: row.direction,
+    date: row.recorded_at,
+    canEdit: !row.deleted_at,
+    canDelete: !row.deleted_at
+  };
+}
+
+function dateInOptionalRange(value: string, dateFrom?: string, dateTo?: string): boolean {
+  const timestamp = new Date(value).getTime();
+  if (dateFrom && timestamp < new Date(dateFrom).getTime()) {
+    return false;
+  }
+  if (dateTo && timestamp >= new Date(dateTo).getTime()) {
+    return false;
+  }
+  return true;
 }
 
 function paymentJobRelatedToMember(job: JobRecordResponse, memberId: string): boolean {

@@ -5,4 +5,5 @@ export type WorkspaceView =
   | "interviews"
   | "jobs"
   | "payments"
+  | "payment-ledger"
   | "users";

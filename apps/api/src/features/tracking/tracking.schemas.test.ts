@@ -4,10 +4,12 @@ import {
   bulkBidRecordInput,
   bidRecordInput,
   bidRecordParams,
+  customPaymentRecordInput,
   interviewRecordInput,
   interviewRecordParams,
   jobRecordInput,
   paymentAnalysisQuery,
+  paymentLedgerQuery,
   paymentListQuery,
   paymentPayInput,
   paymentRecordInput,
@@ -285,6 +287,44 @@ describe("tracking schemas", () => {
     expect(parsed).toMatchObject({ status: "paid" });
     expect("dateFrom" in parsed).toBe(false);
     expect("amountMin" in parsed).toBe(false);
+  });
+
+  it("validates custom payment records and ledger date ranges", () => {
+    expect(
+      customPaymentRecordInput.parse({
+        memberId,
+        name: "  Bonus  ",
+        amount: "125.50",
+        direction: "income"
+      })
+    ).toMatchObject({
+      memberId,
+      name: "Bonus",
+      amount: 125.5,
+      direction: "income"
+    });
+    expect(
+      customPaymentRecordInput.safeParse({
+        memberId,
+        name: "Chargeback",
+        amount: 0,
+        direction: "outcome"
+      }).success
+    ).toBe(false);
+    expect(
+      paymentLedgerQuery.safeParse({
+        memberId,
+        dateFrom: "2026-06-01T00:00:00.000Z",
+        dateTo: "2026-07-01T00:00:00.000Z"
+      }).success
+    ).toBe(true);
+    expect(
+      paymentLedgerQuery.safeParse({
+        memberId,
+        dateFrom: "2026-07-01T00:00:00.000Z",
+        dateTo: "2026-06-01T00:00:00.000Z"
+      }).success
+    ).toBe(false);
   });
 
   it("requires selected payment ids for marking payments paid", () => {

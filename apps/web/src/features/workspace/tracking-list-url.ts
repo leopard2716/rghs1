@@ -82,7 +82,6 @@ export const defaultPaymentListQuery: Required<
 export function paymentListQueryFromParams(params: URLSearchParams): PaymentListQuery {
   const sortBy = params.get("sortBy");
   const sortDirection = params.get("sortDirection");
-  const status = params.get("status");
   return {
     page: positiveInteger(params.get("page")) ?? defaultPaymentListQuery.page,
     pageSize: pageSize(params.get("pageSize")) ?? defaultPaymentListQuery.pageSize,
@@ -91,8 +90,7 @@ export function paymentListQueryFromParams(params: URLSearchParams): PaymentList
       sortDirection === "asc" || sortDirection === "desc"
         ? sortDirection
         : defaultPaymentListQuery.sortDirection,
-    jobRecordId: optionalValue(params.get("paymentJobId")),
-    status: status === "pending" || status === "paid" ? status : undefined
+    jobRecordId: optionalValue(params.get("paymentJobId"))
   };
 }
 
@@ -107,8 +105,8 @@ export function updatePaymentListParams(
   next.delete("dateTo");
   next.delete("amountMin");
   next.delete("amountMax");
+  next.delete("status");
   setOptional(next, "paymentJobId", query.jobRecordId);
-  setOptional(next, "status", query.status);
   setDefaulted(next, "sortBy", query.sortBy, defaultPaymentListQuery.sortBy);
   setDefaulted(next, "sortDirection", query.sortDirection, defaultPaymentListQuery.sortDirection);
   setDefaulted(next, "page", query.page, defaultPaymentListQuery.page);

@@ -44,6 +44,11 @@ const PaymentManagementPage = lazy(() =>
     default: module.PaymentManagementPage
   }))
 );
+const PaymentLedgerPage = lazy(() =>
+  import("../components/PaymentLedgerPage").then((module) => ({
+    default: module.PaymentLedgerPage
+  }))
+);
 const TrackingProfilesPage = lazy(() =>
   import("../components/TrackingProfilesPage").then((module) => ({
     default: module.TrackingProfilesPage
@@ -170,6 +175,10 @@ export function WorkspaceJobsRoute() {
 
 export function WorkspacePaymentsRoute() {
   return <WorkspaceProtectedRoute view="payments" />;
+}
+
+export function WorkspacePaymentLedgerRoute() {
+  return <WorkspaceProtectedRoute view="payment-ledger" />;
 }
 
 function WorkspaceProtectedRoute({ view }: { view: WorkspaceView }) {
@@ -306,7 +315,10 @@ function WorkspaceMfaContent({
     return <FirstPasswordChange session={session} workspaceSlug={workspaceSlug} />;
   }
 
-  if (view === "users" && !workspaceSessionQuery.data.member.roleKeys.includes("admin")) {
+  if (
+    (view === "users" || view === "payment-ledger") &&
+    !workspaceSessionQuery.data.member.roleKeys.includes("admin")
+  ) {
     return (
       <AccessErrorPanel
         eyebrow={workspaceSessionQuery.data.workspace.name}
@@ -383,6 +395,19 @@ function WorkspaceMfaContent({
         <PaymentManagementPage
           {...sharedProps}
           onRecoverPassword={() => navigate(recoveryPath(paths.workspacePayments(workspaceSlug)))}
+        />
+      </Suspense>
+    );
+  }
+
+  if (view === "payment-ledger") {
+    return (
+      <Suspense fallback={<LoadingSurface label="Loading user ledger" />}>
+        <PaymentLedgerPage
+          {...sharedProps}
+          onRecoverPassword={() =>
+            navigate(recoveryPath(paths.workspacePaymentLedger(workspaceSlug)))
+          }
         />
       </Suspense>
     );
