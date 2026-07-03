@@ -122,6 +122,7 @@ export type JobRecordResponse = {
   createdAt: string;
   deletedAt: string | null;
   canEdit: boolean;
+  canDelete: boolean;
 };
 
 export type PaymentRecordResponse = {
@@ -143,6 +144,7 @@ export type PaymentRecordResponse = {
   createdAt: string;
   paidAt: string | null;
   canEdit: boolean;
+  canDelete: boolean;
 };
 
 export type TrackingLookups = {
@@ -374,7 +376,8 @@ export class TrackingRecordMapper {
         },
         createdAt: row.created_at,
         deletedAt: row.deleted_at,
-        canEdit: canManage && ownedByCurrentMember && !row.deleted_at && !bid.deletedAt
+        canEdit: canManage && ownedByCurrentMember && !row.deleted_at && !bid.deletedAt,
+        canDelete: canManage && !row.deleted_at
       };
     });
   }
@@ -384,7 +387,10 @@ export class TrackingRecordMapper {
     jobs: JobRecordResponse[],
     members: MemberSummary[],
     currentMemberId: string,
-    canManage: boolean
+    options: {
+      canEdit: boolean;
+      canDelete: boolean;
+    }
   ): PaymentRecordResponse[] {
     const jobsById = new Map(jobs.map((job) => [job.id, job]));
     const membersById = new Map(members.map((member) => [member.id, member]));
@@ -420,7 +426,8 @@ export class TrackingRecordMapper {
         paidBy: row.paid_by_member_id ? (membersById.get(row.paid_by_member_id) ?? null) : null,
         createdAt: row.created_at,
         paidAt: row.paid_at,
-        canEdit: canManage && ownedByCurrentMember && row.status === "pending"
+        canEdit: options.canEdit && ownedByCurrentMember && row.status === "pending",
+        canDelete: options.canDelete && !row.deleted_at
       };
     });
   }

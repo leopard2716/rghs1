@@ -93,6 +93,8 @@ type SupabaseMfaChallengeResponse = {
 };
 
 const sessionStorageKey = "rghs1.auth.session";
+const passwordRecoveryRedirectStorageKey = "rghs1.auth.passwordRecoveryRedirect";
+const passwordRecoveryRedirectMaxAgeMs = 2 * 60 * 60 * 1000;
 let sessionRestorePromise: Promise<AuthSession | null> | null = null;
 const sessionRefreshPromises = new Map<AuthScope, Promise<AuthSession | null>>();
 const sessionListeners = new Set<(session: AuthSession | null) => void>();
@@ -373,6 +375,26 @@ export async function signInWithPassword(
   return storeSession(sessionFromAuthResponse(body, undefined, "password", scope));
 }
 
+export async function verifyPassword(email: string, password: string): Promise<void> {
+  const { url, anonKey } = supabaseConfig();
+  const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: authHeaders(anonKey),
+    body: JSON.stringify({
+      email,
+      password
+    })
+  });
+
+  if (!response.ok) {
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      throw new UserFacingError("Original password is incorrect.", "current_password_invalid");
+    }
+
+    throw await errorFromResponse(response, `Password check failed with ${response.status}.`);
+  }
+}
+
 export async function signUpWithPassword(
   email: string,
   password: string,
@@ -439,6 +461,8 @@ export async function requestPasswordRecovery(email: string, redirectTo: string)
       `Password recovery request failed with ${response.status}.`
     );
   }
+
+  rememberPasswordRecoveryRedirect(redirectTo);
 }
 
 export function consumeAuthSessionFromUrl(): AuthSession | null {
@@ -463,18 +487,22 @@ export function consumeAuthSessionFromUrl(): AuthSession | null {
     return null;
   }
 
+  const authLocation = authLinkLocation(authType);
   const accessToken = params.get("access_token");
   const refreshToken = params.get("refresh_token");
   const claims = accessToken ? jwtPayload(accessToken) : null;
   const userId = typeof claims?.sub === "string" ? claims.sub : "";
   if (!accessToken || !refreshToken || !userId) {
+    clearPasswordRecoveryRedirect();
     throw new UserFacingError("The password recovery link is invalid or incomplete.");
   }
 
   const expiresAtValue = Number(params.get("expires_at"));
   const expiresInValue = Number(params.get("expires_in"));
-  const scope = authScopeForLocation(window.location.pathname, window.location.search);
+  const scope = authScopeForLocation(authLocation.pathname, authLocation.search);
   if (!scope) {
+    replaceAuthUrl(authLocation);
+    clearPasswordRecoveryRedirect();
     throw new UserFacingError("The authentication link does not identify an RGHS1 portal.");
   }
 
@@ -494,11 +522,8 @@ export function consumeAuthSessionFromUrl(): AuthSession | null {
     flow: authType === "recovery" ? "recovery" : "password"
   });
 
-  window.history.replaceState(
-    window.history.state,
-    "",
-    `${window.location.pathname}${window.location.search}`
-  );
+  replaceAuthUrl(authLocation);
+  clearPasswordRecoveryRedirect();
   return session;
 }
 
@@ -727,21 +752,22 @@ export function sessionMatchesAuthScope(
 }
 
 export function authScopeForLocation(pathname: string, search = ""): AuthScope | null {
-  if (pathname === "/recover") {
+  if (isRecoveryPathname(pathname)) {
     const returnTo = new URLSearchParams(search).get("returnTo");
-    if (
-      !returnTo ||
-      !returnTo.startsWith("/") ||
-      returnTo.startsWith("//") ||
-      returnTo.startsWith("/recover")
-    ) {
-      return null;
+    if (isSafeReturnPath(returnTo)) {
+      const returnUrl = new URL(returnTo, "https://rghs1.local");
+      if (!isRecoveryPathname(returnUrl.pathname)) {
+        return authScopeForLocation(returnUrl.pathname, returnUrl.search);
+      }
     }
 
-    const returnUrl = new URL(returnTo, "https://rghs1.local");
-    return authScopeForLocation(returnUrl.pathname, returnUrl.search);
+    return authScopeFromPathname(pathname);
   }
 
+  return authScopeFromPathname(pathname);
+}
+
+function authScopeFromPathname(pathname: string): AuthScope | null {
   if (pathname === "/admin" || pathname.startsWith("/admin/")) {
     return "admin";
   }
@@ -757,6 +783,140 @@ export function authScopeForLocation(pathname: string, search = ""): AuthScope |
   } catch {
     return null;
   }
+}
+
+function isSafeReturnPath(value: string | null): value is string {
+  return Boolean(value && value.startsWith("/") && !value.startsWith("//"));
+}
+
+function isRecoveryPathname(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  return (
+    (segments.length === 1 && segments[0] === "recover") ||
+    (segments.length === 2 && segments[1] === "recover")
+  );
+}
+
+type AuthLinkLocation = {
+  pathname: string;
+  search: string;
+};
+
+type StoredPasswordRecoveryRedirect = {
+  path: string;
+  createdAt: number;
+};
+
+function authLinkLocation(authType: string): AuthLinkLocation {
+  const current = {
+    pathname: window.location.pathname,
+    search: window.location.search
+  };
+
+  if (authType !== "recovery" || isRecoveryPathname(current.pathname)) {
+    return current;
+  }
+
+  const remembered = readPasswordRecoveryRedirect();
+  if (remembered) {
+    return remembered;
+  }
+
+  const inferred = inferRecoveryLocationFromPath(current);
+  return inferred ?? { pathname: "/recover", search: "" };
+}
+
+function inferRecoveryLocationFromPath(location: AuthLinkLocation): AuthLinkLocation | null {
+  const returnTo = `${location.pathname}${location.search}`;
+  if (location.pathname === "/admin" || location.pathname.startsWith("/admin/")) {
+    return {
+      pathname: "/recover",
+      search: `?returnTo=${encodeURIComponent(returnTo)}`
+    };
+  }
+
+  const [firstSegment] = location.pathname.split("/").filter(Boolean);
+  if (!firstSegment) {
+    return null;
+  }
+
+  try {
+    const slug = decodeURIComponent(firstSegment).toLowerCase();
+    if (slug === "admin" || slug === "recover") {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return {
+    pathname: `/${firstSegment}/recover`,
+    search: `?returnTo=${encodeURIComponent(returnTo)}`
+  };
+}
+
+function rememberPasswordRecoveryRedirect(redirectTo: string): void {
+  const location = passwordRecoveryRedirectLocation(redirectTo);
+  if (!location) {
+    clearPasswordRecoveryRedirect();
+    return;
+  }
+
+  const value: StoredPasswordRecoveryRedirect = {
+    path: `${location.pathname}${location.search}`,
+    createdAt: Date.now()
+  };
+  window.localStorage.setItem(passwordRecoveryRedirectStorageKey, JSON.stringify(value));
+}
+
+function readPasswordRecoveryRedirect(): AuthLinkLocation | null {
+  const raw = window.localStorage.getItem(passwordRecoveryRedirectStorageKey);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const stored = JSON.parse(raw) as StoredPasswordRecoveryRedirect;
+    if (
+      typeof stored.path !== "string" ||
+      typeof stored.createdAt !== "number" ||
+      Date.now() - stored.createdAt > passwordRecoveryRedirectMaxAgeMs
+    ) {
+      clearPasswordRecoveryRedirect();
+      return null;
+    }
+
+    return passwordRecoveryRedirectLocation(stored.path);
+  } catch {
+    clearPasswordRecoveryRedirect();
+    return null;
+  }
+}
+
+function clearPasswordRecoveryRedirect(): void {
+  window.localStorage.removeItem(passwordRecoveryRedirectStorageKey);
+}
+
+function passwordRecoveryRedirectLocation(value: string): AuthLinkLocation | null {
+  let url: URL;
+  try {
+    url = new URL(value, window.location.origin);
+  } catch {
+    return null;
+  }
+
+  if (url.origin !== window.location.origin || !isRecoveryPathname(url.pathname)) {
+    return null;
+  }
+
+  return {
+    pathname: url.pathname,
+    search: url.search
+  };
+}
+
+function replaceAuthUrl(location: AuthLinkLocation): void {
+  window.history.replaceState(window.history.state, "", `${location.pathname}${location.search}`);
 }
 
 function isAuthScope(value: unknown): value is AuthScope {

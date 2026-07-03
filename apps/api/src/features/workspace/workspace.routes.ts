@@ -6,6 +6,7 @@ import { requireSupabaseConfig } from "../../config/env";
 import { ApiError, jsonError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
 import {
+  workspaceAccountInput,
   workspaceMemberRolesInput,
   workspaceMemberStatusInput,
   workspaceRegistrationInput
@@ -111,6 +112,110 @@ export function registerWorkspaceRoutes(app: ApiApp): void {
       const user = await requireAuthUser(c, { requireMfa: true });
       const service = workspaceAccessService(c.env);
       return c.json(await service.getWorkspaceSession(c.req.param("slug"), user));
+    } catch (error) {
+      return routeError(c, error);
+    }
+  });
+
+  app.get("/v1/workspaces/:slug/account", async (c) => {
+    try {
+      const user = await requireAuthUser(c, { requireMfa: true });
+      const service = workspaceAccessService(c.env);
+      return c.json(await service.getWorkspaceAccount(c.req.param("slug"), user));
+    } catch (error) {
+      return routeError(c, error);
+    }
+  });
+
+  app.patch(
+    "/v1/workspaces/:slug/account",
+    zValidator("json", workspaceAccountInput),
+    async (c) => {
+      try {
+        const user = await requireAuthUser(c, { requireMfa: true });
+        const service = workspaceAccessService(c.env);
+        return c.json(
+          await service.updateWorkspaceAccount(c.req.param("slug"), user, c.req.valid("json"))
+        );
+      } catch (error) {
+        return routeError(c, error);
+      }
+    }
+  );
+
+  app.post("/v1/workspaces/:slug/account/avatar", async (c) => {
+    try {
+      if (!c.env.RESUME_BUCKET) {
+        return jsonError(
+          c,
+          501,
+          "R2 bucket binding RESUME_BUCKET is not configured.",
+          "file_bucket_not_configured"
+        );
+      }
+
+      const user = await requireAuthUser(c, { requireMfa: true });
+      const form = await c.req.formData();
+      const rawFile = form.get("file");
+      if (!(rawFile instanceof File)) {
+        return jsonError(c, 400, "file is required.", "workspace_avatar_upload_invalid");
+      }
+
+      const service = workspaceAccessService(c.env);
+      return c.json(
+        await service.uploadWorkspaceAvatar(c.req.param("slug"), user, rawFile, c.env.RESUME_BUCKET)
+      );
+    } catch (error) {
+      return routeError(c, error);
+    }
+  });
+
+  app.get("/v1/workspaces/:slug/account/avatar", async (c) => {
+    try {
+      if (!c.env.RESUME_BUCKET) {
+        return jsonError(
+          c,
+          501,
+          "R2 bucket binding RESUME_BUCKET is not configured.",
+          "file_bucket_not_configured"
+        );
+      }
+
+      const user = await requireAuthUser(c, { requireMfa: true });
+      const service = workspaceAccessService(c.env);
+      const avatar = await service.getWorkspaceAvatar(
+        c.req.param("slug"),
+        user,
+        c.env.RESUME_BUCKET
+      );
+      return new Response(avatar.body, {
+        headers: {
+          "cache-control": "private, max-age=300",
+          "content-type": avatar.mimeType,
+          ...(avatar.updatedAt ? { etag: `"${avatar.updatedAt}"` } : {})
+        }
+      });
+    } catch (error) {
+      return routeError(c, error);
+    }
+  });
+
+  app.delete("/v1/workspaces/:slug/account/avatar", async (c) => {
+    try {
+      if (!c.env.RESUME_BUCKET) {
+        return jsonError(
+          c,
+          501,
+          "R2 bucket binding RESUME_BUCKET is not configured.",
+          "file_bucket_not_configured"
+        );
+      }
+
+      const user = await requireAuthUser(c, { requireMfa: true });
+      const service = workspaceAccessService(c.env);
+      return c.json(
+        await service.deleteWorkspaceAvatar(c.req.param("slug"), user, c.env.RESUME_BUCKET)
+      );
     } catch (error) {
       return routeError(c, error);
     }

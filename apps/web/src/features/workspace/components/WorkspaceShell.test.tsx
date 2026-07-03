@@ -32,7 +32,9 @@ function workspaceSession(roleKeys: string[]): WorkspaceSession {
       email: "member@example.com",
       displayName: "Workspace Member",
       status: "active",
-      roleKeys
+      roleKeys,
+      avatarUpdatedAt: null,
+      avatarMimeType: null
     },
     accessState: "active",
     canAccess: true,
@@ -51,6 +53,7 @@ function renderShell(roleKeys: string[], view: WorkspaceView) {
   });
   const routeByView: Record<WorkspaceView, string> = {
     overview: "/rg-team/dashboard",
+    account: "/rg-team/account",
     profiles: "/rg-team/profiles",
     bids: "/rg-team/bids",
     interviews: "/rg-team/interviews",

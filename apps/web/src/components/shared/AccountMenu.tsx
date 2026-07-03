@@ -1,11 +1,13 @@
-import { CircleUserRound, KeyRound, LogOut } from "lucide-react";
+import { CircleUserRound, KeyRound, LogOut, UserRoundCog } from "lucide-react";
 
 export function AccountMenu({
   email,
+  onOpenProfile,
   onRecoverPassword,
   onSignOut
 }: {
   email?: string;
+  onOpenProfile?: () => void;
   onRecoverPassword: () => void;
   onSignOut: () => void;
 }) {
@@ -16,6 +18,12 @@ export function AccountMenu({
       </summary>
       <div className="account-menu-popover">
         <span>{email ?? "Signed in"}</span>
+        {onOpenProfile ? (
+          <button type="button" onClick={onOpenProfile}>
+            <UserRoundCog aria-hidden="true" />
+            Profile
+          </button>
+        ) : null}
         <button type="button" onClick={onRecoverPassword}>
           <KeyRound aria-hidden="true" />
           Password recovery

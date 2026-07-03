@@ -102,3 +102,132 @@ describe("WorkspaceAccessService role management", () => {
     expect(result.member.roleKeys).toEqual(["admin", "bidder", "interviewer"]);
   });
 });
+
+describe("WorkspaceAccessService account profile", () => {
+  it("updates the active member display name", async () => {
+    const workspace = workspaceRow();
+    const member = memberRow(workspace.id);
+    const updatedMember: WorkspaceMemberRow = {
+      ...member,
+      display_name: "Updated Member",
+      updated_at: "2026-07-03T10:00:00.000Z"
+    };
+    const select = vi.fn(async (table: string): Promise<unknown[]> => {
+      if (table === "workspaces") return [workspace];
+      if (table === "workspace_members") return [member];
+      return [];
+    });
+    const update = vi.fn(async () => [updatedMember]);
+    const insert = vi.fn(async (_table: string, rows: Record<string, unknown>[]) => rows);
+    const service = new WorkspaceAccessService({
+      select,
+      update,
+      insert
+    } as unknown as SupabaseRestClient);
+
+    const result = await service.updateWorkspaceAccount(
+      workspace.slug,
+      { id: member.auth_user_id, email: member.email },
+      { displayName: "Updated Member" }
+    );
+
+    expect(update).toHaveBeenCalledWith(
+      "workspace_members",
+      expect.objectContaining({
+        display_name: "Updated Member"
+      }),
+      {
+        id: `eq.${member.id}`,
+        workspace_id: `eq.${workspace.id}`,
+        deleted_at: "is.null"
+      }
+    );
+    expect(insert).toHaveBeenCalledWith("audit_logs", [
+      expect.objectContaining({
+        action: "workspace.account.updated",
+        target_id: member.id
+      })
+    ]);
+    expect(result.member.displayName).toBe("Updated Member");
+  });
+
+  it("stores a cropped avatar and removes the previous object", async () => {
+    const workspace = workspaceRow();
+    const member: WorkspaceMemberRow = {
+      ...memberRow(workspace.id),
+      avatar_storage_key: "workspace-1/members/member-1/avatar-old.png",
+      avatar_mime_type: "image/png",
+      avatar_updated_at: "2026-07-02T10:00:00.000Z"
+    };
+    const select = vi.fn(async (table: string): Promise<unknown[]> => {
+      if (table === "workspaces") return [workspace];
+      if (table === "workspace_members") return [member];
+      return [];
+    });
+    const update = vi.fn(
+      async (_table: string, values: Record<string, unknown>): Promise<WorkspaceMemberRow[]> => [
+        {
+          ...member,
+          avatar_storage_key: String(values.avatar_storage_key),
+          avatar_mime_type: String(values.avatar_mime_type),
+          avatar_updated_at: String(values.avatar_updated_at)
+        }
+      ]
+    );
+    const insert = vi.fn(async (_table: string, rows: Record<string, unknown>[]) => rows);
+    const bucket = {
+      put: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined)
+    } as unknown as R2Bucket;
+    const service = new WorkspaceAccessService({
+      select,
+      update,
+      insert
+    } as unknown as SupabaseRestClient);
+    const file = new File(["avatar"], "avatar.png", { type: "image/png" });
+
+    const result = await service.uploadWorkspaceAvatar(
+      workspace.slug,
+      { id: member.auth_user_id, email: member.email },
+      file,
+      bucket
+    );
+
+    expect(bucket.put).toHaveBeenCalledWith(
+      expect.stringMatching(/^workspace-1\/members\/member-1\/avatar-.+\.png$/),
+      expect.anything(),
+      expect.objectContaining({
+        httpMetadata: {
+          contentType: "image/png"
+        }
+      })
+    );
+    expect(bucket.delete).toHaveBeenCalledWith("workspace-1/members/member-1/avatar-old.png");
+    expect(result.member.avatarMimeType).toBe("image/png");
+    expect(result.member.avatarUpdatedAt).toBeTruthy();
+  });
+});
+
+function workspaceRow(): WorkspaceRow {
+  return {
+    id: "workspace-1",
+    name: "Workspace One",
+    slug: "workspace-one",
+    status: "active",
+    created_at: "2026-06-22T00:00:00.000Z"
+  };
+}
+
+function memberRow(workspaceId: string): WorkspaceMemberRow {
+  return {
+    id: "member-1",
+    workspace_id: workspaceId,
+    auth_user_id: "user-1",
+    display_name: "Tenant Member",
+    email: "member@example.com",
+    status: "active",
+    created_at: "2026-06-22T00:00:00.000Z",
+    updated_at: "2026-06-22T00:00:00.000Z",
+    deleted_at: null
+  };
+}
