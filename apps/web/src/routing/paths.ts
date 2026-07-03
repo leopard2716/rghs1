@@ -21,6 +21,7 @@ export const paths = {
   workspaceJob: (slug: string, jobRecordId: string) =>
     `/${encodeURIComponent(slug)}/jobs?jobRecordId=${encodeURIComponent(jobRecordId)}`,
   workspacePayments: (slug: string) => `/${encodeURIComponent(slug)}/payments`,
+  workspacePaymentLedger: (slug: string) => `/${encodeURIComponent(slug)}/payments/ledger`,
   workspacePayment: (slug: string, paymentRecordId: string) =>
     `/${encodeURIComponent(slug)}/payments?paymentRecordId=${encodeURIComponent(paymentRecordId)}`,
   workspaceUsers: (slug: string) => `/${encodeURIComponent(slug)}/users`

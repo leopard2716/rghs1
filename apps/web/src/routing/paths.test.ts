@@ -16,6 +16,7 @@ describe("workspace paths", () => {
     expect(paths.workspaceInterviewForBid("rg-team", "bid-1")).toBe(
       "/rg-team/interviews?modal=new&bidId=bid-1"
     );
+    expect(paths.workspacePaymentLedger("rg-team")).toBe("/rg-team/payments/ledger");
     expect(paths.workspaceUsers("rg-team")).toBe("/rg-team/users");
   });
 

@@ -137,6 +137,21 @@ export type PaymentRecord = {
   canEdit: boolean;
 };
 
+export type PaymentLedgerDirection = "income" | "outcome";
+
+export type PaymentLedgerRecord = {
+  id: string;
+  source: "job" | "custom";
+  customRecordId: string | null;
+  jobName: string;
+  company: string | null;
+  amount: number;
+  direction: PaymentLedgerDirection;
+  date: string;
+  canEdit: boolean;
+  canDelete: boolean;
+};
+
 export type TrackingProfileRequest = {
   id: string;
   name: string;
@@ -175,11 +190,10 @@ export type PaymentListQuery = {
   sortBy?: "datetime" | "amount";
   sortDirection?: "asc" | "desc";
   jobRecordId?: string;
-  status?: "pending" | "paid";
 };
 
-export type PaymentAnalysisQuery = {
-  status?: "pending" | "paid";
+export type PaymentLedgerQuery = {
+  memberId?: string;
   dateFrom?: string;
   dateTo?: string;
 };
@@ -234,18 +248,12 @@ export type PaymentsResponse = {
   pagination: Pagination;
 };
 
-export type PaymentAnalysisResponse = {
-  status: "pending" | "paid";
+export type PaymentLedgerResponse = {
+  members: TrackingMemberSummary[];
+  selectedMemberId: string | null;
   dateFrom: string | null;
   dateTo: string | null;
-  canPay: boolean;
-  payments: PaymentRecord[];
-  pendingPayments: PaymentRecord[];
-  currentUserTotal: number;
-  userTotals: Array<{
-    member: TrackingMemberSummary;
-    pendingAmount: number;
-  }>;
+  records: PaymentLedgerRecord[];
 };
 
 export type TrackingDashboardQuery = {
@@ -776,34 +784,73 @@ export async function updatePaymentRecord(
   return parseJson<{ payment: PaymentRecord }>(response);
 }
 
-export async function fetchPaymentAnalysis(
+export async function fetchPaymentLedger(
   session: AuthSession,
   slug: string,
-  query: PaymentAnalysisQuery = {}
-): Promise<PaymentAnalysisResponse> {
+  query: PaymentLedgerQuery = {}
+): Promise<PaymentLedgerResponse> {
   const response = await authenticatedApiFetch(
     session,
-    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/analysis${queryString(query)}`,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payment-ledger${queryString(query)}`,
     { headers: authHeaders() }
   );
-  return parseJson<PaymentAnalysisResponse>(response);
+  return parseJson<PaymentLedgerResponse>(response);
 }
 
-export async function payPendingPayments(
+export async function createCustomPaymentRecord(
   session: AuthSession,
   slug: string,
-  paymentRecordIds: string[]
-): Promise<{ paid: number }> {
+  input: {
+    memberId: string;
+    name: string;
+    amount: number;
+    direction: PaymentLedgerDirection;
+  }
+): Promise<{ record: PaymentLedgerRecord }> {
   const response = await authenticatedApiFetch(
     session,
-    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payments/pay-pending`,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payment-ledger/custom`,
     {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ paymentRecordIds })
+      body: JSON.stringify(input)
     }
   );
-  return parseJson<{ paid: number }>(response);
+  return parseJson<{ record: PaymentLedgerRecord }>(response);
+}
+
+export async function updateCustomPaymentRecord(
+  session: AuthSession,
+  slug: string,
+  customRecordId: string,
+  input: Parameters<typeof createCustomPaymentRecord>[2]
+): Promise<{ record: PaymentLedgerRecord }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payment-ledger/custom/${customRecordId}`,
+    {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ record: PaymentLedgerRecord }>(response);
+}
+
+export async function deleteCustomPaymentRecord(
+  session: AuthSession,
+  slug: string,
+  customRecordId: string
+): Promise<{ ok: boolean; customRecordId: string }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/payment-ledger/custom/${customRecordId}`,
+    {
+      method: "DELETE",
+      headers: authHeaders()
+    }
+  );
+  return parseJson<{ ok: boolean; customRecordId: string }>(response);
 }
 
 export async function fetchTrackingDashboard(

@@ -10,6 +10,8 @@ import {
   bulkBidRecordInput,
   bidRecordInput,
   bidRecordParams,
+  customPaymentRecordInput,
+  customPaymentRecordParams,
   interviewListQuery,
   interviewRecordInput,
   interviewRecordParams,
@@ -17,6 +19,7 @@ import {
   jobRecordInput,
   jobRecordParams,
   paymentAnalysisQuery,
+  paymentLedgerQuery,
   paymentListQuery,
   paymentPayInput,
   paymentRecordInput,
@@ -472,6 +475,95 @@ export function registerTrackingRoutes(app: ApiApp): void {
             c.req.valid("param").jobRecordId,
             user,
             c.req.valid("json")
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.get(
+    "/v1/workspaces/:slug/tracking/payment-ledger",
+    zValidator("query", paymentLedgerQuery, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the payment ledger query and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(await service.paymentLedger(c.req.param("slug"), user, c.req.valid("query")));
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.post(
+    "/v1/workspaces/:slug/tracking/payment-ledger/custom",
+    zValidator("json", customPaymentRecordInput, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the custom payment record fields and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.createCustomPaymentRecord(c.req.param("slug"), user, c.req.valid("json")),
+          201
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.put(
+    "/v1/workspaces/:slug/tracking/payment-ledger/custom/:customRecordId",
+    zValidator("param", customPaymentRecordParams),
+    zValidator("json", customPaymentRecordInput),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.updateCustomPaymentRecord(
+            c.req.param("slug"),
+            c.req.valid("param").customRecordId,
+            user,
+            c.req.valid("json")
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
+  app.delete(
+    "/v1/workspaces/:slug/tracking/payment-ledger/custom/:customRecordId",
+    zValidator("param", customPaymentRecordParams),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.deleteCustomPaymentRecord(
+            c.req.param("slug"),
+            c.req.valid("param").customRecordId,
+            user
           )
         );
       } catch (error) {

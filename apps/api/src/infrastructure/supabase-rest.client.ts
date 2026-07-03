@@ -268,6 +268,7 @@ export class SupabaseRestClient {
       message.includes("caller_member_id") ||
       message.includes("caller_rate") ||
       message.includes("payment_records") ||
+      message.includes("custom_payment_records") ||
       message.includes("payment_amount") ||
       message.includes("payment_manager_amount") ||
       message.includes("payment_manager")
