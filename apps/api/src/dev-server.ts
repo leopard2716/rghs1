@@ -1,6 +1,8 @@
 import { serve } from "@hono/node-server";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createApp } from "./app";
+import { createLocalR2Bucket } from "./infrastructure/local-r2-bucket";
 
 function loadEnvFile(path: URL): void {
   if (!existsSync(path)) {
@@ -34,6 +36,10 @@ loadEnvFile(new URL("../.env", import.meta.url));
 
 const app = createApp();
 const port = Number(process.env.PORT ?? 8787);
+const localR2Directory =
+  process.env.LOCAL_R2_DIRECTORY ??
+  fileURLToPath(new URL("../../../.local-r2/resume-bucket", import.meta.url));
+const resumeBucket = createLocalR2Bucket(localR2Directory);
 const supabaseHost = (() => {
   try {
     return process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).host : "not configured";
@@ -51,12 +57,14 @@ serve(
           process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173",
         SUPABASE_URL: process.env.SUPABASE_URL,
         SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY
+        SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+        RESUME_BUCKET: resumeBucket
       }),
     port
   },
   (info) => {
     console.log(`RGHS1 API listening on http://127.0.0.1:${info.port}`);
     console.log(`RGHS1 API Supabase project: ${supabaseHost}`);
+    console.log(`RGHS1 API local R2 directory: ${localR2Directory}`);
   }
 );

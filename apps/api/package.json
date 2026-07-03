@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/dev-server.ts",
     "dev:worker": "wrangler dev --local --port 8787",
+    "dev:worker:remote": "wrangler dev --remote --env dev --port 8787",
     "deploy": "wrangler deploy",
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",

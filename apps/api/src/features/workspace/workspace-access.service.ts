@@ -3,6 +3,7 @@ import { apiError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
 import { NotificationService } from "../notifications/notification.service";
 import type {
+  WorkspaceAccountInput,
   WorkspaceMemberRolesInput,
   WorkspaceMemberStatusInput,
   WorkspaceRegistrationInput
@@ -14,6 +15,15 @@ import type {
   WorkspaceRoleRow,
   WorkspaceRow
 } from "./workspace-access.types";
+
+const workspaceMemberFields =
+  "id,workspace_id,auth_user_id,display_name,email,status,avatar_storage_key,avatar_mime_type,avatar_updated_at,created_at,updated_at,deleted_at";
+const maxAvatarSizeBytes = 2 * 1024 * 1024;
+const avatarMimeTypes = new Map([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/webp", "webp"]
+]);
 
 export class WorkspaceAccessService {
   private readonly notifications: NotificationService;
@@ -72,7 +82,9 @@ export class WorkspaceAccessService {
         email: member.email,
         displayName: member.display_name,
         status: member.status,
-        roleKeys: roles.map((role) => role.key)
+        roleKeys: roles.map((role) => role.key),
+        avatarUpdatedAt: member.avatar_updated_at ?? null,
+        avatarMimeType: member.avatar_mime_type ?? null
       },
       accessState: member.status,
       canAccess: member.status === "active",
@@ -100,7 +112,9 @@ export class WorkspaceAccessService {
         id: member.id,
         email: member.email,
         displayName: member.display_name,
-        status: member.status
+        status: member.status,
+        avatarUpdatedAt: member.avatar_updated_at ?? null,
+        avatarMimeType: member.avatar_mime_type ?? null
       },
       accessState: member.status,
       canAccess: member.status === "active"
@@ -130,7 +144,7 @@ export class WorkspaceAccessService {
 
     const [existing] = await this.supabase.select<WorkspaceMemberRow>(
       "workspace_members",
-      "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
+      workspaceMemberFields,
       {
         workspace_id: `eq.${workspace.id}`,
         auth_user_id: `eq.${authenticatedUser.id}`
@@ -207,14 +221,10 @@ export class WorkspaceAccessService {
     const workspace = await this.getWorkspaceBySlug(slug);
     const actor = await this.requireWorkspaceAdmin(workspace.id, user.id);
     const [members, roles] = await Promise.all([
-      this.supabase.select<WorkspaceMemberRow>(
-        "workspace_members",
-        "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
-        {
-          workspace_id: `eq.${workspace.id}`,
-          deleted_at: "is.null"
-        }
-      ),
+      this.supabase.select<WorkspaceMemberRow>("workspace_members", workspaceMemberFields, {
+        workspace_id: `eq.${workspace.id}`,
+        deleted_at: "is.null"
+      }),
       this.supabase.select<WorkspaceRoleRow>(
         "workspace_roles",
         "id,workspace_id,name,key,system,deleted_at",
@@ -449,6 +459,181 @@ export class WorkspaceAccessService {
     return { ok: true, memberId: target.id };
   }
 
+  async getWorkspaceAccount(slug: string, user: AuthUser) {
+    const workspace = await this.getWorkspaceBySlug(slug);
+    const member = await this.requireActiveMember(workspace.id, user.id);
+
+    return this.accountResponse(workspace, member);
+  }
+
+  async updateWorkspaceAccount(slug: string, user: AuthUser, input: WorkspaceAccountInput) {
+    const workspace = await this.getWorkspaceBySlug(slug);
+    const member = await this.requireActiveMember(workspace.id, user.id);
+    const now = new Date().toISOString();
+    const [updated] = await this.supabase.update<WorkspaceMemberRow>(
+      "workspace_members",
+      {
+        display_name: input.displayName,
+        updated_at: now
+      },
+      {
+        id: `eq.${member.id}`,
+        workspace_id: `eq.${workspace.id}`,
+        deleted_at: "is.null"
+      }
+    );
+
+    if (!updated) {
+      throw apiError(
+        502,
+        "Profile update did not return a row.",
+        "workspace_account_update_failed"
+      );
+    }
+
+    await this.writeAudit(
+      workspace.id,
+      user.id,
+      member.id,
+      "workspace.account.updated",
+      member.id,
+      {
+        displayName: updated.display_name
+      }
+    );
+
+    return this.accountResponse(workspace, updated);
+  }
+
+  async uploadWorkspaceAvatar(slug: string, user: AuthUser, file: File, bucket: R2Bucket) {
+    const workspace = await this.getWorkspaceBySlug(slug);
+    const member = await this.requireActiveMember(workspace.id, user.id);
+    const mimeType = file.type.toLowerCase();
+    const extension = avatarMimeTypes.get(mimeType);
+    if (!extension) {
+      throw apiError(
+        400,
+        "Avatar must be a PNG, JPEG, or WebP image.",
+        "workspace_avatar_type_invalid"
+      );
+    }
+
+    if (file.size > maxAvatarSizeBytes) {
+      throw apiError(413, "Avatar uploads are limited to 2 MB.", "workspace_avatar_too_large");
+    }
+
+    const avatarId = crypto.randomUUID();
+    const storageKey = `${workspace.id}/members/${member.id}/avatar-${avatarId}.${extension}`;
+    const now = new Date().toISOString();
+    await bucket.put(storageKey, file.stream(), {
+      httpMetadata: {
+        contentType: mimeType
+      },
+      customMetadata: {
+        workspaceId: workspace.id,
+        memberId: member.id,
+        authUserId: user.id
+      }
+    });
+
+    const [updated] = await this.supabase.update<WorkspaceMemberRow>(
+      "workspace_members",
+      {
+        avatar_storage_key: storageKey,
+        avatar_mime_type: mimeType,
+        avatar_updated_at: now,
+        updated_at: now
+      },
+      {
+        id: `eq.${member.id}`,
+        workspace_id: `eq.${workspace.id}`,
+        deleted_at: "is.null"
+      }
+    );
+
+    if (!updated) {
+      await bucket.delete(storageKey);
+      throw apiError(502, "Avatar update did not return a row.", "workspace_avatar_update_failed");
+    }
+
+    if (member.avatar_storage_key && member.avatar_storage_key !== storageKey) {
+      await bucket.delete(member.avatar_storage_key).catch(() => undefined);
+    }
+
+    await this.writeAudit(
+      workspace.id,
+      user.id,
+      member.id,
+      "workspace.account.avatar.updated",
+      member.id,
+      {
+        mimeType
+      }
+    );
+
+    return this.accountResponse(workspace, updated);
+  }
+
+  async getWorkspaceAvatar(slug: string, user: AuthUser, bucket: R2Bucket) {
+    const workspace = await this.getWorkspaceBySlug(slug);
+    const member = await this.requireActiveMember(workspace.id, user.id);
+    if (!member.avatar_storage_key) {
+      throw apiError(404, "Avatar was not found.", "workspace_avatar_not_found");
+    }
+
+    const object = await bucket.get(member.avatar_storage_key);
+    if (!object?.body) {
+      throw apiError(404, "Avatar was not found.", "workspace_avatar_not_found");
+    }
+
+    return {
+      body: object.body,
+      mimeType: member.avatar_mime_type ?? object.httpMetadata?.contentType ?? "image/png",
+      updatedAt: member.avatar_updated_at ?? undefined
+    };
+  }
+
+  async deleteWorkspaceAvatar(slug: string, user: AuthUser, bucket: R2Bucket) {
+    const workspace = await this.getWorkspaceBySlug(slug);
+    const member = await this.requireActiveMember(workspace.id, user.id);
+    if (!member.avatar_storage_key) {
+      return this.accountResponse(workspace, member);
+    }
+
+    const now = new Date().toISOString();
+    const previousStorageKey = member.avatar_storage_key;
+    const [updated] = await this.supabase.update<WorkspaceMemberRow>(
+      "workspace_members",
+      {
+        avatar_storage_key: null,
+        avatar_mime_type: null,
+        avatar_updated_at: null,
+        updated_at: now
+      },
+      {
+        id: `eq.${member.id}`,
+        workspace_id: `eq.${workspace.id}`,
+        deleted_at: "is.null"
+      }
+    );
+
+    if (!updated) {
+      throw apiError(502, "Avatar removal did not return a row.", "workspace_avatar_delete_failed");
+    }
+
+    await bucket.delete(previousStorageKey).catch(() => undefined);
+    await this.writeAudit(
+      workspace.id,
+      user.id,
+      member.id,
+      "workspace.account.avatar.deleted",
+      member.id,
+      {}
+    );
+
+    return this.accountResponse(workspace, updated);
+  }
+
   async completePasswordChange(slug: string, user: AuthUser) {
     const workspace = await this.getWorkspaceBySlug(slug);
     const member = await this.requireActiveMember(workspace.id, user.id);
@@ -512,7 +697,7 @@ export class WorkspaceAccessService {
   ): Promise<WorkspaceMemberRow> {
     const [member] = await this.supabase.select<WorkspaceMemberRow>(
       "workspace_members",
-      "id,workspace_id,auth_user_id,display_name,email,status,created_at",
+      workspaceMemberFields,
       {
         workspace_id: `eq.${workspaceId}`,
         auth_user_id: `eq.${userId}`,
@@ -531,7 +716,7 @@ export class WorkspaceAccessService {
   private async requireMember(workspaceId: string, userId: string): Promise<WorkspaceMemberRow> {
     const [member] = await this.supabase.select<WorkspaceMemberRow>(
       "workspace_members",
-      "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
+      workspaceMemberFields,
       {
         workspace_id: `eq.${workspaceId}`,
         auth_user_id: `eq.${userId}`,
@@ -552,7 +737,7 @@ export class WorkspaceAccessService {
   ): Promise<WorkspaceMemberRow> {
     const [member] = await this.supabase.select<WorkspaceMemberRow>(
       "workspace_members",
-      "id,workspace_id,auth_user_id,display_name,email,status,created_at,updated_at,deleted_at",
+      workspaceMemberFields,
       {
         id: `eq.${memberId}`,
         workspace_id: `eq.${workspaceId}`,
@@ -622,8 +807,28 @@ export class WorkspaceAccessService {
       displayName: member.display_name,
       status: member.status,
       roleKeys: roleKeys.filter((roleKey) => roleKey !== "viewer").sort(),
+      avatarUpdatedAt: member.avatar_updated_at ?? null,
+      avatarMimeType: member.avatar_mime_type ?? null,
       createdAt: member.created_at,
       updatedAt: member.updated_at ?? member.created_at
+    };
+  }
+
+  private accountResponse(workspace: WorkspaceRow, member: WorkspaceMemberRow) {
+    return {
+      workspace: {
+        id: workspace.id,
+        name: workspace.name,
+        slug: workspace.slug
+      },
+      member: {
+        id: member.id,
+        email: member.email,
+        displayName: member.display_name,
+        status: member.status,
+        avatarUpdatedAt: member.avatar_updated_at ?? null,
+        avatarMimeType: member.avatar_mime_type ?? null
+      }
     };
   }
 

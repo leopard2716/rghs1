@@ -6,7 +6,9 @@ export const paths = {
   adminTenants: "/admin/tenants",
   adminTenantCreate: "/admin/tenants/new",
   workspaceRoot: (slug: string) => `/${encodeURIComponent(slug)}`,
+  workspaceRecovery: (slug: string) => `/${encodeURIComponent(slug)}/recover`,
   workspaceRegister: (slug: string) => `/${encodeURIComponent(slug)}/register`,
+  workspaceAccount: (slug: string) => `/${encodeURIComponent(slug)}/account`,
   workspaceDashboard: (slug: string) => `/${encodeURIComponent(slug)}/dashboard`,
   workspaceProfiles: (slug: string) => `/${encodeURIComponent(slug)}/profiles`,
   workspaceBids: (slug: string) => `/${encodeURIComponent(slug)}/bids`,
@@ -29,4 +31,8 @@ export const paths = {
 
 export function recoveryPath(returnTo: string): string {
   return `${paths.recovery}?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+export function workspaceRecoveryPath(slug: string, returnTo = paths.workspaceRoot(slug)): string {
+  return `${paths.workspaceRecovery(slug)}?returnTo=${encodeURIComponent(returnTo)}`;
 }

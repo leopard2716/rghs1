@@ -34,5 +34,9 @@ describe("authentication scope", () => {
   it("derives recovery scope from its return route", () => {
     expect(authScopeForLocation("/recover", "?returnTo=%2Fadmin%2Flogin")).toBe("admin");
     expect(authScopeForLocation("/recover", "?returnTo=%2Facme%2Fusers")).toBe("workspace:acme");
+    expect(authScopeForLocation("/acme/recover")).toBe("workspace:acme");
+    expect(authScopeForLocation("/acme/recover", "?returnTo=%2Facme%2Fusers")).toBe(
+      "workspace:acme"
+    );
   });
 });

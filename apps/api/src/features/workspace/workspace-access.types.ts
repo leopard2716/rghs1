@@ -13,6 +13,9 @@ export type WorkspaceMemberRow = {
   display_name: string;
   email: string;
   status: "active" | "invited" | "pending" | "rejected" | "disabled";
+  avatar_storage_key?: string | null;
+  avatar_mime_type?: string | null;
+  avatar_updated_at?: string | null;
   created_at: string;
   updated_at?: string;
   deleted_at?: string | null;

@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Trash2,
   X
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -18,6 +19,7 @@ import { paths } from "../../../routing/paths";
 import type { AuthSession } from "../../../services/auth.service";
 import {
   createJobRecord,
+  deleteJobRecord,
   fetchJob,
   fetchJobs,
   updateJobRecord,
@@ -68,6 +70,7 @@ export function JobsPage({
   const creating = searchParams.get("modal") === "new";
   const requestedJobId = searchParams.get("jobRecordId");
   const queryClient = useQueryClient();
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const jobsQuery = useQuery({
     queryKey: ["tracking-jobs", slug, memberId, listQuery],
     queryFn: () => fetchJobs(session, slug, listQuery),
@@ -126,7 +129,23 @@ export function JobsPage({
       ]);
     }
   });
+  const deleteMutation = useMutation({
+    mutationFn: (jobId: string) => deleteJobRecord(session, slug, jobId),
+    onSuccess: async () => {
+      setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
+        replace: true
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tracking-jobs", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-job", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-payments", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-payment-ledger", slug] })
+      ]);
+    },
+    onSettled: () => setDeletingJobId(null)
+  });
   const pending = createMutation.isPending || updateMutation.isPending;
+  const showActions = Boolean(jobsQuery.data?.jobs.some((job) => canDeleteJob(job)));
 
   function openJob(job: JobRecord) {
     const next = clearTrackingModalParams(new URLSearchParams(searchParamsValue));
@@ -218,16 +237,20 @@ export function JobsPage({
                     <th>People</th>
                     <th>Rate split</th>
                     <th>Created</th>
+                    {showActions ? <th>Actions</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {jobsQuery.isFetching ? (
-                    <TableLoadingRow colSpan={6} label="Loading job results" />
+                    <TableLoadingRow colSpan={showActions ? 7 : 6} label="Loading job results" />
                   ) : jobsQuery.data.jobs.length ? (
                     jobsQuery.data.jobs.map((job) => (
                       <tr
                         key={job.id}
-                        className="tracking-row-clickable"
+                        className={`tracking-row-clickable${
+                          deletingJobId === job.id ? " tenant-row-pending" : ""
+                        }`}
+                        aria-busy={deletingJobId === job.id}
                         tabIndex={0}
                         onClick={() => openJob(job)}
                         onKeyDown={(event) => {
@@ -270,11 +293,39 @@ export function JobsPage({
                           <span>Discount {formatPercent(job.rates.discount)}</span>
                         </td>
                         <td>{displayDate(job.createdAt)}</td>
+                        {showActions ? (
+                          <td>
+                            {canDeleteJob(job) ? (
+                              <button
+                                className="secondary-action compact-action danger-action"
+                                type="button"
+                                disabled={deletingJobId === job.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  const confirmed = window.confirm(
+                                    `Delete the job record for "${job.jobTitle}" at ${job.company}? Existing payment history will be preserved.`
+                                  );
+                                  if (confirmed) {
+                                    setDeletingJobId(job.id);
+                                    deleteMutation.mutate(job.id);
+                                  }
+                                }}
+                              >
+                                {deletingJobId === job.id ? (
+                                  <LoaderCircle className="spin-icon" aria-hidden="true" />
+                                ) : (
+                                  <Trash2 aria-hidden="true" />
+                                )}
+                                {deletingJobId === job.id ? "Deleting" : "Delete"}
+                              </button>
+                            ) : null}
+                          </td>
+                        ) : null}
                       </tr>
                     ))
                   ) : (
                     <tr className="tracking-table-empty-row">
-                      <td colSpan={6}>No job records match the current view.</td>
+                      <td colSpan={showActions ? 7 : 6}>No job records match the current view.</td>
                     </tr>
                   )}
                 </tbody>
@@ -290,6 +341,9 @@ export function JobsPage({
               <p className="form-error">{errorMessage(jobsQuery.error)}</p>
             ) : null}
           </>
+        ) : null}
+        {deleteMutation.isError ? (
+          <p className="form-error">{errorMessage(deleteMutation.error)}</p>
         ) : null}
         {requestedJobQuery.isError ? (
           <p className="form-error">{errorMessage(requestedJobQuery.error)}</p>
@@ -806,4 +860,8 @@ function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string })
 
 function canEditJob(job: JobRecord, memberId: string): boolean {
   return job.canEdit && job.createdByMemberId === memberId;
+}
+
+function canDeleteJob(job: JobRecord): boolean {
+  return job.canDelete;
 }

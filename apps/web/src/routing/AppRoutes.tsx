@@ -8,6 +8,7 @@ import {
 } from "../features/admin/routes/AdminRoutes";
 import { LandingPage } from "../features/landing/LandingPage";
 import {
+  WorkspaceAccountRoute,
   WorkspaceBidsRoute,
   WorkspaceDashboardRoute,
   WorkspaceEntryRoute,
@@ -34,7 +35,9 @@ export function AppRoutes() {
       <Route path={paths.adminTenantCreate} element={<AdminProtectedRoute view="create" />} />
 
       <Route path="/:workspaceSlug/login" element={<WorkspaceLoginAlias />} />
+      <Route path="/:workspaceSlug/recover" element={<RecoveryRoute />} />
       <Route path="/:workspaceSlug/register" element={<WorkspaceRegisterRoute />} />
+      <Route path="/:workspaceSlug/account" element={<WorkspaceAccountRoute />} />
       <Route path="/:workspaceSlug/dashboard" element={<WorkspaceDashboardRoute />} />
       <Route path="/:workspaceSlug/profiles" element={<WorkspaceProfilesRoute />} />
       <Route path="/:workspaceSlug/bids" element={<WorkspaceBidsRoute />} />
