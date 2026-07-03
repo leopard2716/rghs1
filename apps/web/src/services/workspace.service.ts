@@ -40,6 +40,8 @@ export type WorkspaceSession = {
     displayName: string;
     status: "active" | "invited" | "pending" | "rejected" | "disabled";
     roleKeys: string[];
+    avatarUpdatedAt: string | null;
+    avatarMimeType: string | null;
   };
   accessState: "active" | "invited" | "pending" | "rejected" | "disabled";
   canAccess: boolean;
@@ -54,6 +56,8 @@ export type WorkspaceMembership = {
     email: string;
     displayName: string;
     status: "active" | "invited" | "pending" | "rejected" | "disabled";
+    avatarUpdatedAt: string | null;
+    avatarMimeType: string | null;
   };
   accessState: "active" | "invited" | "pending" | "rejected" | "disabled";
   canAccess: boolean;
@@ -67,6 +71,22 @@ export type WorkspaceMemberSummary = {
   roleKeys: string[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorkspaceAccount = {
+  workspace: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  member: {
+    id: string;
+    email: string;
+    displayName: string;
+    status: "active" | "invited" | "pending" | "rejected" | "disabled";
+    avatarUpdatedAt: string | null;
+    avatarMimeType: string | null;
+  };
 };
 
 export type WorkspaceMembersResponse = {
@@ -120,6 +140,90 @@ export async function fetchWorkspaceMembership(
   );
 
   return parseJson<WorkspaceMembership>(response);
+}
+
+export async function fetchWorkspaceAccount(
+  session: AuthSession,
+  slug: string
+): Promise<WorkspaceAccount> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/account`,
+    { headers: authHeaders() }
+  );
+
+  return parseJson<WorkspaceAccount>(response);
+}
+
+export async function updateWorkspaceAccount(
+  session: AuthSession,
+  slug: string,
+  input: { displayName: string }
+): Promise<WorkspaceAccount> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/account`,
+    {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+
+  return parseJson<WorkspaceAccount>(response);
+}
+
+export async function uploadWorkspaceAvatar(
+  session: AuthSession,
+  slug: string,
+  file: Blob
+): Promise<WorkspaceAccount> {
+  const form = new FormData();
+  form.set("file", file, "avatar.png");
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/account/avatar`,
+    {
+      method: "POST",
+      body: form
+    }
+  );
+
+  return parseJson<WorkspaceAccount>(response);
+}
+
+export async function fetchWorkspaceAvatar(
+  session: AuthSession,
+  slug: string
+): Promise<Blob | null> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/account/avatar`
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    await parseJson<never>(response, `Avatar request failed with ${response.status}.`);
+  }
+
+  return response.blob();
+}
+
+export async function deleteWorkspaceAvatar(
+  session: AuthSession,
+  slug: string
+): Promise<WorkspaceAccount> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/account/avatar`,
+    {
+      method: "DELETE",
+      headers: authHeaders()
+    }
+  );
+
+  return parseJson<WorkspaceAccount>(response);
 }
 
 export async function completeWorkspacePasswordChange(

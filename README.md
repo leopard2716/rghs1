@@ -31,6 +31,17 @@ VITE_SUPABASE_ANON_KEY
 VITE_API_BASE_URL
 ```
 
+The default Node API dev server provides a local file-backed `RESUME_BUCKET` under
+`.local-r2/resume-bucket`, so resume and avatar uploads work without Wrangler. Because local and
+cloud dev share the same Supabase database, use the remote Worker dev server when both environments
+must read the same uploaded files:
+
+```bash
+npm run dev:worker:remote --workspace @rghs1/api
+```
+
+That path uses the `rghs1-resumes-dev` R2 bucket binding from `apps/api/wrangler.toml`.
+
 Open the global admin portal at `http://127.0.0.1:5173/admin`.
 
 For a Supabase project that already contains encrypted tracking records:

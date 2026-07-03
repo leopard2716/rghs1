@@ -195,9 +195,32 @@ function SetRecoveredPassword({
 
 function recoveryReturnPath(): string {
   const value = new URLSearchParams(window.location.search).get("returnTo");
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/recover")) {
-    return "/";
+  if (isSafeRecoveryReturnPath(value)) {
+    return value;
   }
 
-  return value;
+  const workspaceSlug = workspaceSlugFromRecoveryPath(window.location.pathname);
+  return workspaceSlug ? `/${workspaceSlug}` : "/";
+}
+
+function isSafeRecoveryReturnPath(value: string | null): value is string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return false;
+  }
+
+  const pathname = new URL(value, window.location.origin).pathname;
+  return !isRecoveryPathname(pathname);
+}
+
+function workspaceSlugFromRecoveryPath(pathname: string): string | null {
+  const segments = pathname.split("/").filter(Boolean);
+  return segments.length === 2 && segments[1] === "recover" ? segments[0]! : null;
+}
+
+function isRecoveryPathname(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  return (
+    (segments.length === 1 && segments[0] === "recover") ||
+    (segments.length === 2 && segments[1] === "recover")
+  );
 }

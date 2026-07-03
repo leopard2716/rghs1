@@ -312,16 +312,24 @@ function normalizeTotpCode(code: string): string {
 function mfaIssuerUrl(): string {
   const returnTo = new URLSearchParams(window.location.search).get("returnTo");
   if (
-    window.location.pathname.startsWith("/recover") &&
+    isRecoveryPathname(window.location.pathname) &&
     returnTo?.startsWith("/") &&
     !returnTo.startsWith("//") &&
-    !returnTo.startsWith("/recover")
+    !isRecoveryPathname(new URL(returnTo, window.location.origin).pathname)
   ) {
     const returnUrl = new URL(returnTo, window.location.origin);
     return `${returnUrl.origin}${returnUrl.pathname}`;
   }
 
   return `${window.location.origin}${window.location.pathname}`;
+}
+
+function isRecoveryPathname(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  return (
+    (segments.length === 1 && segments[0] === "recover") ||
+    (segments.length === 2 && segments[1] === "recover")
+  );
 }
 
 function qrImageSource(qrCode: string): string {

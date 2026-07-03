@@ -1108,6 +1108,100 @@ td span {
   min-width: 1120px;
 }
 
+.account-profile-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.65fr) minmax(300px, 0.35fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.account-profile-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.avatar-editor {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  padding: 14px;
+  background: #fbfbf8;
+  border: 1px solid #e1e2dc;
+  border-radius: 8px;
+}
+
+.avatar-preview {
+  width: 176px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #17644f;
+  background: #e4f7ef;
+  border: 1px solid #c7eadb;
+  border-radius: 8px;
+}
+
+.avatar-preview img,
+.avatar-preview canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-preview span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  font-size: 2.8rem;
+  font-weight: 900;
+}
+
+.avatar-preview svg {
+  width: 48px;
+  height: 48px;
+}
+
+.avatar-controls {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.avatar-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.avatar-crop-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.avatar-crop-grid label {
+  display: grid;
+  gap: 5px;
+  color: #37443e;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.avatar-crop-grid input[type="range"] {
+  width: 100%;
+  min-height: 26px;
+}
+
+.avatar-controls small {
+  color: #68746d;
+  overflow-wrap: anywhere;
+}
+
 .tracking-table {
   min-width: 760px;
 }
@@ -3058,6 +3152,10 @@ td span {
     grid-template-columns: 1fr;
   }
 
+  .account-profile-layout {
+    grid-template-columns: 1fr;
+  }
+
   .admin-grid {
     grid-template-columns: 1fr;
   }
@@ -3200,5 +3298,13 @@ td span {
 
   .inline-admin-form {
     grid-template-columns: 1fr;
+  }
+
+  .avatar-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .avatar-preview {
+    width: min(220px, 100%);
   }
 }

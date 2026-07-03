@@ -18,7 +18,7 @@ name = "rghs1-api-dev"
 
 [env.dev.vars]
 APP_NAME = "RGHS1 Development"
-ALLOWED_ORIGINS = "https://rghs1-web-dev.pages.dev"
+ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://rghs1-web-dev.pages.dev"
 
 [[env.dev.r2_buckets]]
 binding = "RESUME_BUCKET"

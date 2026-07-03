@@ -194,7 +194,7 @@ export function PaymentLedgerPage({
               <table className="tracking-table payment-ledger-table">
                 <thead>
                   <tr>
-                    <th>Job name</th>
+                    <th>Source</th>
                     <th>Amount</th>
                     <th>Income or outcome</th>
                     <th>Date</th>
@@ -210,9 +210,7 @@ export function PaymentLedgerPage({
                         <td>
                           <strong>{record.jobName}</strong>
                           {record.company ? <span>{record.company}</span> : null}
-                          {record.source === "custom" ? (
-                            <span className="record-muted">Custom record</span>
-                          ) : null}
+                          <span className="record-muted">{record.sourceDetail}</span>
                         </td>
                         <td>
                           <strong className={`payment-ledger-amount ${record.direction}`}>

@@ -71,15 +71,21 @@ Redirect URLs:
 
 The Site URL controls the default password recovery destination. New MFA enrollment requests
 also provide the current frontend origin explicitly as the TOTP issuer.
+If recovery emails land on an old host such as `http://localhost:3000/#access_token=...`, update
+Supabase Auth URL Configuration and request a fresh recovery email; old emails keep the URL that
+was generated when they were sent.
 
 ## 3. Create R2 Buckets
 
 Create these Cloudflare R2 buckets:
 
 ```txt
-rghs1-resumes
-rghs1-resumes-preview
+rghs1-resumes-dev
+rghs1-resumes-prod
 ```
+
+`rghs1-resumes-dev` stores private resume files and tenant user avatars for local/cloud dev.
+`rghs1-resumes-prod` stores the same object types for production.
 
 The Worker binding is already configured in:
 
@@ -103,6 +109,15 @@ npx wrangler secret put SUPABASE_URL --config apps/api/wrangler.toml
 npx wrangler secret put SUPABASE_ANON_KEY --config apps/api/wrangler.toml
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config apps/api/wrangler.toml
 npx wrangler secret put RESEND_API_KEY --config apps/api/wrangler.toml
+```
+
+For the dev Worker environment, set the same secrets with `--env dev`:
+
+```bash
+npx wrangler secret put SUPABASE_URL --env dev --config apps/api/wrangler.toml
+npx wrangler secret put SUPABASE_ANON_KEY --env dev --config apps/api/wrangler.toml
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env dev --config apps/api/wrangler.toml
+npx wrangler secret put RESEND_API_KEY --env dev --config apps/api/wrangler.toml
 ```
 
 Update `ALLOWED_ORIGINS` in `apps/api/wrangler.toml` to include the Cloudflare Pages URL after the web app is created.

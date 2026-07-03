@@ -16,9 +16,14 @@ export const workspaceMemberRolesInput = z.object({
     .transform((roleKeys) => [...new Set(roleKeys)])
 });
 
+export const workspaceAccountInput = z.object({
+  displayName: z.string().trim().min(2).max(120)
+});
+
 export type WorkspaceRegistrationInput = z.infer<typeof workspaceRegistrationInput>;
 export type WorkspaceMemberStatusInput = z.infer<typeof workspaceMemberStatusInput>;
 export type WorkspaceMemberRolesInput = z.infer<typeof workspaceMemberRolesInput>;
+export type WorkspaceAccountInput = z.infer<typeof workspaceAccountInput>;
 
 export const applicationInput = z.object({
   workspaceId: z.string().min(1),

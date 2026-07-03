@@ -1,5 +1,6 @@
 export type WorkspaceView =
   | "overview"
+  | "account"
   | "profiles"
   | "bids"
   | "interviews"
