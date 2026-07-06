@@ -13,8 +13,39 @@ import type {
 export type ProfileResponse = {
   id: string;
   name: string;
+  firstName: string | null;
+  middleName: string | null;
+  lastName: string | null;
+  gender: "man" | "woman" | null;
+  dateOfBirth: string | null;
+  email: string | null;
+  phoneNumber: string | null;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  linkedinUrl: string | null;
+  education: ProfileEducationResponse;
+  careerExperiences: ProfileCareerExperienceResponse[];
+  resumeHtmlTemplate: string | null;
+  resumeTailoringNote: string | null;
   createdAt: string;
   deletedAt: string | null;
+};
+
+export type ProfileEducationResponse = {
+  university: string | null;
+  location: string | null;
+  degree: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+};
+
+export type ProfileCareerExperienceResponse = {
+  companyName: string | null;
+  companyLocation: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
 };
 
 export type JobMarketResponse = {
@@ -165,6 +196,28 @@ export class TrackingRecordMapper {
     return {
       id: row.id,
       name: row.name,
+      firstName: row.first_name ?? null,
+      middleName: row.middle_name ?? null,
+      lastName: row.last_name ?? null,
+      gender: row.gender === "man" || row.gender === "woman" ? row.gender : null,
+      dateOfBirth: row.date_of_birth ?? null,
+      email: row.email ?? null,
+      phoneNumber: row.phone_number ?? null,
+      street: row.street ?? null,
+      city: row.city ?? null,
+      state: row.state ?? null,
+      postalCode: row.postal_code ?? null,
+      linkedinUrl: row.linkedin_url ?? null,
+      education: {
+        university: row.education_university ?? null,
+        location: row.education_location ?? null,
+        degree: row.education_degree ?? null,
+        dateFrom: row.education_date_from ?? null,
+        dateTo: row.education_date_to ?? null
+      },
+      careerExperiences: profileCareerExperiences(row.career_experiences),
+      resumeHtmlTemplate: row.resume_html_template ?? null,
+      resumeTailoringNote: row.resume_tailoring_note ?? null,
       createdAt: row.created_at,
       deletedAt: row.deleted_at
     };
@@ -431,4 +484,29 @@ export class TrackingRecordMapper {
       };
     });
   }
+}
+
+function profileCareerExperiences(value: unknown): ProfileCareerExperienceResponse[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    return [
+      {
+        companyName: textOrNull(record.companyName),
+        companyLocation: textOrNull(record.companyLocation),
+        dateFrom: textOrNull(record.dateFrom),
+        dateTo: textOrNull(record.dateTo)
+      }
+    ];
+  });
+}
+
+function textOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }

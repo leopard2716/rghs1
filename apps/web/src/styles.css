@@ -1206,12 +1206,23 @@ td span {
   min-width: 760px;
 }
 
+.tracking-profiles-table {
+  min-width: 1120px;
+}
+
 .tracking-table td:first-child {
   min-width: 190px;
 }
 
 .tracking-table td > span {
   font-size: 0.88rem;
+}
+
+.table-action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .profile-tags {
@@ -1600,6 +1611,88 @@ td span {
 
 .modal-form textarea {
   resize: vertical;
+}
+
+.profile-form-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: #fbfbf8;
+  border: 1px solid #e1e4dd;
+  border-radius: 8px;
+}
+
+.profile-form-section h4,
+.profile-section-header h4 {
+  margin: 0;
+  color: #34423b;
+  font-size: 0.95rem;
+}
+
+.profile-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.profile-full-field {
+  grid-column: 1 / -1;
+}
+
+.profile-radio-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 11px;
+  border: 1px solid #d9ded5;
+  border-radius: 8px;
+}
+
+.profile-radio-group legend {
+  padding: 0 5px;
+  color: #37443e;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.profile-radio-group label {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 7px;
+}
+
+.profile-radio-group input[type="radio"] {
+  width: 17px;
+  min-height: 17px;
+  margin: 0;
+  accent-color: #2f8f75;
+}
+
+.profile-career-list {
+  display: grid;
+  gap: 12px;
+}
+
+.profile-career-entry {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #d9ded5;
+  border-radius: 8px;
+}
+
+.profile-career-entry legend {
+  padding: 0 7px;
+  color: #37443e;
+  font-size: 0.88rem;
+  font-weight: 800;
 }
 
 .tracking-list-controls {

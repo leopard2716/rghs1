@@ -76,6 +76,37 @@ export function registerTrackingRoutes(app: ApiApp): void {
     }
   );
 
+  app.put(
+    "/v1/workspaces/:slug/tracking/profiles/:profileId",
+    zValidator("param", trackingProfileParams),
+    zValidator("json", trackingProfileInput, (result, c) => {
+      if (!result.success) {
+        return jsonError(
+          c,
+          400,
+          "Check the profile fields and try again.",
+          "validation_failed",
+          result.error.flatten()
+        );
+      }
+    }),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.updateProfile(
+            c.req.param("slug"),
+            c.req.valid("param").profileId,
+            user,
+            c.req.valid("json")
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
   app.delete(
     "/v1/workspaces/:slug/tracking/profiles/:profileId",
     zValidator("param", trackingProfileParams),

@@ -5,8 +5,59 @@ import { apiBaseUrl, authenticatedApiFetch, parseJson } from "./http";
 export type TrackingProfile = {
   id: string;
   name: string;
+  firstName?: string | null;
+  middleName?: string | null;
+  lastName?: string | null;
+  gender?: "man" | "woman" | null;
+  dateOfBirth?: string | null;
+  email?: string | null;
+  phoneNumber?: string | null;
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  linkedinUrl?: string | null;
+  education?: TrackingProfileEducation;
+  careerExperiences?: TrackingProfileCareerExperience[];
+  resumeHtmlTemplate?: string | null;
+  resumeTailoringNote?: string | null;
   createdAt: string;
   deletedAt: string | null;
+};
+
+export type TrackingProfileEducation = {
+  university?: string | null;
+  location?: string | null;
+  degree?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+};
+
+export type TrackingProfileCareerExperience = {
+  companyName?: string | null;
+  companyLocation?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+};
+
+export type TrackingProfileInput = {
+  name: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  gender?: "man" | "woman";
+  dateOfBirth?: string;
+  email?: string;
+  phoneNumber?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  linkedinUrl?: string;
+  education?: TrackingProfileEducation;
+  careerExperiences?: TrackingProfileCareerExperience[];
+  resumeHtmlTemplate?: string;
+  resumeTailoringNote?: string;
 };
 
 export type TrackingBidProfile = TrackingProfile & {
@@ -203,6 +254,7 @@ export type PaymentLedgerQuery = {
 
 export type ProfilesResponse = {
   canCreate: boolean;
+  canEdit: boolean;
   canDelete: boolean;
   canManageMarkets: boolean;
   profiles: TrackingProfile[];
@@ -340,7 +392,7 @@ export async function fetchTrackingProfiles(
 export async function createTrackingProfile(
   session: AuthSession,
   slug: string,
-  name: string
+  input: TrackingProfileInput
 ): Promise<{ profile: TrackingProfile }> {
   const response = await authenticatedApiFetch(
     session,
@@ -348,7 +400,25 @@ export async function createTrackingProfile(
     {
       method: "POST",
       headers: authHeaders(),
-      body: JSON.stringify({ name })
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ profile: TrackingProfile }>(response);
+}
+
+export async function updateTrackingProfile(
+  session: AuthSession,
+  slug: string,
+  profileId: string,
+  input: TrackingProfileInput
+): Promise<{ profile: TrackingProfile }> {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/profiles/${profileId}`,
+    {
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
     }
   );
   return parseJson<{ profile: TrackingProfile }>(response);

@@ -11,9 +11,99 @@ const webUrl = z
     return protocol === "http:" || protocol === "https:";
   }, "Only HTTP or HTTPS links are allowed.");
 
-export const trackingProfileInput = z.object({
-  name: z.string().trim().min(2).max(120)
+const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+
+const optionalProfileText = (maxLength: number) =>
+  z.string().trim().max(maxLength).optional().nullable();
+
+const optionalProfileDate = z
+  .string()
+  .trim()
+  .refine((value) => value === "" || isIsoDate(value), "Use YYYY-MM-DD.")
+  .optional()
+  .nullable();
+
+const optionalProfileUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((value) => {
+    if (value === "") {
+      return true;
+    }
+    try {
+      const protocol = new URL(value).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "Only HTTP or HTTPS links are allowed.")
+  .optional()
+  .nullable();
+
+const optionalProfileEmail = z
+  .string()
+  .trim()
+  .max(320)
+  .refine((value) => value === "" || z.string().email().safeParse(value).success, {
+    message: "Enter a valid email address."
+  })
+  .optional()
+  .nullable();
+
+const profileEducationInput = z.object({
+  university: optionalProfileText(180),
+  location: optionalProfileText(180),
+  degree: optionalProfileText(180),
+  dateFrom: optionalProfileDate,
+  dateTo: optionalProfileDate
 });
+
+const profileCareerExperienceInput = z.object({
+  companyName: optionalProfileText(180),
+  companyLocation: optionalProfileText(180),
+  dateFrom: optionalProfileDate,
+  dateTo: optionalProfileDate
+});
+
+export const trackingProfileInput = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    firstName: optionalProfileText(120),
+    middleName: optionalProfileText(120),
+    lastName: optionalProfileText(120),
+    gender: z.enum(["man", "woman"]).optional().nullable(),
+    dateOfBirth: optionalProfileDate,
+    email: optionalProfileEmail,
+    phoneNumber: optionalProfileText(50),
+    street: optionalProfileText(180),
+    city: optionalProfileText(120),
+    state: optionalProfileText(120),
+    postalCode: optionalProfileText(40),
+    linkedinUrl: optionalProfileUrl,
+    education: profileEducationInput.optional(),
+    careerExperiences: z.array(profileCareerExperienceInput).max(25).optional(),
+    resumeHtmlTemplate: optionalProfileText(200000),
+    resumeTailoringNote: optionalProfileText(50000)
+  })
+  .superRefine((input, context) => {
+    addDateRangeIssue(
+      context,
+      ["education", "dateTo"],
+      input.education?.dateFrom,
+      input.education?.dateTo,
+      "Education end date must be after the start date."
+    );
+    input.careerExperiences?.forEach((experience, index) => {
+      addDateRangeIssue(
+        context,
+        ["careerExperiences", index, "dateTo"],
+        experience.dateFrom,
+        experience.dateTo,
+        "Career experience end date must be after the start date."
+      );
+    });
+  });
 
 export const trackingProfileParams = z.object({
   profileId: z.string().uuid()
@@ -297,6 +387,30 @@ export type PaymentListQuery = z.infer<typeof paymentListQuery>;
 export type PaymentAnalysisQuery = z.infer<typeof paymentAnalysisQuery>;
 export type PaymentLedgerQuery = z.infer<typeof paymentLedgerQuery>;
 export type TrackingDashboardQuery = z.infer<typeof trackingDashboardQuery>;
+
+function addDateRangeIssue(
+  context: z.RefinementCtx,
+  path: Array<string | number>,
+  dateFrom: string | null | undefined,
+  dateTo: string | null | undefined,
+  message: string
+): void {
+  if (dateFrom && dateTo && dateTo < dateFrom) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path,
+      message
+    });
+  }
+}
+
+function isIsoDate(value: string): boolean {
+  if (!isoDate.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
 
 function isTimeZone(value: string): boolean {
   try {
