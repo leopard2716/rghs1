@@ -106,6 +106,7 @@ export class TrackingService {
     return {
       workspace: workspaceResponse(context.workspace),
       canCreate: canManage,
+      canEdit: canManage,
       canDelete: canManage,
       canManageMarkets: canManage,
       profiles,
@@ -125,12 +126,13 @@ export class TrackingService {
     context: TrackingContext,
     input: TrackingProfileInput
   ): Promise<ProfileResponse> {
+    await this.ensureProfileNameAvailable(context.workspace.id, input.name);
     const id = crypto.randomUUID();
     const [profile] = await this.supabase.insert<TrackingProfileRow>("tracking_profiles", [
       {
         id,
         workspace_id: context.workspace.id,
-        name: input.name,
+        ...trackingProfileValues(input),
         created_by_member_id: context.member.id
       }
     ]);
@@ -143,6 +145,36 @@ export class TrackingService {
     }
 
     return this.records.profile(profile);
+  }
+
+  async updateProfile(
+    slug: string,
+    profileId: string,
+    user: AuthUser,
+    input: TrackingProfileInput
+  ) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    await this.ensureProfileNameAvailable(context.workspace.id, input.name, profileId);
+    const now = new Date().toISOString();
+    const [profile] = await this.supabase.update<TrackingProfileRow>(
+      "tracking_profiles",
+      {
+        ...trackingProfileValues(input),
+        updated_at: now
+      },
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        id: `eq.${profileId}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!profile) {
+      throw apiError(404, "Profile was not found.", "tracking_profile_not_found");
+    }
+
+    await this.audit(context, "tracking.profile.updated", profile.id, {});
+    return { profile: this.records.profile(profile) };
   }
 
   async deleteProfile(slug: string, profileId: string, user: AuthUser) {
@@ -426,6 +458,28 @@ export class TrackingService {
 
     await this.audit(context, "tracking.job_market.deleted", market.id, {});
     return { ok: true, marketId: market.id };
+  }
+
+  private async ensureProfileNameAvailable(
+    workspaceId: string,
+    name: string,
+    ignoredProfileId?: string
+  ) {
+    const rows = await this.supabase.select<Pick<TrackingProfileRow, "id" | "name">>(
+      "tracking_profiles",
+      "id,name",
+      {
+        workspace_id: `eq.${workspaceId}`,
+        deleted_at: "is.null"
+      }
+    );
+    const normalized = normalizeName(name);
+    const existing = rows.find(
+      (profile) => profile.id !== ignoredProfileId && normalizeName(profile.name) === normalized
+    );
+    if (existing) {
+      throw apiError(409, "A profile with this name already exists.", "tracking_profile_exists");
+    }
   }
 
   async listBids(slug: string, user: AuthUser, query: BidListQuery) {
@@ -2328,6 +2382,49 @@ function workspaceResponse(workspace: WorkspaceRow) {
   };
 }
 
+function trackingProfileValues(input: TrackingProfileInput): Record<string, unknown> {
+  const education = input.education;
+  return {
+    name: input.name,
+    first_name: nullableProfileText(input.firstName),
+    middle_name: nullableProfileText(input.middleName),
+    last_name: nullableProfileText(input.lastName),
+    gender: input.gender ?? null,
+    date_of_birth: nullableProfileText(input.dateOfBirth),
+    email: nullableProfileText(input.email),
+    phone_number: nullableProfileText(input.phoneNumber),
+    street: nullableProfileText(input.street),
+    city: nullableProfileText(input.city),
+    state: nullableProfileText(input.state),
+    postal_code: nullableProfileText(input.postalCode),
+    linkedin_url: nullableProfileText(input.linkedinUrl),
+    education_university: nullableProfileText(education?.university),
+    education_location: nullableProfileText(education?.location),
+    education_degree: nullableProfileText(education?.degree),
+    education_date_from: nullableProfileText(education?.dateFrom),
+    education_date_to: nullableProfileText(education?.dateTo),
+    career_experiences: profileCareerExperiencesValue(input.careerExperiences),
+    resume_html_template: nullableProfileText(input.resumeHtmlTemplate),
+    resume_tailoring_note: nullableProfileText(input.resumeTailoringNote)
+  };
+}
+
+function profileCareerExperiencesValue(input: TrackingProfileInput["careerExperiences"]) {
+  return (input ?? [])
+    .map((experience) => ({
+      companyName: nullableProfileText(experience.companyName),
+      companyLocation: nullableProfileText(experience.companyLocation),
+      dateFrom: nullableProfileText(experience.dateFrom),
+      dateTo: nullableProfileText(experience.dateTo)
+    }))
+    .filter((experience) => Object.values(experience).some(Boolean));
+}
+
+function nullableProfileText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed ? trimmed : null;
+}
+
 function uniqueMembers(members: MemberSummary[]) {
   return [...new Map(members.map((member) => [member.id, member])).values()].sort((left, right) =>
     left.name.localeCompare(right.name)
@@ -2755,10 +2852,19 @@ function trackingNotification(action: string, actorName: string) {
       message: `${actorName} deleted a payment record.`
     };
   }
-  if (action === "tracking.profile.created" || action === "tracking.job_market.created") {
+  if (
+    action === "tracking.profile.created" ||
+    action === "tracking.profile.updated" ||
+    action === "tracking.job_market.created"
+  ) {
     return {
       priority: "success" as const,
-      title: action.includes("profile") ? "Profile added" : "Job market added",
+      title:
+        action === "tracking.profile.updated"
+          ? "Profile updated"
+          : action.includes("profile")
+            ? "Profile added"
+            : "Job market added",
       message: `${actorName} updated workspace tracking configuration.`
     };
   }
