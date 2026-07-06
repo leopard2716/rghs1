@@ -69,6 +69,71 @@ describe("TrackingService deletion ownership", () => {
     expect(supabase.delete).not.toHaveBeenCalled();
   });
 
+  it("lets a tenant admin update profile details in the workspace", async () => {
+    const supabase = profileUpdateSupabase();
+    const service = new TrackingService(supabase as unknown as SupabaseRestClient);
+
+    await expect(
+      service.updateProfile(
+        "rg-team",
+        recordId,
+        { id: authUserId },
+        {
+          name: "Alex Smith",
+          firstName: "Alex",
+          lastName: "Smith",
+          gender: "man",
+          dateOfBirth: "1992-03-04",
+          email: "alex@example.com",
+          phoneNumber: "+1 555 100 2000",
+          careerExperiences: [
+            {
+              companyName: "Acme",
+              companyLocation: "Remote",
+              dateFrom: "2020-01-01"
+            }
+          ],
+          resumeTailoringNote: "Focus on platform work."
+        }
+      )
+    ).resolves.toMatchObject({
+      profile: {
+        id: recordId,
+        name: "Alex Smith",
+        firstName: "Alex",
+        careerExperiences: [{ companyName: "Acme" }]
+      }
+    });
+
+    expect(supabase.update).toHaveBeenCalledWith(
+      "tracking_profiles",
+      expect.objectContaining({
+        name: "Alex Smith",
+        first_name: "Alex",
+        last_name: "Smith",
+        gender: "man",
+        date_of_birth: "1992-03-04",
+        email: "alex@example.com",
+        phone_number: "+1 555 100 2000",
+        career_experiences: [
+          {
+            companyName: "Acme",
+            companyLocation: "Remote",
+            dateFrom: "2020-01-01",
+            dateTo: null
+          }
+        ],
+        resume_tailoring_note: "Focus on platform work.",
+        updated_at: expect.any(String)
+      }),
+      {
+        workspace_id: `eq.${workspaceId}`,
+        id: `eq.${recordId}`,
+        deleted_at: "is.null"
+      }
+    );
+  });
+
   it("lets a tenant admin soft-delete any job record in the workspace", async () => {
     const supabase = trackingSupabase(
       "admin",
@@ -478,6 +543,76 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
           created_at: "2026-06-18T00:00:00.000Z",
           updated_at: "2026-06-18T00:00:00.000Z",
           deleted_at: "2026-06-18T01:00:00.000Z"
+        }
+      ];
+    }),
+    insert: vi.fn(async () => []),
+    delete: vi.fn(async () => [])
+  };
+}
+
+function profileUpdateSupabase() {
+  const adminMember = {
+    id: memberId,
+    workspace_id: workspaceId,
+    auth_user_id: authUserId,
+    display_name: "Workspace Admin",
+    email: "admin@example.com",
+    status: "active",
+    created_at: "2026-06-18T00:00:00.000Z",
+    updated_at: "2026-06-18T00:00:00.000Z",
+    deleted_at: null
+  };
+
+  return {
+    select: vi.fn(async (table: string) => {
+      if (table === "workspaces") {
+        return [
+          {
+            id: workspaceId,
+            name: "RG Team",
+            slug: "rg-team",
+            status: "active",
+            created_at: "2026-06-18T00:00:00.000Z"
+          }
+        ];
+      }
+      if (table === "workspace_members") {
+        return [adminMember];
+      }
+      if (table === "workspace_roles") {
+        return [
+          {
+            id: "role-admin",
+            workspace_id: workspaceId,
+            name: "Admin",
+            key: "admin",
+            system: true,
+            deleted_at: null
+          }
+        ];
+      }
+      if (table === "workspace_member_roles") {
+        return [{ workspace_id: workspaceId, member_id: memberId, role_id: "role-admin" }];
+      }
+      if (table === "tracking_profiles") {
+        return [];
+      }
+      return [];
+    }),
+    update: vi.fn(async (table: string, values: Record<string, unknown>) => {
+      if (table !== "tracking_profiles") {
+        return [];
+      }
+      return [
+        {
+          id: recordId,
+          workspace_id: workspaceId,
+          ...values,
+          created_by_member_id: memberId,
+          created_at: "2026-06-18T00:00:00.000Z",
+          updated_at: values.updated_at,
+          deleted_at: null
         }
       ];
     }),

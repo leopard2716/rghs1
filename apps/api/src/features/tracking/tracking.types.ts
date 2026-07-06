@@ -4,6 +4,26 @@ export type TrackingProfileRow = {
   id: string;
   workspace_id: string;
   name: string;
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+  gender?: "man" | "woman" | null;
+  date_of_birth?: string | null;
+  email?: string | null;
+  phone_number?: string | null;
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  linkedin_url?: string | null;
+  education_university?: string | null;
+  education_location?: string | null;
+  education_degree?: string | null;
+  education_date_from?: string | null;
+  education_date_to?: string | null;
+  career_experiences?: unknown;
+  resume_html_template?: string | null;
+  resume_tailoring_note?: string | null;
   created_by_member_id: string | null;
   created_at: string;
   updated_at: string;
@@ -129,7 +149,7 @@ export type CustomPaymentRecordRow = {
 };
 
 export const trackingProfileFields =
-  "id,workspace_id,name,created_by_member_id,created_at,updated_at,deleted_at";
+  "id,workspace_id,name,first_name,middle_name,last_name,gender,date_of_birth,email,phone_number,street,city,state,postal_code,linkedin_url,education_university,education_location,education_degree,education_date_from,education_date_to,career_experiences,resume_html_template,resume_tailoring_note,created_by_member_id,created_at,updated_at,deleted_at";
 
 export const trackingProfileRequestFields =
   "id,workspace_id,name,requested_by_member_id,status,reviewed_by_member_id,resolved_profile_id,created_at,updated_at,reviewed_at";
