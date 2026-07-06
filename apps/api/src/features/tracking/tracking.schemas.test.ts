@@ -337,6 +337,80 @@ describe("tracking schemas", () => {
     expect(trackingProfileInput.parse({ name: "  Alex Smith  " }).name).toBe("Alex Smith");
   });
 
+  it("accepts detailed profile fields with career experience", () => {
+    const result = trackingProfileInput.parse({
+      name: "  Alex Smith  ",
+      firstName: "  Alex  ",
+      middleName: "",
+      lastName: "Smith",
+      gender: "man",
+      dateOfBirth: "1992-03-04",
+      email: "alex@example.com",
+      phoneNumber: "+1 555 100 2000",
+      street: "123 Market St",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      linkedinUrl: "https://www.linkedin.com/in/alex-smith",
+      education: {
+        university: "Example University",
+        location: "Austin, TX",
+        degree: "BS Computer Science",
+        dateFrom: "2010-08-01",
+        dateTo: "2014-05-01"
+      },
+      careerExperiences: [
+        {
+          companyName: "Acme",
+          companyLocation: "Remote",
+          dateFrom: "2020-01-01",
+          dateTo: ""
+        }
+      ],
+      resumeHtmlTemplate: "<section>Resume</section>",
+      resumeTailoringNote: "Focus on platform work."
+    });
+
+    expect(result).toMatchObject({
+      name: "Alex Smith",
+      firstName: "Alex",
+      careerExperiences: [{ companyName: "Acme" }]
+    });
+  });
+
+  it("rejects reversed profile education and career date ranges", () => {
+    expect(
+      trackingProfileInput.safeParse({
+        name: "Alex Smith",
+        education: {
+          dateFrom: "2026-02-01",
+          dateTo: "2026-01-01"
+        }
+      }).success
+    ).toBe(false);
+    expect(
+      trackingProfileInput.safeParse({
+        name: "Alex Smith",
+        careerExperiences: [
+          {
+            companyName: "Acme",
+            dateFrom: "2026-02-01",
+            dateTo: "2026-01-01"
+          }
+        ]
+      }).success
+    ).toBe(false);
+  });
+
+  it("rejects invalid profile calendar dates", () => {
+    expect(
+      trackingProfileInput.safeParse({
+        name: "Alex Smith",
+        dateOfBirth: "2026-02-31"
+      }).success
+    ).toBe(false);
+  });
+
   it("validates CSV profile requests and admin review decisions", () => {
     expect(trackingProfileRequestInput.parse({ name: "  Joshua  " }).name).toBe("Joshua");
     expect(trackingProfileRequestReviewInput.safeParse({ decision: "approved" }).success).toBe(
