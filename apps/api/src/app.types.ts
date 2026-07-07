@@ -4,6 +4,11 @@ import type { AuthUser } from "./auth/auth.types";
 export type ApiBindings = {
   APP_NAME?: string;
   ALLOWED_ORIGINS?: string;
+  APPLY_ASSISTANT_FIELD_MODEL?: string;
+  APPLY_ASSISTANT_FIELD_PROVIDER?: string;
+  EXTENSION_TOKEN_SECRET?: string;
+  GEMINI_API_KEY?: string;
+  OPENAI_API_KEY?: string;
   RESUME_BUCKET?: R2Bucket;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;

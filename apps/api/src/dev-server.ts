@@ -55,6 +55,11 @@ serve(
         APP_NAME: process.env.APP_NAME ?? "RGHS1 Local API",
         ALLOWED_ORIGINS:
           process.env.ALLOWED_ORIGINS ?? "http://localhost:5173,http://127.0.0.1:5173",
+        APPLY_ASSISTANT_FIELD_MODEL: process.env.APPLY_ASSISTANT_FIELD_MODEL,
+        APPLY_ASSISTANT_FIELD_PROVIDER: process.env.APPLY_ASSISTANT_FIELD_PROVIDER,
+        EXTENSION_TOKEN_SECRET: process.env.EXTENSION_TOKEN_SECRET,
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY,
         SUPABASE_URL: process.env.SUPABASE_URL,
         SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
         SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,

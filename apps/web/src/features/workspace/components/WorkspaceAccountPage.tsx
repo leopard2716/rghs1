@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   Camera,
+  Copy,
   ImagePlus,
   KeyRound,
   LoaderCircle,
+  RefreshCw,
   Save,
   ShieldCheck,
   Trash2,
@@ -18,6 +20,14 @@ import {
   verifyPassword,
   type AuthSession
 } from "../../../services/auth.service";
+import {
+  encodeApplyAssistantExtensionToken,
+  fetchApplyAssistantTokens,
+  generateApplyAssistantToken,
+  revokeApplyAssistantToken,
+  type ApplyAssistantToken
+} from "../../../services/apply-assistant.service";
+import { fetchTrackingProfiles } from "../../../services/tracking.service";
 import {
   deleteWorkspaceAvatar,
   fetchWorkspaceAccount,
@@ -177,6 +187,12 @@ export function WorkspaceAccountPage({
         </section>
 
         <PasswordChangePanel session={session} />
+        <ExtensionTokenPanel
+          session={session}
+          workspaceSession={workspaceSession}
+          slug={slug}
+          memberId={memberId}
+        />
       </div>
     </WorkspaceShell>
   );
@@ -504,6 +520,321 @@ function PasswordChangePanel({ session }: { session: AuthSession }) {
   );
 }
 
+type ExtensionTokenPreset = {
+  profileId?: string;
+  jobMarketId?: string;
+};
+
+function ExtensionTokenPanel({
+  session,
+  workspaceSession,
+  slug,
+  memberId
+}: {
+  session: AuthSession;
+  workspaceSession: WorkspaceSession;
+  slug: string;
+  memberId: string;
+}) {
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => ["apply-assistant-extension-tokens", slug, memberId],
+    [memberId, slug]
+  );
+  const [generatedToken, setGeneratedToken] = useState<ApplyAssistantToken | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState("");
+  const [selectedMarketId, setSelectedMarketId] = useState("");
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const tokensQuery = useQuery({
+    queryKey,
+    queryFn: () => fetchApplyAssistantTokens(session, slug)
+  });
+  const trackingOptionsQuery = useQuery({
+    queryKey: ["apply-assistant-extension-options", slug, memberId],
+    queryFn: () => fetchTrackingProfiles(session, slug)
+  });
+  const generateMutation = useMutation({
+    mutationFn: (preset: ExtensionTokenPreset) =>
+      generateApplyAssistantToken(session, slug, preset),
+    onSuccess: async (token) => {
+      setGeneratedToken(token);
+      setCopyStatus(null);
+      await queryClient.invalidateQueries({ queryKey });
+    }
+  });
+
+  useEffect(() => {
+    const data = trackingOptionsQuery.data;
+    if (!data) {
+      return;
+    }
+    if (!selectedProfileId && data.profiles[0]) {
+      setSelectedProfileId(data.profiles[0].id);
+    }
+    if (!selectedMarketId && data.markets[0]) {
+      setSelectedMarketId(data.markets[0].id);
+    }
+  }, [selectedMarketId, selectedProfileId, trackingOptionsQuery.data]);
+
+  const generatedProfile = generatedToken
+    ? trackingOptionsQuery.data?.profiles.find(
+        (profile) => profile.id === generatedToken.defaultProfileId
+      )
+    : null;
+  const generatedMarket = generatedToken
+    ? trackingOptionsQuery.data?.markets.find(
+        (market) => market.id === generatedToken.defaultJobMarketId
+      )
+    : null;
+  const extensionTokenValue = generatedToken
+    ? encodeApplyAssistantExtensionToken({
+        token: generatedToken,
+        authUser: session.user,
+        workspace: workspaceSession.workspace,
+        member: workspaceSession.member,
+        profile: generatedProfile
+          ? {
+              id: generatedProfile.id,
+              name: generatedProfile.name
+            }
+          : null,
+        jobMarket: generatedMarket
+          ? {
+              id: generatedMarket.id,
+              name: generatedMarket.name,
+              system: generatedMarket.system
+            }
+          : null
+      })
+    : "";
+  const revokeMutation = useMutation({
+    mutationFn: (tokenId: string) => revokeApplyAssistantToken(session, slug, tokenId),
+    onSuccess: async (response) => {
+      if (generatedToken?.tokenId === response.tokenId) {
+        setGeneratedToken(null);
+        setCopyStatus(null);
+      }
+      await queryClient.invalidateQueries({ queryKey });
+    }
+  });
+
+  async function handleCopy() {
+    if (!generatedToken) {
+      return;
+    }
+
+    try {
+      await copyToClipboard(extensionTokenValue);
+      setCopyStatus("Copied.");
+    } catch (error) {
+      setCopyStatus(errorMessage(error));
+    }
+  }
+
+  const activeTokens = tokensQuery.data?.tokens ?? [];
+  const revokingTokenId = revokeMutation.isPending ? revokeMutation.variables : null;
+  const activeTokenCount = tokensQuery.isPending ? "..." : activeTokens.length.toString();
+  const generateDisabled = generateMutation.isPending || trackingOptionsQuery.isPending;
+
+  return (
+    <section
+      className="panel account-profile-panel extension-token-panel"
+      aria-labelledby="account-extension-title"
+    >
+      <div className="panel-header">
+        <div>
+          <KeyRound aria-hidden="true" />
+          <h3 id="account-extension-title">Apply assistant extension</h3>
+        </div>
+        <div className="panel-actions">
+          <span className="status-pill">{activeTokenCount} active</span>
+          <button
+            className="icon-button"
+            type="button"
+            title="Refresh tokens"
+            aria-label="Refresh tokens"
+            disabled={tokensQuery.isFetching}
+            onClick={() => void tokensQuery.refetch()}
+          >
+            <RefreshCw className={tokensQuery.isFetching ? "spin-icon" : undefined} />
+          </button>
+        </div>
+      </div>
+
+      {generateMutation.isError ? (
+        <p className="form-error">{errorMessage(generateMutation.error)}</p>
+      ) : null}
+      {revokeMutation.isError ? (
+        <p className="form-error">{errorMessage(revokeMutation.error)}</p>
+      ) : null}
+      {trackingOptionsQuery.isError ? (
+        <p className="form-error">{errorMessage(trackingOptionsQuery.error)}</p>
+      ) : null}
+
+      <div className="extension-token-builder" aria-label="New extension token">
+        <div className="extension-token-builder-header">
+          <strong>New token</strong>
+          <span>Preset</span>
+        </div>
+        <div className="extension-token-selects">
+          <label>
+            Profile
+            <select
+              value={selectedProfileId}
+              disabled={trackingOptionsQuery.isFetching}
+              onChange={(event) => setSelectedProfileId(event.target.value)}
+            >
+              <option value="">No default profile</option>
+              {(trackingOptionsQuery.data?.profiles ?? []).map((profile) => (
+                <option value={profile.id} key={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Job market
+            <select
+              value={selectedMarketId}
+              disabled={trackingOptionsQuery.isFetching}
+              onChange={(event) => setSelectedMarketId(event.target.value)}
+            >
+              <option value="">No default market</option>
+              {(trackingOptionsQuery.data?.markets ?? []).map((market) => (
+                <option value={market.id} key={market.id}>
+                  {market.system ? `${market.name} (built-in)` : market.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="extension-token-generate">
+            <button
+              className="primary-action"
+              type="button"
+              disabled={generateDisabled}
+              onClick={() =>
+                generateMutation.mutate({
+                  profileId: selectedProfileId || undefined,
+                  jobMarketId: selectedMarketId || undefined
+                })
+              }
+            >
+              {generateMutation.isPending ? (
+                <LoaderCircle className="spin-icon" aria-hidden="true" />
+              ) : (
+                <KeyRound aria-hidden="true" />
+              )}
+              {generateMutation.isPending ? "Generating" : "Generate token"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {generatedToken ? (
+        <div className="extension-token-output">
+          <div className="extension-token-output-header">
+            <strong>Extension token</strong>
+            <span className="status-pill">Shown once</span>
+          </div>
+          <div className="extension-token-copy-row">
+            <input
+              readOnly
+              value={extensionTokenValue}
+              aria-label="Generated extension token"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <button className="secondary-action" type="button" onClick={() => void handleCopy()}>
+              <Copy aria-hidden="true" />
+              Copy
+            </button>
+          </div>
+          <dl className="extension-token-meta">
+            <div>
+              <dt>Token ID</dt>
+              <dd>{shortId(generatedToken.tokenId)}</dd>
+            </div>
+            <div>
+              <dt>Expires</dt>
+              <dd>{formatTokenDate(generatedToken.expiresAt)}</dd>
+            </div>
+            <div>
+              <dt>Workspace</dt>
+              <dd>{workspaceSession.workspace.name}</dd>
+            </div>
+            <div>
+              <dt>Profile</dt>
+              <dd>{generatedProfile?.name ?? "Not preset"}</dd>
+            </div>
+            <div>
+              <dt>Job market</dt>
+              <dd>{generatedMarket?.name ?? "Not preset"}</dd>
+            </div>
+          </dl>
+          {copyStatus ? <p className="form-success">{copyStatus}</p> : null}
+        </div>
+      ) : null}
+
+      <div className="extension-token-list-header">
+        <strong>Active tokens</strong>
+        <span>{activeTokenCount}</span>
+      </div>
+      <div className="extension-token-list">
+        {tokensQuery.isError ? (
+          <p className="form-error">{errorMessage(tokensQuery.error)}</p>
+        ) : tokensQuery.isPending ? (
+          <p className="form-muted">Loading tokens.</p>
+        ) : activeTokens.length === 0 ? (
+          <p className="form-muted">No active extension tokens.</p>
+        ) : (
+          activeTokens.map((token) => (
+            <div className="extension-token-row" key={token.tokenId}>
+              <div className="extension-token-id">
+                <span>Token</span>
+                <strong>{shortId(token.tokenId)}</strong>
+              </div>
+              <div className="extension-token-presets">
+                {tokenDefaultItems(
+                  token.defaultProfileId,
+                  token.defaultJobMarketId,
+                  trackingOptionsQuery.data
+                ).map((item) => (
+                  <div key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="extension-token-row-meta">
+                <div>
+                  <span>Last used</span>
+                  <strong>{formatTokenDate(token.lastUsedAt)}</strong>
+                </div>
+                <div>
+                  <span>Expires</span>
+                  <strong>{formatTokenDate(token.expiresAt)}</strong>
+                </div>
+              </div>
+              <button
+                className="secondary-action danger-action"
+                type="button"
+                disabled={revokingTokenId === token.tokenId}
+                onClick={() => revokeMutation.mutate(token.tokenId)}
+              >
+                {revokingTokenId === token.tokenId ? (
+                  <LoaderCircle className="spin-icon" aria-hidden="true" />
+                ) : (
+                  <Trash2 aria-hidden="true" />
+                )}
+                {revokingTokenId === token.tokenId ? "Revoking" : "Revoke"}
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 async function refreshAccountData(
   queryClient: QueryClient,
   slug: string,
@@ -593,4 +924,63 @@ function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
+}
+
+function shortId(value: string): string {
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function tokenDefaultItems(
+  profileId: string | null,
+  marketId: string | null,
+  options:
+    | {
+        profiles: Array<{ id: string; name: string }>;
+        markets: Array<{ id: string; name: string }>;
+      }
+    | undefined
+): Array<{ label: string; value: string }> {
+  const profile = options?.profiles.find((item) => item.id === profileId)?.name ?? "No profile";
+  const market = options?.markets.find((item) => item.id === marketId)?.name ?? "No market";
+  return [
+    { label: "Profile", value: profile },
+    { label: "Job market", value: market }
+  ];
+}
+
+function formatTokenDate(value: string | null): string {
+  if (!value) {
+    return "Never";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+async function copyToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const element = document.createElement("textarea");
+  element.value = value;
+  element.setAttribute("readonly", "");
+  element.style.position = "fixed";
+  element.style.opacity = "0";
+  document.body.append(element);
+  element.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Copy failed.");
+    }
+  } finally {
+    element.remove();
+  }
 }

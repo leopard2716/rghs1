@@ -11,7 +11,7 @@ export function corsMiddleware(): MiddlewareHandler<{
     const allowedOrigins = parseAllowedOrigins(c.env.ALLOWED_ORIGINS);
     const middleware = cors({
       origin: (origin) => {
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (!origin || allowedOrigins.includes(origin) || isBrowserExtensionOrigin(origin)) {
           return origin;
         }
 
@@ -24,4 +24,8 @@ export function corsMiddleware(): MiddlewareHandler<{
 
     return middleware(c, next);
   };
+}
+
+function isBrowserExtensionOrigin(origin: string): boolean {
+  return origin.startsWith("chrome-extension://") || origin.startsWith("moz-extension://");
 }
