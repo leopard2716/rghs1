@@ -205,19 +205,15 @@ function WorkspaceMemberRow({
   const isSelf = member.id === data.currentMemberId;
   const assignableRoles = data.roles.filter((role) => role.assignable);
   const [selectedRoleKeys, setSelectedRoleKeys] = useState<string[]>(() =>
-    member.roleKeys.filter((key) => key !== "admin")
+    assignableRoleKeys(member.roleKeys)
   );
 
   useEffect(() => {
-    setSelectedRoleKeys(member.roleKeys.filter((key) => key !== "admin"));
+    setSelectedRoleKeys(assignableRoleKeys(member.roleKeys));
   }, [member.roleKeys]);
 
   const rolesChanged =
-    [...selectedRoleKeys].sort().join("|") !==
-    member.roleKeys
-      .filter((key) => key !== "admin")
-      .sort()
-      .join("|");
+    [...selectedRoleKeys].sort().join("|") !== assignableRoleKeys(member.roleKeys).sort().join("|");
   const locked = Boolean(pendingAction);
 
   return (
@@ -238,18 +234,12 @@ function WorkspaceMemberRow({
       </td>
       <td>
         <div className="member-role-controls">
-          {member.roleKeys.includes("admin") ? (
-            <label className="role-check locked">
-              <input type="checkbox" checked disabled />
-              Admin
-            </label>
-          ) : null}
           {assignableRoles.map((role) => (
             <label className="role-check" key={role.id}>
               <input
                 type="checkbox"
                 checked={selectedRoleKeys.includes(role.key)}
-                disabled={locked}
+                disabled={locked || (isSelf && role.key === "admin")}
                 onChange={(event) => {
                   setSelectedRoleKeys((current) =>
                     event.target.checked
@@ -347,6 +337,10 @@ function WorkspaceMemberRow({
       </td>
     </tr>
   );
+}
+
+function assignableRoleKeys(roleKeys: string[]): string[] {
+  return roleKeys.filter((key) => key === "admin" || key === "bidder" || key === "interviewer");
 }
 
 async function refreshWorkspaceData(queryClient: QueryClient, slug: string): Promise<void> {

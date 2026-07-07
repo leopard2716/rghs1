@@ -225,6 +225,7 @@ describe("tracking schemas", () => {
         bidderMemberId: memberId,
         callerMemberId: secondMemberId,
         workerMemberId: thirdMemberId,
+        paymentHandlerMemberId: memberId,
         bidderRate: 20,
         callerRate: 20,
         workerRate: 55,
@@ -237,6 +238,7 @@ describe("tracking schemas", () => {
         bidderMemberId: memberId,
         callerMemberId: secondMemberId,
         workerMemberId: thirdMemberId,
+        paymentHandlerMemberId: memberId,
         bidderRate: 20,
         callerRate: 20,
         workerRate: 55,
@@ -350,12 +352,14 @@ describe("tracking schemas", () => {
       street: "123 Market St",
       city: "Austin",
       state: "TX",
+      country: "United States",
       postalCode: "78701",
       linkedinUrl: "https://www.linkedin.com/in/alex-smith",
       education: {
         university: "Example University",
         location: "Austin, TX",
         degree: "BS Computer Science",
+        major: "Computer Science",
         dateFrom: "2010-08-01",
         dateTo: "2014-05-01"
       },
@@ -374,6 +378,7 @@ describe("tracking schemas", () => {
     expect(result).toMatchObject({
       name: "Alex Smith",
       firstName: "Alex",
+      country: "United States",
       careerExperiences: [{ companyName: "Acme" }]
     });
   });

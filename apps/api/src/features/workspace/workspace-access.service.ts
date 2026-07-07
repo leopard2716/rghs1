@@ -242,7 +242,9 @@ export class WorkspaceAccessService {
       }
     );
 
-    const activeRoles = roles.filter((role) => role.key !== "viewer");
+    const activeRoles = roles.filter(
+      (role) => role.key !== "viewer" && role.key !== "payment_manager"
+    );
     const rolesById = new Map(activeRoles.map((role) => [role.id, role]));
     const roleKeysByMember = new Map<string, string[]>();
     for (const memberRole of memberRoles) {
@@ -269,7 +271,7 @@ export class WorkspaceAccessService {
           id: role.id,
           key: role.key,
           name: role.name,
-          assignable: role.key !== "admin"
+          assignable: ["admin", "bidder", "interviewer"].includes(role.key)
         })),
       members: members
         .sort((left, right) => {
@@ -367,10 +369,17 @@ export class WorkspaceAccessService {
       )
     ]);
     const assignableRoles = roles.filter((role) =>
-      ["bidder", "interviewer", "payment_manager"].includes(role.key)
+      ["admin", "bidder", "interviewer"].includes(role.key)
     );
     const rolesByKey = new Map(assignableRoles.map((role) => [role.key, role]));
-    const unknownRole = input.roleKeys.find((key) => !rolesByKey.has(key));
+    const adminRole = rolesByKey.get("admin");
+    const targetHasAdmin =
+      Boolean(adminRole) && existingMemberRoles.some((role) => role.role_id === adminRole?.id);
+    const requestedRoleKeys =
+      target.id === actor.id && targetHasAdmin && !input.roleKeys.includes("admin")
+        ? [...input.roleKeys, "admin"]
+        : input.roleKeys;
+    const unknownRole = requestedRoleKeys.find((key) => !rolesByKey.has(key));
     if (unknownRole) {
       throw apiError(400, `Role ${unknownRole} cannot be assigned here.`, "workspace_role_invalid");
     }
@@ -380,7 +389,7 @@ export class WorkspaceAccessService {
     const desiredRoleIds = new Set(
       [...existingRoleIds].filter((roleId) => !assignableRoleIds.has(roleId))
     );
-    for (const roleKey of input.roleKeys) {
+    for (const roleKey of requestedRoleKeys) {
       const role = rolesByKey.get(roleKey);
       if (role) {
         desiredRoleIds.add(role.id);
@@ -870,7 +879,7 @@ export class WorkspaceAccessService {
 }
 
 function roleSortOrder(roleKey: string): number {
-  const order = ["admin", "bidder", "interviewer", "payment_manager"];
+  const order = ["admin", "bidder", "interviewer"];
   const index = order.indexOf(roleKey);
   return index === -1 ? order.length : index;
 }

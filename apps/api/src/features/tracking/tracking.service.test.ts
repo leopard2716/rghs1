@@ -86,6 +86,7 @@ describe("TrackingService deletion ownership", () => {
           dateOfBirth: "1992-03-04",
           email: "alex@example.com",
           phoneNumber: "+1 555 100 2000",
+          country: "United States",
           careerExperiences: [
             {
               companyName: "Acme",
@@ -115,6 +116,7 @@ describe("TrackingService deletion ownership", () => {
         date_of_birth: "1992-03-04",
         email: "alex@example.com",
         phone_number: "+1 555 100 2000",
+        country: "United States",
         career_experiences: [
           {
             companyName: "Acme",
@@ -800,6 +802,7 @@ function paymentLedgerSupabase(selectedMemberId: string) {
     bidder_member_id: selectedMemberId,
     caller_member_id: memberId,
     worker_member_id: selectedMemberId,
+    payment_handler_member_id: memberId,
     bidder_rate: 30,
     caller_rate: 10,
     worker_rate: 60,

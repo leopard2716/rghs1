@@ -180,7 +180,6 @@ export function PaymentManagementPage({
               <button
                 className="primary-action small"
                 type="button"
-                disabled={!paymentsQuery.data.jobRecords.length}
                 onClick={() => {
                   createMutation.reset();
                   updateMutation.reset();
@@ -264,7 +263,7 @@ export function PaymentManagementPage({
                             {formatCurrency(payment.amounts.worker)})
                           </span>
                           <span>
-                            Payment manager: {payment.paymentManager?.name ?? "Former member"} (
+                            Payment handler: {payment.paymentManager?.name ?? "Former member"} (
                             {formatCurrency(payment.amounts.paymentManager)})
                           </span>
                         </td>
@@ -439,6 +438,7 @@ function PaymentForm({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const formDisabled = pending || readOnly;
+  const hasJobRecords = jobRecords.length > 0;
 
   return (
     <Modal
@@ -475,7 +475,7 @@ function PaymentForm({
           <select
             required
             value={jobRecordId}
-            disabled={formDisabled}
+            disabled={formDisabled || !hasJobRecords}
             onChange={(event) => {
               setJobRecordId(event.target.value);
               setFormError(null);
@@ -489,6 +489,9 @@ function PaymentForm({
             ))}
           </select>
         </label>
+        {!hasJobRecords ? (
+          <p className="record-muted">No active job records are available for payment.</p>
+        ) : null}
         <label>
           Payment amount (US$)
           <input
@@ -498,7 +501,7 @@ function PaymentForm({
             step="0.01"
             required
             defaultValue={initialPayment?.paymentAmount ?? ""}
-            disabled={formDisabled}
+            disabled={formDisabled || !hasJobRecords}
           />
         </label>
         {initialPayment ? (
@@ -507,7 +510,7 @@ function PaymentForm({
             <span>Caller amount: {formatCurrency(initialPayment.amounts.caller)}</span>
             <span>Worker amount: {formatCurrency(initialPayment.amounts.worker)}</span>
             <span>
-              Payment manager amount: {formatCurrency(initialPayment.amounts.paymentManager)}
+              Payment handler amount: {formatCurrency(initialPayment.amounts.paymentManager)}
             </span>
             <span>Created: {displayDate(initialPayment.createdAt)}</span>
           </div>
@@ -520,7 +523,11 @@ function PaymentForm({
             {readOnly ? "Close" : "Cancel"}
           </button>
           {!readOnly ? (
-            <button className="primary-action small" type="submit" disabled={pending}>
+            <button
+              className="primary-action small"
+              type="submit"
+              disabled={pending || !hasJobRecords}
+            >
               <Save aria-hidden="true" />
               {pending ? "Saving" : initialPayment ? "Save changes" : "Save payment"}
             </button>

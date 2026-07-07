@@ -35,9 +35,14 @@ describe("workspace member schemas", () => {
   it("accepts only assignable workspace role assignments", () => {
     expect(
       workspaceMemberRolesInput.safeParse({
-        roleKeys: ["bidder", "interviewer", "payment_manager"]
+        roleKeys: ["admin", "bidder", "interviewer"]
       }).success
     ).toBe(true);
+    expect(
+      workspaceMemberRolesInput.safeParse({
+        roleKeys: ["payment_manager"]
+      }).success
+    ).toBe(false);
     expect(
       workspaceMemberRolesInput.safeParse({
         roleKeys: ["viewer"]

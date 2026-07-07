@@ -85,10 +85,7 @@ export class TrackingAccessService {
     };
   }
 
-  requireRole(
-    context: TrackingContext,
-    roleKey: "admin" | "bidder" | "interviewer" | "payment_manager"
-  ): void {
+  requireRole(context: TrackingContext, roleKey: "admin" | "bidder" | "interviewer"): void {
     if (!context.roleKeys.includes(roleKey)) {
       throw apiError(
         403,
@@ -100,7 +97,7 @@ export class TrackingAccessService {
 
   requireAnyRole(
     context: TrackingContext,
-    roleKeys: Array<"admin" | "bidder" | "interviewer" | "payment_manager">
+    roleKeys: Array<"admin" | "bidder" | "interviewer">
   ): void {
     if (!roleKeys.some((roleKey) => context.roleKeys.includes(roleKey))) {
       throw apiError(403, "A permitted workspace role is required.", "workspace_role_required");
