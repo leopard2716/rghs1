@@ -1162,7 +1162,8 @@ export class TrackingService {
         (!query.memberId ||
           job.bidder?.id === query.memberId ||
           job.caller?.id === query.memberId ||
-          job.worker?.id === query.memberId)
+          job.worker?.id === query.memberId ||
+          job.paymentHandler?.id === query.memberId)
     );
     const sorted = sortJobRecords(
       filtered,
@@ -1194,7 +1195,8 @@ export class TrackingService {
       this.access.requireActiveMembers(context.workspace.id, [
         input.bidderMemberId,
         input.callerMemberId,
-        input.workerMemberId
+        input.workerMemberId,
+        input.paymentHandlerMemberId
       ])
     ]);
     const id = crypto.randomUUID();
@@ -1206,6 +1208,7 @@ export class TrackingService {
         bidder_member_id: input.bidderMemberId,
         caller_member_id: input.callerMemberId,
         worker_member_id: input.workerMemberId,
+        payment_handler_member_id: input.paymentHandlerMemberId,
         bidder_rate: input.bidderRate,
         caller_rate: input.callerRate,
         worker_rate: input.workerRate,
@@ -1244,7 +1247,8 @@ export class TrackingService {
       this.access.requireActiveMembers(context.workspace.id, [
         input.bidderMemberId,
         input.callerMemberId,
-        input.workerMemberId
+        input.workerMemberId,
+        input.paymentHandlerMemberId
       ])
     ]);
     const [job] = await this.supabase.update<JobRecordRow>(
@@ -1254,6 +1258,7 @@ export class TrackingService {
         bidder_member_id: input.bidderMemberId,
         caller_member_id: input.callerMemberId,
         worker_member_id: input.workerMemberId,
+        payment_handler_member_id: input.paymentHandlerMemberId,
         bidder_rate: input.bidderRate,
         caller_rate: input.callerRate,
         worker_rate: input.workerRate,
@@ -1355,10 +1360,10 @@ export class TrackingService {
 
   async createPayment(slug: string, user: AuthUser, input: PaymentRecordInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "payment_manager");
+    this.access.requireRole(context, "admin");
     const job = await this.access.requireActiveJobRecord(context.workspace.id, input.jobRecordId);
     const id = crypto.randomUUID();
-    const allocation = paymentAllocationValues(job, input.paymentAmount, context.member.id);
+    const allocation = paymentAllocationValues(job, input.paymentAmount);
     const [payment] = await this.supabase.insert<PaymentRecordRow>("payment_records", [
       {
         id,
@@ -1415,12 +1420,12 @@ export class TrackingService {
     input: PaymentRecordInput
   ) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "payment_manager");
+    this.access.requireRole(context, "admin");
     const [, job] = await Promise.all([
       this.access.requireOwnedPendingPayment(context, paymentRecordId),
       this.access.requireActiveJobRecord(context.workspace.id, input.jobRecordId)
     ]);
-    const allocation = paymentAllocationValues(job, input.paymentAmount, context.member.id);
+    const allocation = paymentAllocationValues(job, input.paymentAmount);
     const [payment] = await this.supabase.update<PaymentRecordRow>(
       "payment_records",
       {
@@ -2231,11 +2236,11 @@ export class TrackingService {
   }
 
   private canManagePayments(context: TrackingContext): boolean {
-    return context.roleKeys.includes("admin") || context.roleKeys.includes("payment_manager");
+    return context.roleKeys.includes("admin");
   }
 
   private canEditPayments(context: TrackingContext): boolean {
-    return context.roleKeys.includes("payment_manager");
+    return context.roleKeys.includes("admin");
   }
 
   private visiblePaymentJobs(
@@ -2284,11 +2289,7 @@ export class TrackingService {
         this.supabase.update<PaymentRecordRow>(
           "payment_records",
           {
-            ...paymentAllocationValues(
-              job,
-              Number(payment.payment_amount),
-              payment.payment_manager_member_id
-            ),
+            ...paymentAllocationValues(job, Number(payment.payment_amount)),
             updated_at: updatedAt
           },
           {
@@ -2396,11 +2397,13 @@ function trackingProfileValues(input: TrackingProfileInput): Record<string, unkn
     street: nullableProfileText(input.street),
     city: nullableProfileText(input.city),
     state: nullableProfileText(input.state),
+    country: nullableProfileText(input.country),
     postal_code: nullableProfileText(input.postalCode),
     linkedin_url: nullableProfileText(input.linkedinUrl),
     education_university: nullableProfileText(education?.university),
     education_location: nullableProfileText(education?.location),
     education_degree: nullableProfileText(education?.degree),
+    education_major: nullableProfileText(education?.major),
     education_date_from: nullableProfileText(education?.dateFrom),
     education_date_to: nullableProfileText(education?.dateTo),
     career_experiences: profileCareerExperiencesValue(input.careerExperiences),
@@ -2483,7 +2486,7 @@ function paymentLedgerRecordsForMember(
     },
     {
       key: "payment-discount",
-      label: "Payment discount",
+      label: "Payment handler",
       memberId: payment.paymentManager?.id,
       amount: payment.amounts.paymentManager
     }
@@ -2542,7 +2545,12 @@ function dateInOptionalRange(value: string, dateFrom?: string, dateTo?: string):
 }
 
 function paymentJobRelatedToMember(job: JobRecordResponse, memberId: string): boolean {
-  return job.bidder?.id === memberId || job.caller?.id === memberId || job.worker?.id === memberId;
+  return (
+    job.bidder?.id === memberId ||
+    job.caller?.id === memberId ||
+    job.worker?.id === memberId ||
+    job.paymentHandler?.id === memberId
+  );
 }
 
 function paymentRelatedToMember(payment: PaymentRecordResponse, memberId: string): boolean {
@@ -2592,18 +2600,6 @@ function currentMemberPaymentTotal(
   context: TrackingContext,
   totals: Map<string, { member: MemberSummary; pendingAmount: number }>
 ) {
-  if (context.roleKeys.includes("payment_manager") && !context.roleKeys.includes("admin")) {
-    return roundCurrency(
-      payments.reduce(
-        (total, payment) =>
-          payment.paymentManager?.id === context.member.id
-            ? total + payment.amounts.paymentManager
-            : total,
-        0
-      )
-    );
-  }
-
   return totals.get(context.member.id)?.pendingAmount ?? 0;
 }
 
@@ -2622,11 +2618,7 @@ function addPaymentAllocation(
   });
 }
 
-function paymentAllocationValues(
-  job: JobRecordRow,
-  paymentAmount: number,
-  paymentManagerMemberId: string
-) {
+function paymentAllocationValues(job: JobRecordRow, paymentAmount: number) {
   const amounts = allocatePaymentAmounts(paymentAmount, {
     bidder: Number(job.bidder_rate),
     caller: Number(job.caller_rate),
@@ -2638,7 +2630,7 @@ function paymentAllocationValues(
     bidder_member_id: job.bidder_member_id,
     caller_member_id: job.caller_member_id,
     worker_member_id: job.worker_member_id,
-    payment_manager_member_id: paymentManagerMemberId,
+    payment_manager_member_id: job.payment_handler_member_id,
     bidder_amount: amounts.bidder,
     caller_amount: amounts.caller,
     worker_amount: amounts.worker,

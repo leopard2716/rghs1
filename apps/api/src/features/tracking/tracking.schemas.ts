@@ -55,6 +55,7 @@ const profileEducationInput = z.object({
   university: optionalProfileText(180),
   location: optionalProfileText(180),
   degree: optionalProfileText(180),
+  major: optionalProfileText(180),
   dateFrom: optionalProfileDate,
   dateTo: optionalProfileDate
 });
@@ -79,6 +80,7 @@ export const trackingProfileInput = z
     street: optionalProfileText(180),
     city: optionalProfileText(120),
     state: optionalProfileText(120),
+    country: optionalProfileText(120),
     postalCode: optionalProfileText(40),
     linkedinUrl: optionalProfileUrl,
     education: profileEducationInput.optional(),
@@ -227,6 +229,7 @@ export const jobRecordInput = z
     bidderMemberId: z.string().uuid(),
     callerMemberId: z.string().uuid(),
     workerMemberId: z.string().uuid(),
+    paymentHandlerMemberId: z.string().uuid(),
     bidderRate: paymentRate,
     callerRate: paymentRate,
     workerRate: paymentRate,

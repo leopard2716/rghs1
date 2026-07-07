@@ -15,6 +15,7 @@ export type TrackingProfile = {
   street?: string | null;
   city?: string | null;
   state?: string | null;
+  country?: string | null;
   postalCode?: string | null;
   linkedinUrl?: string | null;
   education?: TrackingProfileEducation;
@@ -29,6 +30,7 @@ export type TrackingProfileEducation = {
   university?: string | null;
   location?: string | null;
   degree?: string | null;
+  major?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
 };
@@ -52,6 +54,7 @@ export type TrackingProfileInput = {
   street?: string;
   city?: string;
   state?: string;
+  country?: string;
   postalCode?: string;
   linkedinUrl?: string;
   education?: TrackingProfileEducation;
@@ -161,6 +164,7 @@ export type JobRecord = {
   bidder: TrackingMemberSummary | null;
   caller: TrackingMemberSummary | null;
   worker: TrackingMemberSummary | null;
+  paymentHandler: TrackingMemberSummary | null;
   rates: JobRateBreakdown;
   createdAt: string;
   deletedAt: string | null;
@@ -757,6 +761,7 @@ export async function createJobRecord(
     bidderMemberId: string;
     callerMemberId: string;
     workerMemberId: string;
+    paymentHandlerMemberId: string;
     bidderRate: number;
     callerRate: number;
     workerRate: number;

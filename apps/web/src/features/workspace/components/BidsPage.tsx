@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BriefcaseBusiness,
   CalendarPlus,
+  Copy,
   ExternalLink,
   FileUp,
   LoaderCircle,
@@ -78,8 +79,10 @@ export function BidsPage({
   const [jobTitle, setJobTitle] = useState("");
   const [jobLink, setJobLink] = useState("");
   const [jobDescription, setJobDescription] = useState<RichTextDocument | null>(null);
+  const [jobDescriptionExpanded, setJobDescriptionExpanded] = useState(false);
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [profileResumes, setProfileResumes] = useState<Record<string, string>>({});
+  const [expandedProfileResumes, setExpandedProfileResumes] = useState<Record<string, boolean>>({});
   const [selectedBidId, setSelectedBidId] = useState<string | null>(null);
   const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
   const [companySearch, setCompanySearch] = useState("");
@@ -215,10 +218,12 @@ export function BidsPage({
         ? (plainTextToRichText(modalBid.jobDescription) ?? null)
         : modalBid.jobDescription
     );
+    setJobDescriptionExpanded(false);
     setSelectedProfileIds(modalBid.profiles.map((profile) => profile.id));
     setProfileResumes(
       Object.fromEntries(modalBid.profiles.map((profile) => [profile.id, profile.resume ?? ""]))
     );
+    setExpandedProfileResumes({});
     setSelectedBidId(null);
     setFormError(null);
   }, [modalBid]);
@@ -239,8 +244,10 @@ export function BidsPage({
     setJobTitle("");
     setJobLink("");
     setJobDescription(null);
+    setJobDescriptionExpanded(false);
     setSelectedProfileIds([]);
     setProfileResumes({});
+    setExpandedProfileResumes({});
     setSelectedBidId(null);
     setFormError(null);
     createMutation.reset();
@@ -268,10 +275,12 @@ export function BidsPage({
         ? (plainTextToRichText(bid.jobDescription) ?? null)
         : bid.jobDescription
     );
+    setJobDescriptionExpanded(false);
     setSelectedProfileIds(bid.profiles.map((profile) => profile.id));
     setProfileResumes(
       Object.fromEntries(bid.profiles.map((profile) => [profile.id, profile.resume ?? ""]))
     );
+    setExpandedProfileResumes({});
     setSelectedBidId(null);
     setFormError(null);
   }
@@ -755,16 +764,45 @@ export function BidsPage({
                 />
               </section>
             ) : null}
-            <label>
-              <span>
-                Job description <span className="optional-label">Optional</span>
-              </span>
-              <RichTextEditor
-                value={jobDescription}
-                disabled={bidFormDisabled}
-                onChange={setJobDescription}
-              />
-            </label>
+            <div className="collapsible-field">
+              <div className="collapsible-field-header">
+                <span className="field-label">
+                  Job description <span className="optional-label">Optional</span>
+                </span>
+                <div className="field-action-row">
+                  <button
+                    className="icon-button compact-copy-button"
+                    type="button"
+                    title="Copy"
+                    aria-label="Copy job description"
+                    disabled={!richTextPlainText(jobDescription).trim()}
+                    onClick={() =>
+                      void copyToClipboard(richTextPlainText(jobDescription), setFormError)
+                    }
+                  >
+                    <Copy aria-hidden="true" />
+                  </button>
+                  <button
+                    className="collapsible-toggle-button"
+                    type="button"
+                    onClick={() => setJobDescriptionExpanded((expanded) => !expanded)}
+                  >
+                    {jobDescriptionExpanded ? "Show less" : "Show more"}
+                  </button>
+                </div>
+              </div>
+              <div
+                className={`collapsible-input-shell ${
+                  jobDescriptionExpanded ? "expanded" : "collapsed"
+                }`}
+              >
+                <RichTextEditor
+                  value={jobDescription}
+                  disabled={bidFormDisabled}
+                  onChange={setJobDescription}
+                />
+              </div>
+            </div>
             <fieldset className="profile-selector">
               <legend>Bid profiles</legend>
               {formProfiles.map((profile) => (
@@ -786,6 +824,11 @@ export function BidsPage({
                           delete next[profile.id];
                           return next;
                         });
+                        setExpandedProfileResumes((current) => {
+                          const next = { ...current };
+                          delete next[profile.id];
+                          return next;
+                        });
                       }
                       setFormError(null);
                     }}
@@ -802,26 +845,58 @@ export function BidsPage({
                   if (!profile) {
                     return null;
                   }
+                  const resumeValue = profileResumes[profile.id] ?? "";
+                  const expanded = expandedProfileResumes[profile.id] ?? false;
                   return (
-                    <label key={profile.id}>
-                      <span>
-                        {profile.name} <span className="optional-label">Optional</span>
-                      </span>
-                      <textarea
-                        rows={8}
-                        maxLength={50000}
-                        value={profileResumes[profile.id] ?? ""}
-                        disabled={bidFormDisabled}
-                        placeholder={`Paste the resume used for ${profile.name}`}
-                        onChange={(event) => {
-                          setProfileResumes((current) => ({
-                            ...current,
-                            [profile.id]: event.target.value
-                          }));
-                          setFormError(null);
-                        }}
-                      />
-                    </label>
+                    <div className="collapsible-field" key={profile.id}>
+                      <div className="collapsible-field-header">
+                        <span className="field-label">
+                          {profile.name} <span className="optional-label">Optional</span>
+                        </span>
+                        <div className="field-action-row">
+                          <button
+                            className="icon-button compact-copy-button"
+                            type="button"
+                            title="Copy"
+                            aria-label={`Copy resume for ${profile.name}`}
+                            disabled={!resumeValue.trim()}
+                            onClick={() => void copyToClipboard(resumeValue, setFormError)}
+                          >
+                            <Copy aria-hidden="true" />
+                          </button>
+                          <button
+                            className="collapsible-toggle-button"
+                            type="button"
+                            onClick={() =>
+                              setExpandedProfileResumes((current) => ({
+                                ...current,
+                                [profile.id]: !expanded
+                              }))
+                            }
+                          >
+                            {expanded ? "Show less" : "Show more"}
+                          </button>
+                        </div>
+                      </div>
+                      <div
+                        className={`collapsible-input-shell ${expanded ? "expanded" : "collapsed"}`}
+                      >
+                        <textarea
+                          rows={8}
+                          maxLength={50000}
+                          value={resumeValue}
+                          disabled={bidFormDisabled}
+                          placeholder={`Paste the resume used for ${profile.name}`}
+                          onChange={(event) => {
+                            setProfileResumes((current) => ({
+                              ...current,
+                              [profile.id]: event.target.value
+                            }));
+                            setFormError(null);
+                          }}
+                        />
+                      </div>
+                    </div>
                   );
                 })}
               </fieldset>
@@ -944,6 +1019,45 @@ function BidReferenceInterviews({
 
 function interviewCountLabel(count: number): string {
   return count === 1 ? "1 interview" : `${count} interviews`;
+}
+
+async function copyToClipboard(text: string, onError: (message: string) => void): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    onError("Copy failed. Check browser clipboard permission and try again.");
+  }
+}
+
+function richTextPlainText(value: RichTextDocument | null): string {
+  if (!value) {
+    return "";
+  }
+
+  return richTextNodeText(value)
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function richTextNodeText(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+  const node = value as {
+    type?: string;
+    text?: string;
+    content?: unknown[];
+  };
+  if (typeof node.text === "string") {
+    return node.text;
+  }
+  const content = node.content?.map(richTextNodeText).filter(Boolean) ?? [];
+  const separator = node.type === "paragraph" || node.type === "heading" ? "\n" : "";
+  const suffix = node.type === "paragraph" || node.type === "heading" ? "\n" : "";
+  if (node.type === "listItem") {
+    return content.join("").trim() ? `- ${content.join("").trim()}\n` : "";
+  }
+  return `${content.join(separator)}${suffix}`;
 }
 
 function RecordLoading({ label }: { label: string }) {
