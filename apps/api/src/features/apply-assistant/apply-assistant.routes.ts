@@ -11,9 +11,16 @@ import {
   applyAssistantSessionInput,
   applyAssistantTokenInput,
   applySessionParams,
-  extensionTokenParams
+  commitBidInput,
+  extensionTokenParams,
+  generateResumeInput,
+  modifyResumeInput
 } from "./apply-assistant.schemas";
-import { createApplyAssistantFieldMapProvider } from "./apply-assistant-ai";
+import {
+  createApplyAssistantExtractionProvider,
+  createApplyAssistantFieldMapProvider,
+  createApplyAssistantResumeProvider
+} from "./apply-assistant-ai";
 import { ApplyAssistantService } from "./apply-assistant.service";
 
 type ApiApp = Hono<{
@@ -94,6 +101,46 @@ export function registerApplyAssistantRoutes(app: ApiApp): void {
       return applyAssistantError(c, error);
     }
   });
+
+  app.post("/v1/workspaces/:slug/apply-assistant/sessions/:sessionId/resumes", async (c) => {
+    try {
+      const { service, extension } = await extensionContext(c);
+      const params = applySessionParams.parse({ sessionId: c.req.param("sessionId") });
+      const input = await parseOptionalJson(c, generateResumeInput);
+      return c.json(await service.generateResume(extension, params.sessionId, input), 201);
+    } catch (error) {
+      return applyAssistantError(c, error);
+    }
+  });
+
+  app.post(
+    "/v1/workspaces/:slug/apply-assistant/sessions/:sessionId/resumes/:resumeVersionId/modify",
+    async (c) => {
+      try {
+        const { service, extension } = await extensionContext(c);
+        const params = applySessionParams.parse({ sessionId: c.req.param("sessionId") });
+        const resumeVersionId = z.string().uuid().parse(c.req.param("resumeVersionId"));
+        const input = await parseRequiredJson(c, modifyResumeInput);
+        return c.json(
+          await service.modifyResume(extension, params.sessionId, resumeVersionId, input),
+          201
+        );
+      } catch (error) {
+        return applyAssistantError(c, error);
+      }
+    }
+  );
+
+  app.post("/v1/workspaces/:slug/apply-assistant/sessions/:sessionId/commit-bid", async (c) => {
+    try {
+      const { service, extension } = await extensionContext(c, "application:create");
+      const params = applySessionParams.parse({ sessionId: c.req.param("sessionId") });
+      const input = await parseOptionalJson(c, commitBidInput);
+      return c.json(await service.commitBid(extension, params.sessionId, input), 201);
+    } catch (error) {
+      return applyAssistantError(c, error);
+    }
+  });
 }
 
 async function supabaseUserContext(c: ApiContext) {
@@ -121,11 +168,16 @@ function serviceForContext(c: ApiContext): ApplyAssistantService {
   }
 
   return new ApplyAssistantService(new SupabaseRestClient(requireSupabaseConfig(c.env)), secret, {
-    fieldMapProvider: createApplyAssistantFieldMapProvider(c.env)
+    extractionProvider: createApplyAssistantExtractionProvider(c.env),
+    fieldMapProvider: createApplyAssistantFieldMapProvider(c.env),
+    resumeProvider: createApplyAssistantResumeProvider(c.env)
   });
 }
 
-async function extensionContext(c: ApiContext) {
+async function extensionContext(
+  c: ApiContext,
+  scope: "apply_assistant:use" | "application:create" = "apply_assistant:use"
+) {
   const token = authTokenFromHeader(c.req.header("authorization"));
   if (!token) {
     throw apiError(401, "Extension bearer token is required.", "extension_auth_required");
@@ -139,7 +191,7 @@ async function extensionContext(c: ApiContext) {
   const service = serviceForContext(c);
   return {
     service,
-    extension: await service.requireExtensionContext(slug, token, "apply_assistant:use")
+    extension: await service.requireExtensionContext(slug, token, scope)
   };
 }
 

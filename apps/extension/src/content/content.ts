@@ -1,11 +1,15 @@
 import { applyFieldMap } from "../autofill/autofill";
 import { extractPageSnapshot } from "../extractors/page-snapshot";
 import { chromeApi } from "../shared/chrome";
-import type { ApplyFieldMapResponse, ExtensionMessage } from "../shared/messages";
+import type {
+  ApplyFieldMapResponse,
+  ClickActionResponse,
+  ExtensionMessage
+} from "../shared/messages";
 import { highlightRefs, markElementRefs } from "./highlight";
 
 let lastSnapshotRefs: Array<{ ref: string; selector: string; kind?: string; label?: string }> = [];
-export const contentBridgeVersion = "2026-07-07.2";
+export const contentBridgeVersion = "2026-07-07.3";
 
 declare global {
   interface Window {
@@ -14,6 +18,7 @@ declare global {
       analyzePage(): { snapshot: ReturnType<typeof extractPageSnapshot> };
       highlightRefs(refs: string[]): { ok: true };
       applyFieldMap(fieldMap: unknown): ApplyFieldMapResponse;
+      clickAction(buttonRef: string): ClickActionResponse;
     };
     __rghs1ApplyAssistantListenerLoaded?: boolean;
   }
@@ -29,6 +34,10 @@ window.__rghs1ApplyAssistant = {
   applyFieldMap: (fieldMap) => {
     ensureElementRefs();
     return applyFieldMap(document, fieldMap);
+  },
+  clickAction: (buttonRef) => {
+    ensureElementRefs();
+    return clickAction(document, buttonRef);
   }
 };
 
@@ -54,6 +63,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       return (
         window.__rghs1ApplyAssistant?.applyFieldMap(message.fieldMap) ??
         (applyFieldMap(document, message.fieldMap) satisfies ApplyFieldMapResponse)
+      );
+    case "CLICK_ACTION":
+      return (
+        window.__rghs1ApplyAssistant?.clickAction(message.buttonRef) ??
+        clickAction(document, message.buttonRef)
       );
     default:
       return { ok: false };
@@ -101,6 +115,21 @@ function ensureElementRefs(): void {
   }
 }
 
+function clickAction(document: Document, buttonRef: string): ClickActionResponse {
+  const target = document.querySelector(`[data-rghs1-ref="${attrEscape(buttonRef)}"]`);
+  if (!(target instanceof HTMLElement)) {
+    throw new Error(`Button ${buttonRef} was not found on the active page.`);
+  }
+  if (target.getAttribute("aria-disabled") === "true" || target.hasAttribute("disabled")) {
+    throw new Error(`Button ${buttonRef} is disabled.`);
+  }
+
+  const label = target.dataset.rghs1Label || target.textContent?.trim() || undefined;
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.click();
+  return { clicked: true, buttonRef, label };
+}
+
 function errorResponse(error: unknown): Record<string, unknown> {
   if (!(error instanceof Error)) {
     return {
@@ -124,4 +153,8 @@ function errorProperty(error: Error, key: string): unknown {
   }
 
   return (error as unknown as Record<string, unknown>)[key];
+}
+
+function attrEscape(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

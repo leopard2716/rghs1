@@ -8,6 +8,12 @@ crons = ["17 * * * *"]
 [vars]
 APP_NAME = "RGHS1"
 ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+APPLY_ASSISTANT_EXTRACT_PROVIDER = "gemini"
+APPLY_ASSISTANT_EXTRACT_MODEL = "gemini-3.5-flash"
+APPLY_ASSISTANT_FIELD_PROVIDER = "openai"
+APPLY_ASSISTANT_FIELD_MODEL = "gpt-5.5"
+APPLY_ASSISTANT_RESUME_PROVIDER = "openai"
+APPLY_ASSISTANT_RESUME_MODEL = "gpt-5.5"
 
 [[r2_buckets]]
 binding = "RESUME_BUCKET"
@@ -19,6 +25,12 @@ name = "rghs1-api-dev"
 [env.dev.vars]
 APP_NAME = "RGHS1 Development"
 ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://rghs1-web-dev.pages.dev"
+APPLY_ASSISTANT_EXTRACT_PROVIDER = "gemini"
+APPLY_ASSISTANT_EXTRACT_MODEL = "gemini-3.5-flash"
+APPLY_ASSISTANT_FIELD_PROVIDER = "openai"
+APPLY_ASSISTANT_FIELD_MODEL = "gpt-5.5"
+APPLY_ASSISTANT_RESUME_PROVIDER = "openai"
+APPLY_ASSISTANT_RESUME_MODEL = "gpt-5.5"
 
 [[env.dev.r2_buckets]]
 binding = "RESUME_BUCKET"
@@ -30,6 +42,12 @@ name = "rghs1-api-prod"
 [env.production.vars]
 APP_NAME = "RGHS1"
 ALLOWED_ORIGINS = "https://rghs1-web-prod.pages.dev"
+APPLY_ASSISTANT_EXTRACT_PROVIDER = "gemini"
+APPLY_ASSISTANT_EXTRACT_MODEL = "gemini-3.5-flash"
+APPLY_ASSISTANT_FIELD_PROVIDER = "openai"
+APPLY_ASSISTANT_FIELD_MODEL = "gpt-5.5"
+APPLY_ASSISTANT_RESUME_PROVIDER = "openai"
+APPLY_ASSISTANT_RESUME_MODEL = "gpt-5.5"
 
 [[env.production.r2_buckets]]
 binding = "RESUME_BUCKET"

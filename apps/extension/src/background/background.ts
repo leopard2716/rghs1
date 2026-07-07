@@ -1,6 +1,10 @@
 import { ApplyAssistantApi } from "../api/apply-assistant-api";
 import { chromeApi, type ChromeTab } from "../shared/chrome";
-import type { ApplyFieldMapResponse, ExtensionMessage } from "../shared/messages";
+import type {
+  ApplyFieldMapResponse,
+  ClickActionResponse,
+  ExtensionMessage
+} from "../shared/messages";
 import { pageSnapshotSchema, parseWithSchema } from "../shared/schemas";
 import {
   connectExtensionTokenSettings,
@@ -9,7 +13,7 @@ import {
 } from "../storage/connection";
 import { getSettings } from "../storage/settings";
 
-const expectedContentBridgeVersion = "2026-07-07.2";
+const expectedContentBridgeVersion = "2026-07-07.3";
 
 chromeApi().runtime.onMessage.addListener((message, _sender, sendResponse) => {
   void handleMessage(message)
@@ -45,8 +49,35 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const api = new ApplyAssistantApi(settings);
       return { fieldMap: await api.requestFieldMap(message.sessionId, message.snapshot) };
     }
+    case "GENERATE_RESUME": {
+      const settings = await getSettings();
+      const api = new ApplyAssistantApi(settings);
+      return {
+        resume: await api.generateResume(message.sessionId, message.refinementNote)
+      };
+    }
+    case "MODIFY_RESUME": {
+      const settings = await getSettings();
+      const api = new ApplyAssistantApi(settings);
+      return {
+        resume: await api.modifyResume(
+          message.sessionId,
+          message.resumeVersionId,
+          message.refinementNote
+        )
+      };
+    }
+    case "COMMIT_BID": {
+      const settings = await getSettings();
+      const api = new ApplyAssistantApi(settings);
+      return {
+        bid: await api.commitBid(message.sessionId, message.resumeVersionId)
+      };
+    }
     case "APPLY_FIELD_MAP":
       return runContentBridge("applyFieldMap", [message.fieldMap]);
+    case "CLICK_ACTION":
+      return runContentBridge("clickAction", [message.buttonRef]);
     case "HIGHLIGHT_REFS":
       return runContentBridge("highlightRefs", [message.refs]);
     default:
@@ -79,7 +110,7 @@ async function analyzeActiveTab(): Promise<unknown> {
 }
 
 async function runContentBridge(
-  method: "highlightRefs" | "applyFieldMap",
+  method: "highlightRefs" | "applyFieldMap" | "clickAction",
   args: unknown[]
 ): Promise<unknown> {
   const tab = await activeTab();
@@ -92,7 +123,7 @@ async function runContentBridge(
 
 async function runContentBridgeForTab(
   tabId: number,
-  method: "analyzePage" | "highlightRefs" | "applyFieldMap",
+  method: "analyzePage" | "highlightRefs" | "applyFieldMap" | "clickAction",
   args: unknown[]
 ): Promise<unknown> {
   await injectContentScript(tabId);
@@ -110,6 +141,7 @@ async function runContentBridgeForTab(
               analyzePage(): unknown;
               highlightRefs(refs: string[]): unknown;
               applyFieldMap(fieldMap: unknown): ApplyFieldMapResponse;
+              clickAction(buttonRef: string): ClickActionResponse;
             };
           }
         ).__rghs1ApplyAssistant;
@@ -130,6 +162,9 @@ async function runContentBridgeForTab(
         }
         if (methodName === "applyFieldMap") {
           return assistant.applyFieldMap(methodArgs[0]);
+        }
+        if (methodName === "clickAction") {
+          return assistant.clickAction(String(methodArgs[0] ?? ""));
         }
 
         throw new Error("Unknown apply assistant content bridge method.");

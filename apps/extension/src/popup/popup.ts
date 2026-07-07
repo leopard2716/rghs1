@@ -1,6 +1,5 @@
 import "../ui/styles.css";
-import { chromeApi, requestRuntime } from "../shared/chrome";
-import { type AnalyzeActiveTabResponse } from "../shared/messages";
+import { chromeApi } from "../shared/chrome";
 import { type ApplyAssistantSettings } from "../shared/schemas";
 import { connectExtensionTokenSettings, refreshSettingsContext } from "../storage/connection";
 import { getSettings } from "../storage/settings";
@@ -176,22 +175,17 @@ function actionsSection(): HTMLElement {
   heading.textContent = "Active page";
   const actions = document.createElement("div");
   actions.className = "actions";
-  const analyze = document.createElement("button");
-  analyze.className = "button";
-  analyze.type = "button";
-  analyze.textContent = "Analyze tab";
-  const openPanel = document.createElement("button");
-  openPanel.className = "button secondary";
-  openPanel.type = "button";
-  openPanel.textContent = "Open panel";
+  const start = document.createElement("button");
+  start.className = "button";
+  start.type = "button";
+  start.textContent = "Start application";
   const status = document.createElement("div");
   status.id = "action-status";
   status.className = "status";
 
-  analyze.addEventListener("click", () => void analyzeTab(status));
-  openPanel.addEventListener("click", () => void openSidePanel(status));
+  start.addEventListener("click", () => void startApplication(status));
 
-  actions.append(analyze, openPanel);
+  actions.append(start);
   section.append(heading, actions, status);
   return section;
 }
@@ -262,22 +256,9 @@ async function refreshContext(status: HTMLElement): Promise<void> {
   }
 }
 
-async function analyzeTab(status: HTMLElement): Promise<void> {
-  try {
-    setStatus(status, "Analyzing active tab...");
-    const response = await requestRuntime<AnalyzeActiveTabResponse>({
-      type: "ANALYZE_ACTIVE_TAB"
-    });
-    if (!response.snapshot) {
-      throw new Error("Analyze response did not include a page snapshot.");
-    }
-    setStatus(
-      status,
-      `Captured ${response.snapshot.fields.length} fields and ${response.snapshot.buttons.length} buttons.`
-    );
-  } catch (error) {
-    setErrorStatus(status, error, "Unable to analyze tab.");
-  }
+async function startApplication(status: HTMLElement): Promise<void> {
+  await openSidePanel(status);
+  window.close();
 }
 
 async function openSidePanel(status: HTMLElement): Promise<void> {

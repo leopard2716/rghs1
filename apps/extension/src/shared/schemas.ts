@@ -144,6 +144,7 @@ export const pageSnapshotSchema = z.object({
   pageTitle: z.string().trim().max(500),
   capturedAt: dateTime,
   visibleText: z.string().trim().max(50000),
+  htmlSource: z.string().trim().max(100000).optional(),
   jsonLdJobPostings: z.array(z.record(z.unknown())).max(10).default([]),
   fields: z.array(elementSnapshotSchema).max(250),
   buttons: z.array(elementSnapshotSchema).max(100),
@@ -182,6 +183,7 @@ export const fieldValueSourceSchema = z.enum([
   "generated.resumeFile",
   "generated.resumeText",
   "generated.coverLetter",
+  "generated.answer",
   "user.review"
 ]);
 
@@ -224,6 +226,18 @@ export const generatedResumeSchema = z.object({
 });
 
 export type GeneratedResume = z.output<typeof generatedResumeSchema>;
+
+export const commitBidResponseSchema = z.object({
+  sessionId: uuid,
+  bidId: uuid,
+  status: z.literal("committed"),
+  created: z.boolean(),
+  jobTitle: z.string().trim().min(1).max(240),
+  company: z.string().trim().min(1).max(240),
+  jobLink: httpUrl
+});
+
+export type CommitBidResponse = z.output<typeof commitBidResponseSchema>;
 
 export const applySessionResponseSchema = z.object({
   id: uuid,

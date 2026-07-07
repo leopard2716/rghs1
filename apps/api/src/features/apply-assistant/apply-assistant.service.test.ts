@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
-import type { AiFieldMapDraft, ApplyAssistantFieldMapProvider } from "./apply-assistant-ai";
-import type { PageSnapshot } from "./apply-assistant.schemas";
+import type {
+  AiFieldMapDraft,
+  ApplyAssistantExtractionProvider,
+  ApplyAssistantFieldMapProvider
+} from "./apply-assistant-ai";
+import type { ExtractedJob, PageSnapshot } from "./apply-assistant.schemas";
 import { ApplyAssistantService } from "./apply-assistant.service";
 
 const workspaceId = "7dc5bfd2-452b-4625-9ea3-14f307db5feb";
@@ -334,6 +338,17 @@ class FakeFieldMapProvider implements ApplyAssistantFieldMapProvider {
   }
 }
 
+class FakeExtractionProvider implements ApplyAssistantExtractionProvider {
+  calls = 0;
+
+  constructor(private readonly extractedJob: ExtractedJob) {}
+
+  async extractJob(): Promise<ExtractedJob> {
+    this.calls += 1;
+    return this.extractedJob;
+  }
+}
+
 const sampleSnapshot: PageSnapshot = {
   pageUrl: "https://jobs.example.com/frontend-engineer",
   pageOrigin: "https://jobs.example.com",
@@ -591,6 +606,46 @@ describe("ApplyAssistantService connection flow", () => {
     expect(response.extractedJob?.company).toBe("ExampleCo");
     expect(response.extractedJob?.skills).toContain("React");
     expect(supabase.inserts.some((call) => call.table === "apply_assistant_sessions")).toBe(true);
+  });
+
+  it("uses the configured AI extraction provider when creating an apply session", async () => {
+    const supabase = new FakeSupabase("session");
+    const provider = new FakeExtractionProvider({
+      jobTitle: "Principal UI Engineer",
+      company: "Gemini Extracted Co",
+      location: "Remote",
+      employmentType: "Full-time",
+      requirements: ["React and TypeScript production experience"],
+      responsibilities: ["Lead accessible application UI delivery"],
+      skills: ["React", "TypeScript", "Accessibility"],
+      jobDescriptionText:
+        "Gemini Extracted Co is hiring a Principal UI Engineer to lead accessible application UI delivery with React and TypeScript across a distributed product team.",
+      confidence: 0.91,
+      warnings: []
+    });
+    const service = new ApplyAssistantService(
+      supabase as unknown as SupabaseRestClient,
+      "test-secret",
+      { extractionProvider: provider }
+    );
+    const context = await service.requireExtensionContext(
+      "rg-team",
+      "abcdefghijklmnopqrstuvwxyz0123456789",
+      "apply_assistant:use"
+    );
+
+    const response = await service.createApplySession(context, {
+      pageSnapshot: sampleSnapshot
+    });
+
+    expect(provider.calls).toBe(1);
+    expect(response.extractedJob?.jobTitle).toBe("Principal UI Engineer");
+    expect(response.extractedJob?.company).toBe("Gemini Extracted Co");
+    const insert = supabase.inserts.find((call) => call.table === "apply_assistant_sessions");
+    expect(insert?.rows[0]?.extracted_job).toMatchObject({
+      jobTitle: "Principal UI Engineer",
+      company: "Gemini Extracted Co"
+    });
   });
 
   it("returns a conservative profile-backed field map for an apply session", async () => {

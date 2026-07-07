@@ -88,6 +88,7 @@ export const pageSnapshotSchema = z.object({
   pageTitle: z.string().trim().max(500),
   capturedAt: z.string().datetime(),
   visibleText: z.string().trim().max(50000),
+  htmlSource: z.string().trim().max(100000).optional(),
   jsonLdJobPostings: z.array(z.record(z.unknown())).max(10).default([]),
   fields: z.array(elementSnapshotSchema).max(250),
   buttons: z.array(elementSnapshotSchema).max(100),
@@ -122,6 +123,7 @@ export const fieldValueSourceSchema = z.enum([
   "generated.resumeFile",
   "generated.resumeText",
   "generated.coverLetter",
+  "generated.answer",
   "user.review"
 ]);
 
@@ -160,6 +162,16 @@ export const generatedResumeSchema = z.object({
   })
 });
 
+export const generateResumeInput = z
+  .object({
+    refinementNote: z.string().trim().max(5000).optional()
+  })
+  .default({});
+
+export const modifyResumeInput = z.object({
+  refinementNote: z.string().trim().min(1).max(5000)
+});
+
 export const applySessionStatusSchema = z.enum([
   "draft",
   "reviewing",
@@ -188,6 +200,22 @@ export const applyAssistantFieldMapInput = z.object({
   pageSnapshot: pageSnapshotSchema
 });
 
+export const commitBidInput = z
+  .object({
+    resumeVersionId: uuid.optional()
+  })
+  .default({});
+
+export const commitBidResponseSchema = z.object({
+  sessionId: uuid,
+  bidId: uuid,
+  status: z.literal("committed"),
+  created: z.boolean(),
+  jobTitle: z.string().trim().min(1).max(240),
+  company: z.string().trim().min(1).max(240),
+  jobLink: httpUrl
+});
+
 export const extensionTokenParams = z.object({
   tokenId: z.string().uuid()
 });
@@ -205,6 +233,10 @@ export type ExtractedJob = z.infer<typeof extractedJobSchema>;
 export type FieldMap = z.infer<typeof fieldMapSchema>;
 export type MappedField = z.infer<typeof mappedFieldSchema>;
 export type GeneratedResume = z.infer<typeof generatedResumeSchema>;
+export type GenerateResumeInput = z.infer<typeof generateResumeInput>;
+export type ModifyResumeInput = z.infer<typeof modifyResumeInput>;
 export type ApplySessionResponse = z.infer<typeof applySessionResponseSchema>;
 export type ApplyAssistantSessionInput = z.infer<typeof applyAssistantSessionInput>;
 export type ApplyAssistantFieldMapInput = z.infer<typeof applyAssistantFieldMapInput>;
+export type CommitBidInput = z.infer<typeof commitBidInput>;
+export type CommitBidResponse = z.infer<typeof commitBidResponseSchema>;

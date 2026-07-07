@@ -33,7 +33,7 @@ textarea {
   display: grid;
   gap: 14px;
   min-width: 360px;
-  padding: 16px;
+  padding: 16px 16px 82px;
 }
 
 .header {
@@ -197,6 +197,10 @@ textarea {
   overflow: auto;
 }
 
+.compact-list {
+  max-height: 160px;
+}
+
 .item {
   border: 1px solid #e5e7eb;
   border-radius: 6px;
@@ -204,10 +208,44 @@ textarea {
   padding: 8px;
   color: #374151;
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .item strong {
   display: block;
   color: #111827;
   font-size: 12px;
+}
+
+.resume-preview {
+  width: 100%;
+  min-height: 360px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.refinement-input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px;
+  color: #111827;
+  background: #ffffff;
+}
+
+.footer-actions {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border-top: 1px solid #d1d5db;
+  background: #ffffff;
+  padding: 10px 16px;
+  box-shadow: 0 -8px 18px rgba(15, 23, 42, 0.08);
+  z-index: 10;
 }

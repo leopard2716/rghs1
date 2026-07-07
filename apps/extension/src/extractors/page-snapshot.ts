@@ -62,6 +62,7 @@ export function extractPageSnapshot(document: Document, pageUrl: string): PageSn
       pageTitle: normalizeText(document.title, 500),
       capturedAt: new Date().toISOString(),
       visibleText: visiblePageText(document),
+      htmlSource: sanitizedHtmlSource(document),
       jsonLdJobPostings: jsonLdJobPostings(document),
       fields,
       buttons,
@@ -297,6 +298,46 @@ function visiblePageText(document: Document): string {
   }
 
   return normalizeText(chunks.join(" "), 50000);
+}
+
+function sanitizedHtmlSource(document: Document): string {
+  const clone = document.documentElement.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) {
+    return "";
+  }
+
+  clone
+    .querySelectorAll("script, style, noscript, svg, canvas, iframe, object, embed")
+    .forEach((element) => element.remove());
+  clone.querySelectorAll("input, textarea, select").forEach((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+
+    const inputType = element instanceof HTMLInputElement ? element.type.toLowerCase() : undefined;
+    if (inputType === "password" || inputType === "hidden") {
+      element.remove();
+      return;
+    }
+
+    element.removeAttribute("value");
+    if (element instanceof HTMLTextAreaElement) {
+      element.textContent = "";
+    }
+  });
+  clone.querySelectorAll("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      if (
+        /^on/i.test(attribute.name) ||
+        attribute.name === "srcdoc" ||
+        attribute.name.startsWith("data-")
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+
+  return normalizeText(clone.outerHTML, 100000);
 }
 
 function shouldSkipTextParent(element: Element): boolean {

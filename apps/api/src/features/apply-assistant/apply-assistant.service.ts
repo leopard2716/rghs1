@@ -4,6 +4,7 @@ import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
 import { sortJobMarketsByUsage } from "../tracking/tracking-query";
 import { TrackingRecordMapper } from "../tracking/tracking-record.mapper";
 import type {
+  BidRecordProfileRow,
   BidRecordRow,
   TrackingJobMarketRow,
   TrackingProfileRow
@@ -16,17 +17,24 @@ import type {
   ApplyAssistantSessionInput,
   ApplyAssistantConnectInput,
   ApplyAssistantTokenInput,
+  CommitBidInput,
+  CommitBidResponse,
   ElementSnapshot,
   ExtensionScope,
   ExtractedJob,
   FieldMap,
+  GeneratedResume,
+  GenerateResumeInput,
   MappedField,
+  ModifyResumeInput,
   PageSnapshot
 } from "./apply-assistant.schemas";
 import {
   applySessionResponseSchema,
+  commitBidResponseSchema,
   extractedJobSchema,
-  fieldMapSchema
+  fieldMapSchema,
+  generatedResumeSchema
 } from "./apply-assistant.schemas";
 import type {
   ApplyAssistantSessionRow,
@@ -38,7 +46,12 @@ import {
   extensionConnectionCodeFields,
   extensionTokenFields
 } from "./apply-assistant.types";
-import type { AiFieldMapDraft, ApplyAssistantFieldMapProvider } from "./apply-assistant-ai";
+import type {
+  AiFieldMapDraft,
+  ApplyAssistantExtractionProvider,
+  ApplyAssistantFieldMapProvider,
+  ApplyAssistantResumeProvider
+} from "./apply-assistant-ai";
 
 const extensionTokenTtlDays = 30;
 const minAutoFillConfidence = 0.75;
@@ -50,18 +63,26 @@ export type ExtensionContext = {
 };
 
 export type ApplyAssistantServiceOptions = {
+  extractionProvider?: ApplyAssistantExtractionProvider | null;
   fieldMapProvider?: ApplyAssistantFieldMapProvider | null;
+  resumeProvider?: ApplyAssistantResumeProvider | null;
 };
 
 type ProfileFieldSource = Exclude<
   MappedField["valueSource"],
-  "generated.resumeFile" | "generated.resumeText" | "generated.coverLetter" | "user.review"
+  | "generated.resumeFile"
+  | "generated.resumeText"
+  | "generated.coverLetter"
+  | "generated.answer"
+  | "user.review"
 >;
 
 export class ApplyAssistantService {
   private readonly access: TrackingAccessService;
   private readonly records = new TrackingRecordMapper();
+  private readonly extractionProvider: ApplyAssistantExtractionProvider | null;
   private readonly fieldMapProvider: ApplyAssistantFieldMapProvider | null;
+  private readonly resumeProvider: ApplyAssistantResumeProvider | null;
 
   constructor(
     private readonly supabase: SupabaseRestClient,
@@ -69,7 +90,9 @@ export class ApplyAssistantService {
     options: ApplyAssistantServiceOptions = {}
   ) {
     this.access = new TrackingAccessService(supabase);
+    this.extractionProvider = options.extractionProvider ?? null;
     this.fieldMapProvider = options.fieldMapProvider ?? null;
+    this.resumeProvider = options.resumeProvider ?? null;
   }
 
   async createConnectionCode(slug: string, user: AuthUser, input: ApplyAssistantConnectInput) {
@@ -417,7 +440,7 @@ export class ApplyAssistantService {
       await this.access.requireMarket(context.workspace.id, jobMarketId);
     }
 
-    const extractedJob = extractJob(input.pageSnapshot);
+    const extractedJob = await this.extractJob(input.pageSnapshot);
     const id = crypto.randomUUID();
     const [session] = await this.supabase.insert<ApplyAssistantSessionRow>(
       "apply_assistant_sessions",
@@ -467,7 +490,12 @@ export class ApplyAssistantService {
       ? await this.profileById(context.workspace.id, session.profile_id)
       : null;
     const deterministicFieldMap = createConservativeFieldMap(input.pageSnapshot, profile);
-    const fieldMap = await this.enhanceFieldMap(input.pageSnapshot, profile, deterministicFieldMap);
+    const fieldMap = await this.enhanceFieldMap(
+      input.pageSnapshot,
+      profile,
+      session.extracted_job,
+      deterministicFieldMap
+    );
     const now = new Date().toISOString();
     const [updated] = await this.supabase.update<ApplyAssistantSessionRow>(
       "apply_assistant_sessions",
@@ -503,6 +531,7 @@ export class ApplyAssistantService {
   private async enhanceFieldMap(
     snapshot: PageSnapshot,
     profile: TrackingProfileRow | null,
+    extractedJob: ExtractedJob | null,
     deterministicFieldMap: FieldMap
   ): Promise<FieldMap> {
     if (!this.fieldMapProvider) {
@@ -512,6 +541,8 @@ export class ApplyAssistantService {
     try {
       const draft = await this.fieldMapProvider.createFieldMap({
         snapshot,
+        profile,
+        extractedJob,
         deterministicFieldMap
       });
       const aiFieldMap = fieldMapFromAiDraft(draft, snapshot, profile);
@@ -525,6 +556,191 @@ export class ApplyAssistantService {
         )
       });
     }
+  }
+
+  async generateResume(
+    context: ExtensionContext,
+    sessionId: string,
+    input: GenerateResumeInput
+  ): Promise<GeneratedResume> {
+    const session = await this.requireOwnedSession(context, sessionId);
+    const profile = await this.requireSessionProfile(context.workspace.id, session);
+    const extractedJob = requireSessionExtractedJob(session);
+    const resume = await this.createResumeVersion(profile, extractedJob, input.refinementNote);
+    return this.saveResumeVersion(context, session, resume);
+  }
+
+  async modifyResume(
+    context: ExtensionContext,
+    sessionId: string,
+    resumeVersionId: string,
+    input: ModifyResumeInput
+  ): Promise<GeneratedResume> {
+    const session = await this.requireOwnedSession(context, sessionId);
+    const profile = await this.requireSessionProfile(context.workspace.id, session);
+    const extractedJob = requireSessionExtractedJob(session);
+    const existingResume = session.resume_versions.find((resume) => resume.id === resumeVersionId);
+    if (!existingResume) {
+      throw apiError(404, "Resume version was not found.", "resume_version_not_found");
+    }
+
+    const resume = await this.createResumeVersion(
+      profile,
+      extractedJob,
+      input.refinementNote,
+      existingResume
+    );
+    return this.saveResumeVersion(context, session, resume);
+  }
+
+  async commitBid(
+    context: ExtensionContext,
+    sessionId: string,
+    input: CommitBidInput
+  ): Promise<CommitBidResponse> {
+    const session = await this.requireOwnedSession(context, sessionId);
+    if (!context.token.scopes.includes("application:create")) {
+      throw apiError(
+        403,
+        "Extension token does not allow bid creation.",
+        "extension_scope_required"
+      );
+    }
+
+    const profileId = session.profile_id ?? context.token.default_profile_id;
+    const jobMarketId = session.job_market_id ?? context.token.default_job_market_id;
+    if (!profileId) {
+      throw apiError(400, "A profile is required before saving the bid.", "profile_required");
+    }
+    if (!jobMarketId) {
+      throw apiError(400, "A job market is required before saving the bid.", "job_market_required");
+    }
+
+    await Promise.all([
+      this.access.requireProfiles(context.workspace.id, [profileId]),
+      this.access.requireMarket(context.workspace.id, jobMarketId)
+    ]);
+
+    const extractedJob = requireSessionExtractedJob(session);
+    const selectedResume = selectedResumeVersion(session.resume_versions, input.resumeVersionId);
+    const existingBid = await this.existingBidForSession(context, session);
+    const bid = existingBid
+      ? await this.updateCommittedBid(context, existingBid, jobMarketId, extractedJob)
+      : await this.createCommittedBid(context, session, jobMarketId, extractedJob);
+    await this.upsertCommittedBidProfile(context, bid.id, profileId, selectedResume);
+
+    const now = new Date().toISOString();
+    await this.supabase.update<ApplyAssistantSessionRow>(
+      "apply_assistant_sessions",
+      {
+        status: "committed",
+        updated_at: now
+      },
+      {
+        id: `eq.${session.id}`,
+        workspace_id: `eq.${context.workspace.id}`,
+        member_id: `eq.${context.member.id}`
+      }
+    );
+
+    await this.auditExtension(context, "apply_assistant.bid.committed", session.id, {
+      bidId: bid.id,
+      profileId,
+      jobMarketId,
+      created: !existingBid
+    });
+
+    return commitBidResponseSchema.parse({
+      sessionId: session.id,
+      bidId: bid.id,
+      status: "committed",
+      created: !existingBid,
+      jobTitle: bid.job_title,
+      company: bid.company,
+      jobLink: bid.job_link
+    });
+  }
+
+  private async extractJob(snapshot: PageSnapshot): Promise<ExtractedJob> {
+    const deterministic = extractJob(snapshot);
+    if (!this.extractionProvider) {
+      return deterministic;
+    }
+
+    try {
+      return await this.extractionProvider.extractJob({ snapshot });
+    } catch (error) {
+      return extractedJobSchema.parse({
+        ...deterministic,
+        warnings: appendWarning(
+          deterministic.warnings,
+          `AI job extraction failed: ${errorMessage(error)}. Used deterministic extraction.`
+        )
+      });
+    }
+  }
+
+  private async createResumeVersion(
+    profile: TrackingProfileRow,
+    extractedJob: ExtractedJob,
+    refinementNote?: string,
+    existingResume?: GeneratedResume
+  ): Promise<GeneratedResume> {
+    let resume: GeneratedResume;
+    try {
+      resume = this.resumeProvider
+        ? await this.resumeProvider.generateResume({
+            profile,
+            extractedJob,
+            existingResume,
+            refinementNote
+          })
+        : deterministicResume(profile, extractedJob, refinementNote, existingResume);
+    } catch (error) {
+      throw apiError(
+        502,
+        `AI resume generation failed: ${errorMessage(error)}`,
+        "resume_generation_failed"
+      );
+    }
+
+    return sanitizeGeneratedResume({
+      ...resume,
+      id: crypto.randomUUID()
+    });
+  }
+
+  private async saveResumeVersion(
+    context: ExtensionContext,
+    session: ApplyAssistantSessionRow,
+    resume: GeneratedResume
+  ): Promise<GeneratedResume> {
+    const resumeVersions = [...session.resume_versions, resume].slice(-25);
+    const now = new Date().toISOString();
+    const [updated] = await this.supabase.update<ApplyAssistantSessionRow>(
+      "apply_assistant_sessions",
+      {
+        resume_versions: resumeVersions,
+        status: "reviewing",
+        updated_at: now
+      },
+      {
+        id: `eq.${session.id}`,
+        workspace_id: `eq.${context.workspace.id}`,
+        member_id: `eq.${context.member.id}`
+      }
+    );
+    if (!updated) {
+      throw apiError(502, "Resume version update did not return a row.", "resume_update_failed");
+    }
+
+    await this.auditExtension(context, "apply_assistant.resume.generated", session.id, {
+      resumeVersionId: resume.id,
+      warningCount: resume.warnings.length,
+      missingEvidenceCount: resume.missingEvidence.length
+    });
+
+    return resume;
   }
 
   private async requireOwnedSession(
@@ -562,6 +778,139 @@ export class ApplyAssistantService {
     );
 
     return profile ?? null;
+  }
+
+  private async requireSessionProfile(
+    workspaceId: string,
+    session: ApplyAssistantSessionRow
+  ): Promise<TrackingProfileRow> {
+    if (!session.profile_id) {
+      throw apiError(
+        400,
+        "Select a tracking profile before generating a resume.",
+        "profile_required"
+      );
+    }
+
+    const profile = await this.profileById(workspaceId, session.profile_id);
+    if (!profile) {
+      throw apiError(404, "Tracking profile was not found.", "profile_not_found");
+    }
+
+    return profile;
+  }
+
+  private async existingBidForSession(
+    context: ExtensionContext,
+    session: ApplyAssistantSessionRow
+  ): Promise<BidRecordRow | null> {
+    const [existing] = await this.supabase.select<BidRecordRow>(
+      "bid_records",
+      "id,workspace_id,job_market_id,job_title,company,job_link,bid_at,job_description,created_by_member_id,created_at,updated_at,deleted_at",
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        created_by_member_id: `eq.${context.member.id}`,
+        job_link: `eq.${session.page_url}`,
+        deleted_at: "is.null"
+      },
+      { order: "created_at.desc", limit: 1 }
+    );
+
+    return existing ?? null;
+  }
+
+  private async createCommittedBid(
+    context: ExtensionContext,
+    session: ApplyAssistantSessionRow,
+    jobMarketId: string,
+    extractedJob: ExtractedJob
+  ): Promise<BidRecordRow> {
+    const [bid] = await this.supabase.insert<BidRecordRow>("bid_records", [
+      {
+        id: crypto.randomUUID(),
+        workspace_id: context.workspace.id,
+        job_market_id: jobMarketId,
+        job_title: extractedJob.jobTitle,
+        company: extractedJob.company,
+        job_link: session.page_url,
+        bid_at: new Date().toISOString(),
+        job_description: richTextFromPlainText(extractedJob.jobDescriptionText),
+        created_by_member_id: context.member.id
+      }
+    ]);
+    if (!bid) {
+      throw apiError(502, "Bid creation did not return a row.", "bid_record_create_failed");
+    }
+
+    return bid;
+  }
+
+  private async updateCommittedBid(
+    context: ExtensionContext,
+    existingBid: BidRecordRow,
+    jobMarketId: string,
+    extractedJob: ExtractedJob
+  ): Promise<BidRecordRow> {
+    const [updated] = await this.supabase.update<BidRecordRow>(
+      "bid_records",
+      {
+        job_market_id: jobMarketId,
+        job_title: extractedJob.jobTitle,
+        company: extractedJob.company,
+        job_description: richTextFromPlainText(extractedJob.jobDescriptionText),
+        updated_at: new Date().toISOString()
+      },
+      {
+        id: `eq.${existingBid.id}`,
+        workspace_id: `eq.${context.workspace.id}`,
+        created_by_member_id: `eq.${context.member.id}`,
+        deleted_at: "is.null"
+      }
+    );
+    if (!updated) {
+      throw apiError(502, "Bid update did not return a row.", "bid_record_update_failed");
+    }
+
+    return updated;
+  }
+
+  private async upsertCommittedBidProfile(
+    context: ExtensionContext,
+    bidId: string,
+    profileId: string,
+    resume: GeneratedResume | null
+  ): Promise<void> {
+    const [existing] = await this.supabase.select<BidRecordProfileRow>(
+      "bid_record_profiles",
+      "workspace_id,bid_id,profile_id,resume,created_at",
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        bid_id: `eq.${bidId}`,
+        profile_id: `eq.${profileId}`
+      }
+    );
+    const resumeText = resume?.resumeText ?? null;
+    if (existing) {
+      await this.supabase.update(
+        "bid_record_profiles",
+        { resume: resumeText },
+        {
+          workspace_id: `eq.${context.workspace.id}`,
+          bid_id: `eq.${bidId}`,
+          profile_id: `eq.${profileId}`
+        }
+      );
+      return;
+    }
+
+    await this.supabase.insert("bid_record_profiles", [
+      {
+        workspace_id: context.workspace.id,
+        bid_id: bidId,
+        profile_id: profileId,
+        resume: resumeText
+      }
+    ]);
   }
 
   private async requireActiveWorkspaceBySlug(
@@ -703,6 +1052,196 @@ function profileSummary(profile: TrackingProfileRow) {
     postalCode: profile.postal_code ?? null,
     linkedinUrl: profile.linkedin_url ?? null
   };
+}
+
+function requireSessionExtractedJob(session: ApplyAssistantSessionRow): ExtractedJob {
+  if (!session.extracted_job) {
+    throw apiError(
+      400,
+      "Create or refresh the apply session before this action.",
+      "extracted_job_required"
+    );
+  }
+
+  return extractedJobSchema.parse(session.extracted_job);
+}
+
+function selectedResumeVersion(
+  resumeVersions: GeneratedResume[],
+  requestedId: string | undefined
+): GeneratedResume | null {
+  if (!resumeVersions.length) {
+    return null;
+  }
+  if (!requestedId) {
+    return resumeVersions.at(-1) ?? null;
+  }
+
+  const resume = resumeVersions.find((version) => version.id === requestedId);
+  if (!resume) {
+    throw apiError(404, "Resume version was not found.", "resume_version_not_found");
+  }
+
+  return resume;
+}
+
+function deterministicResume(
+  profile: TrackingProfileRow,
+  extractedJob: ExtractedJob,
+  refinementNote: string | undefined,
+  existingResume: GeneratedResume | undefined
+): GeneratedResume {
+  if (existingResume && refinementNote) {
+    return generatedResumeSchema.parse({
+      resumeHtml: existingResume.resumeHtml,
+      resumeText: `${existingResume.resumeText}\n\nRefinement note: ${refinementNote}`,
+      changes: [`Recorded refinement note: ${refinementNote}`],
+      missingEvidence: existingResume.missingEvidence,
+      warnings: [
+        ...existingResume.warnings,
+        "OpenAI resume provider is not configured; existing resume content was not rewritten."
+      ],
+      quality: existingResume.quality
+    });
+  }
+
+  const name =
+    [profile.first_name, profile.middle_name, profile.last_name]
+      .map((value) => value?.trim())
+      .filter(Boolean)
+      .join(" ") || profile.name;
+  const contact = [profile.email, profile.phone_number, profile.linkedin_url]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" | ");
+  const education = [
+    profile.education_degree,
+    profile.education_major,
+    profile.education_university,
+    profile.education_location
+  ]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(", ");
+  const experience = profileCareerText(profile.career_experiences);
+  const skills = extractedJob.skills.slice(0, 12);
+  const resumeText = [
+    name,
+    contact,
+    "",
+    `Target role: ${extractedJob.jobTitle} at ${extractedJob.company}`,
+    "",
+    "Profile",
+    profile.resume_tailoring_note ||
+      `Candidate profile prepared for ${extractedJob.jobTitle}. Review and tailor before submission.`,
+    "",
+    education ? `Education\n${education}` : "",
+    experience ? `Experience\n${experience}` : "",
+    skills.length ? `Relevant keywords\n${skills.join(", ")}` : "",
+    refinementNote ? `User note\n${refinementNote}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const resumeHtml =
+    profile.resume_html_template?.trim() ||
+    [
+      "<section>",
+      `<h1>${escapeHtml(name)}</h1>`,
+      contact ? `<p>${escapeHtml(contact)}</p>` : "",
+      `<h2>Target Role</h2><p>${escapeHtml(extractedJob.jobTitle)} at ${escapeHtml(
+        extractedJob.company
+      )}</p>`,
+      "<h2>Profile</h2>",
+      `<p>${escapeHtml(
+        profile.resume_tailoring_note ||
+          `Prepared for ${extractedJob.jobTitle}. Review before submission.`
+      )}</p>`,
+      education ? `<h2>Education</h2><p>${escapeHtml(education)}</p>` : "",
+      experience ? `<h2>Experience</h2><p>${escapeHtml(experience)}</p>` : "",
+      skills.length ? `<h2>Relevant Keywords</h2><p>${escapeHtml(skills.join(", "))}</p>` : "",
+      "</section>"
+    ].join("");
+
+  return generatedResumeSchema.parse({
+    resumeHtml,
+    resumeText,
+    changes: ["Created a deterministic resume draft from the selected profile."],
+    missingEvidence: extractedJob.skills.filter((skill) => !resumeText.includes(skill)),
+    warnings: ["OpenAI resume provider is not configured; review this fallback draft carefully."],
+    quality: {
+      jdCoverage: skills.length ? 0.45 : 0.25,
+      fabricationRisk: "low",
+      atsReadability: "fair"
+    }
+  });
+}
+
+function sanitizeGeneratedResume(resume: GeneratedResume): GeneratedResume {
+  return generatedResumeSchema.parse({
+    ...resume,
+    resumeHtml: sanitizeResumeHtml(resume.resumeHtml),
+    resumeText: compactWhitespace(resume.resumeText),
+    changes: uniqueWarnings(resume.changes),
+    missingEvidence: uniqueWarnings(resume.missingEvidence),
+    warnings: uniqueWarnings(resume.warnings)
+  });
+}
+
+function sanitizeResumeHtml(value: string): string {
+  const withoutBlockedBlocks = value.replace(
+    /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|img)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    ""
+  );
+  return withoutBlockedBlocks
+    .replace(
+      /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|img)\b[^>]*\/?\s*>/gi,
+      ""
+    )
+    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/\s+(href|src|srcdoc|style)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .trim();
+}
+
+function richTextFromPlainText(text: string) {
+  return {
+    type: "doc",
+    content: compactWhitespace(text)
+      .split(/\n{2,}|(?<=\.)\s+(?=[A-Z])/)
+      .map((paragraph) => compactWhitespace(paragraph))
+      .filter(Boolean)
+      .slice(0, 80)
+      .map((paragraph) => ({
+        type: "paragraph",
+        content: [
+          {
+            type: "text",
+            text: paragraph
+          }
+        ]
+      }))
+  };
+}
+
+function profileCareerText(value: unknown): string {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+
+  return value
+    .map((item) => {
+      if (!isRecord(item)) {
+        return "";
+      }
+      return [
+        stringValue(item.companyName),
+        stringValue(item.companyLocation),
+        [stringValue(item.dateFrom), stringValue(item.dateTo)].filter(Boolean).join(" - ")
+      ]
+        .filter(Boolean)
+        .join(", ");
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 function extractJob(snapshot: PageSnapshot): ExtractedJob {
@@ -978,9 +1517,36 @@ function mappedFieldFromAiDraftField(
       elementRef: field.ref,
       label: field.label,
       valueSource: "generated.coverLetter",
-      value: field.kind === "file" ? "generated-cover-letter.pdf" : "",
+      value: field.kind === "file" ? "generated-cover-letter.pdf" : (draftField.value ?? ""),
       confidence,
-      requiresUserReview: true
+      requiresUserReview:
+        field.kind === "file" || !draftField.value || draftField.requiresUserReview === true
+    };
+  }
+
+  if (draftField.valueSource === "generated.answer") {
+    const value = cleanText(draftField.value) ?? "";
+    if (!value || isUnsafeGeneratedAnswerField(fieldMatchText(field))) {
+      warnings.push(`AI generated answer for ${field.ref} requires review.`);
+      return {
+        ...reviewField(field),
+        valueSource: "generated.answer",
+        value,
+        confidence: Math.min(confidence, 0.55)
+      };
+    }
+
+    return {
+      elementRef: field.ref,
+      label: field.label,
+      valueSource: "generated.answer",
+      value,
+      confidence,
+      requiresUserReview:
+        Boolean(field.disabled || field.readOnly) ||
+        confidence < minAutoFillConfidence ||
+        hasOptions(field) ||
+        draftField.requiresUserReview === true
     };
   }
 
@@ -1051,12 +1617,16 @@ function shouldUseAiField(existing: MappedField, candidate: MappedField): boolea
 
   if (
     existing.valueSource === "generated.resumeFile" ||
-    existing.valueSource === "generated.coverLetter"
+    (existing.valueSource === "generated.coverLetter" && existing.value)
   ) {
     return false;
   }
 
   if (existing.valueSource === "user.review") {
+    return true;
+  }
+
+  if (candidate.valueSource === "generated.answer" && candidate.value) {
     return true;
   }
 
@@ -1257,6 +1827,12 @@ function isSensitiveOrScreening(text: string): boolean {
   );
 }
 
+function isUnsafeGeneratedAnswerField(text: string): boolean {
+  return /\b(visa|sponsor|sponsorship|authorization|authorized|citizen|disability|veteran|race|ethnicity|gender|pronoun|salary|compensation|background|criminal|felony|clearance|legal|eligible|eligibility)\b/.test(
+    text
+  );
+}
+
 function fieldMatchText(field: ElementSnapshot): string {
   return normalizeForMatch(
     [field.label, field.name, field.placeholder, field.visibleText, field.inputType, field.ariaRole]
@@ -1284,6 +1860,15 @@ function cleanText(value: string | undefined): string | undefined {
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function normalizeForMatch(value: string): string {

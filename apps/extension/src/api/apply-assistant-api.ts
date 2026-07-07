@@ -1,12 +1,16 @@
 import {
   applySessionResponseSchema,
+  commitBidResponseSchema,
   extensionTokenContextSchema,
   fieldMapSchema,
+  generatedResumeSchema,
   parseWithSchema,
   type ApplyAssistantSettings,
   type ApplySessionResponse,
+  type CommitBidResponse,
   type ExtensionTokenContext,
   type FieldMap,
+  type GeneratedResume,
   type PageSnapshot
 } from "../shared/schemas";
 import { chromeApi } from "../shared/chrome";
@@ -62,6 +66,40 @@ export class ApplyAssistantApi {
     });
 
     return parseWithSchema(fieldMapSchema, response, "Field map response");
+  }
+
+  async generateResume(sessionId: string, refinementNote?: string): Promise<GeneratedResume> {
+    const response = await this.fetchJson(`/apply-assistant/sessions/${sessionId}/resumes`, {
+      method: "POST",
+      body: JSON.stringify({ refinementNote })
+    });
+
+    return parseWithSchema(generatedResumeSchema, response, "Generated resume response");
+  }
+
+  async modifyResume(
+    sessionId: string,
+    resumeVersionId: string,
+    refinementNote: string
+  ): Promise<GeneratedResume> {
+    const response = await this.fetchJson(
+      `/apply-assistant/sessions/${sessionId}/resumes/${resumeVersionId}/modify`,
+      {
+        method: "POST",
+        body: JSON.stringify({ refinementNote })
+      }
+    );
+
+    return parseWithSchema(generatedResumeSchema, response, "Modified resume response");
+  }
+
+  async commitBid(sessionId: string, resumeVersionId?: string): Promise<CommitBidResponse> {
+    const response = await this.fetchJson(`/apply-assistant/sessions/${sessionId}/commit-bid`, {
+      method: "POST",
+      body: JSON.stringify({ resumeVersionId })
+    });
+
+    return parseWithSchema(commitBidResponseSchema, response, "Bid commit response");
   }
 
   private async fetchJson(path: string, init: RequestInit): Promise<unknown> {
