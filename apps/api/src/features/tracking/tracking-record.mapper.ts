@@ -23,6 +23,7 @@ export type ProfileResponse = {
   street: string | null;
   city: string | null;
   state: string | null;
+  country: string | null;
   postalCode: string | null;
   linkedinUrl: string | null;
   education: ProfileEducationResponse;
@@ -37,6 +38,7 @@ export type ProfileEducationResponse = {
   university: string | null;
   location: string | null;
   degree: string | null;
+  major: string | null;
   dateFrom: string | null;
   dateTo: string | null;
 };
@@ -149,6 +151,7 @@ export type JobRecordResponse = {
   bidder: MemberSummary | null;
   caller: MemberSummary | null;
   worker: MemberSummary | null;
+  paymentHandler: MemberSummary | null;
   rates: JobRateResponse;
   createdAt: string;
   deletedAt: string | null;
@@ -206,12 +209,14 @@ export class TrackingRecordMapper {
       street: row.street ?? null,
       city: row.city ?? null,
       state: row.state ?? null,
+      country: row.country ?? null,
       postalCode: row.postal_code ?? null,
       linkedinUrl: row.linkedin_url ?? null,
       education: {
         university: row.education_university ?? null,
         location: row.education_location ?? null,
         degree: row.education_degree ?? null,
+        major: row.education_major ?? null,
         dateFrom: row.education_date_from ?? null,
         dateTo: row.education_date_to ?? null
       },
@@ -421,6 +426,7 @@ export class TrackingRecordMapper {
         bidder: membersById.get(row.bidder_member_id) ?? null,
         caller: membersById.get(row.caller_member_id) ?? null,
         worker: membersById.get(row.worker_member_id) ?? null,
+        paymentHandler: membersById.get(row.payment_handler_member_id) ?? null,
         rates: {
           bidder: Number(row.bidder_rate),
           caller: Number(row.caller_rate),

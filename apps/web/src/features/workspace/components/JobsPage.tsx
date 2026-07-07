@@ -285,6 +285,9 @@ export function JobsPage({
                           <span>Bidder: {job.bidder?.name ?? "Former member"}</span>
                           <span>Caller: {job.caller?.name ?? "Former member"}</span>
                           <span>Worker: {job.worker?.name ?? "Former member"}</span>
+                          <span>
+                            Payment handler: {job.paymentHandler?.name ?? "Former member"}
+                          </span>
                         </td>
                         <td>
                           <span>Bidder {formatPercent(job.rates.bidder)}</span>
@@ -518,6 +521,9 @@ function JobForm({
   const [workerMemberId, setWorkerMemberId] = useState(
     initialJob?.worker?.id ?? members[0]?.id ?? ""
   );
+  const [paymentHandlerMemberId, setPaymentHandlerMemberId] = useState(
+    initialJob?.paymentHandler?.id ?? members[0]?.id ?? ""
+  );
   const [bidderRate, setBidderRate] = useState(
     initialJob?.rates.bidder ?? DEFAULT_JOB_RATES.bidder
   );
@@ -557,8 +563,8 @@ function JobForm({
             setFormError("Select a bid record.");
             return;
           }
-          if (!bidderMemberId || !callerMemberId || !workerMemberId) {
-            setFormError("Select bidder, caller, and worker users.");
+          if (!bidderMemberId || !callerMemberId || !workerMemberId || !paymentHandlerMemberId) {
+            setFormError("Select bidder, caller, worker, and payment handler users.");
             return;
           }
           const nextRates = {
@@ -582,6 +588,7 @@ function JobForm({
             bidderMemberId,
             callerMemberId,
             workerMemberId,
+            paymentHandlerMemberId,
             ...nextRates
           });
         }}
@@ -605,13 +612,20 @@ function JobForm({
             </Link>
           </div>
         ) : null}
-        <div className="form-grid">
+        <div className="job-role-rate-grid">
           <UserSelect
             label="Bidder"
             value={bidderMemberId}
             members={members}
             disabled={formDisabled}
             onChange={setBidderMemberId}
+          />
+          <RateInput
+            label="Bidder rate"
+            name="bidderRate"
+            value={bidderRate}
+            disabled={formDisabled}
+            onChange={setBidderRate}
           />
           <UserSelect
             label="Caller"
@@ -620,29 +634,19 @@ function JobForm({
             disabled={formDisabled}
             onChange={setCallerMemberId}
           />
-          <UserSelect
-            label="Worker"
-            value={workerMemberId}
-            members={members}
-            disabled={formDisabled}
-            onChange={setWorkerMemberId}
-          />
-        </div>
-        <fieldset className="schedule-fields">
-          <legend>Payment rate split</legend>
-          <RateInput
-            label="Bidder rate"
-            name="bidderRate"
-            value={bidderRate}
-            disabled={formDisabled}
-            onChange={setBidderRate}
-          />
           <RateInput
             label="Caller rate"
             name="callerRate"
             value={callerRate}
             disabled={formDisabled}
             onChange={setCallerRate}
+          />
+          <UserSelect
+            label="Worker"
+            value={workerMemberId}
+            members={members}
+            disabled={formDisabled}
+            onChange={setWorkerMemberId}
           />
           <RateInput
             label="Worker rate"
@@ -651,6 +655,13 @@ function JobForm({
             disabled={formDisabled}
             onChange={setWorkerRate}
           />
+          <UserSelect
+            label="Payment Handler"
+            value={paymentHandlerMemberId}
+            members={members}
+            disabled={formDisabled}
+            onChange={setPaymentHandlerMemberId}
+          />
           <RateInput
             label="Discount rate"
             name="discountRate"
@@ -658,7 +669,7 @@ function JobForm({
             disabled={formDisabled}
             onChange={setDiscountRate}
           />
-        </fieldset>
+        </div>
         <p className={Math.round(rateTotal * 100) === 10000 ? "record-muted" : "form-error"}>
           Total rate: {formatPercent(rateTotal)}
         </p>

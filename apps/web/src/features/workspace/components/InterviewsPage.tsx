@@ -329,7 +329,7 @@ export function InterviewsPage({
                           </a>
                         </td>
                         <td>
-                          <p className="plain-notes">{interview.notes ?? "No notes"}</p>
+                          <ExpandablePlainText value={interview.notes ?? "No notes"} />
                         </td>
                         {showActions ? (
                           <td>
@@ -750,6 +750,29 @@ function SearchableJobSelect({
 
 function jobOptionLabel(bid: BidRecord): string {
   return `${bid.jobTitle} at ${bid.company}`;
+}
+
+function ExpandablePlainText({ value }: { value: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = value.length > 180 || value.includes("\n");
+
+  return (
+    <div className="table-collapsible-text">
+      <p className={`plain-notes${canExpand && !expanded ? " collapsed-note" : ""}`}>{value}</p>
+      {canExpand ? (
+        <button
+          className="collapsible-toggle-button"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded((current) => !current);
+          }}
+        >
+          {expanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function historicalBidForInterview(interview: InterviewRecord): BidRecord {

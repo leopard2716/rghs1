@@ -1587,6 +1587,12 @@ td span {
   font-weight: 800;
 }
 
+.field-label {
+  color: #37443e;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
 .modal-form input,
 .modal-form select,
 .modal-form textarea {
@@ -1866,6 +1872,18 @@ td span {
   white-space: pre-wrap;
 }
 
+.table-collapsible-text {
+  display: grid;
+  gap: 5px;
+}
+
+.plain-notes.collapsed-note {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .record-muted {
   color: #7b8580;
   font-size: 0.82rem;
@@ -1975,6 +1993,77 @@ td span {
 
 .profile-resume-editor textarea {
   min-height: 170px;
+}
+
+.collapsible-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.collapsible-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.field-action-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.compact-copy-button {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+}
+
+.compact-copy-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.collapsible-toggle-button {
+  min-height: 32px;
+  padding: 0 2px;
+  color: #17644f;
+  background: transparent;
+  border: 0;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.collapsible-toggle-button:hover {
+  color: #0f4d3c;
+}
+
+.collapsible-input-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.collapsible-input-shell.collapsed {
+  max-height: 156px;
+}
+
+.collapsible-input-shell.expanded {
+  max-height: none;
+}
+
+.collapsible-input-shell.collapsed::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 44px;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(180deg, rgb(255 255 255 / 0), #ffffff 80%);
 }
 
 .pagination-controls {
@@ -2766,6 +2855,13 @@ td span {
   font-weight: 800;
 }
 
+.job-role-rate-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(140px, 0.8fr);
+  gap: 12px;
+  min-width: 0;
+}
+
 .profile-selector {
   display: flex;
   flex-wrap: wrap;
@@ -3364,6 +3460,10 @@ td span {
   }
 
   .schedule-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .job-role-rate-grid {
     grid-template-columns: 1fr;
   }
 

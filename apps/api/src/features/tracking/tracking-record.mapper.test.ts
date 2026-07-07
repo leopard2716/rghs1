@@ -15,6 +15,7 @@ describe("TrackingRecordMapper", () => {
       id: "profile-1",
       workspace_id: "workspace-1",
       name: "Joshua",
+      country: "United States",
       created_by_member_id: "member-1",
       created_at: "2026-06-19T00:00:00.000Z",
       updated_at: "2026-06-19T00:00:00.000Z",
@@ -66,7 +67,7 @@ describe("TrackingRecordMapper", () => {
       canEdit: true,
       canDelete: true,
       bidder: { id: "member-1", name: "Noah Hall" },
-      profiles: [{ id: "profile-1", resume: null }]
+      profiles: [{ id: "profile-1", country: "United States", resume: null }]
     });
   });
 });

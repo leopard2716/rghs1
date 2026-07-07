@@ -14,11 +14,13 @@ export type TrackingProfileRow = {
   street?: string | null;
   city?: string | null;
   state?: string | null;
+  country?: string | null;
   postal_code?: string | null;
   linkedin_url?: string | null;
   education_university?: string | null;
   education_location?: string | null;
   education_degree?: string | null;
+  education_major?: string | null;
   education_date_from?: string | null;
   education_date_to?: string | null;
   career_experiences?: unknown;
@@ -102,6 +104,7 @@ export type JobRecordRow = {
   bidder_member_id: string;
   caller_member_id: string;
   worker_member_id: string;
+  payment_handler_member_id: string;
   bidder_rate: number | string;
   caller_rate: number | string;
   worker_rate: number | string;
@@ -149,7 +152,7 @@ export type CustomPaymentRecordRow = {
 };
 
 export const trackingProfileFields =
-  "id,workspace_id,name,first_name,middle_name,last_name,gender,date_of_birth,email,phone_number,street,city,state,postal_code,linkedin_url,education_university,education_location,education_degree,education_date_from,education_date_to,career_experiences,resume_html_template,resume_tailoring_note,created_by_member_id,created_at,updated_at,deleted_at";
+  "id,workspace_id,name,first_name,middle_name,last_name,gender,date_of_birth,email,phone_number,street,city,state,country,postal_code,linkedin_url,education_university,education_location,education_degree,education_major,education_date_from,education_date_to,career_experiences,resume_html_template,resume_tailoring_note,created_by_member_id,created_at,updated_at,deleted_at";
 
 export const trackingProfileRequestFields =
   "id,workspace_id,name,requested_by_member_id,status,reviewed_by_member_id,resolved_profile_id,created_at,updated_at,reviewed_at";
@@ -166,7 +169,7 @@ export const interviewRecordFields =
   "id,workspace_id,bid_id,profile_id,step,start_at,end_at,time_zone,interview_link,notes,created_by_member_id,created_at,updated_at,deleted_at";
 
 export const jobRecordFields =
-  "id,workspace_id,bid_id,bidder_member_id,caller_member_id,worker_member_id,bidder_rate,caller_rate,worker_rate,discount_rate,created_by_member_id,created_at,updated_at,deleted_at";
+  "id,workspace_id,bid_id,bidder_member_id,caller_member_id,worker_member_id,payment_handler_member_id,bidder_rate,caller_rate,worker_rate,discount_rate,created_by_member_id,created_at,updated_at,deleted_at";
 
 export const paymentRecordFields =
   "id,workspace_id,job_record_id,payment_amount,bidder_member_id,caller_member_id,worker_member_id,payment_manager_member_id,bidder_amount,caller_amount,worker_amount,payment_manager_amount,status,created_by_member_id,paid_by_member_id,paid_at,created_at,updated_at,deleted_at";
