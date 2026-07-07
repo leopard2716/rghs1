@@ -38,6 +38,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     "interview:update",
     "job_record:create",
     "job_record:update",
+    "payment:create",
+    "payment:update",
     "payment:pay",
     "alert:manage",
     "audit:view"
@@ -49,8 +51,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, Permission[]> = {
     "application:create",
     "application:update"
   ],
-  interviewer: ["interview:create", "interview:update", "application:update"],
-  payment_manager: ["payment:create", "payment:update"]
+  interviewer: ["interview:create", "interview:update", "application:update"]
 };
 
 export function permissionsForMember(

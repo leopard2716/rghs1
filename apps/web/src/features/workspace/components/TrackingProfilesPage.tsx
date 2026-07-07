@@ -569,6 +569,16 @@ function ProfileFormModal({
               />
             </label>
             <label>
+              Country
+              <input
+                name="country"
+                maxLength={120}
+                autoComplete="country-name"
+                defaultValue={initialProfile?.country ?? ""}
+                disabled={pending}
+              />
+            </label>
+            <label>
               Zip/postal code
               <input
                 name="postalCode"
@@ -613,12 +623,21 @@ function ProfileFormModal({
                 disabled={pending}
               />
             </label>
-            <label className="profile-full-field">
+            <label>
               Degree
               <input
                 name="educationDegree"
                 maxLength={180}
                 defaultValue={initialProfile?.education?.degree ?? ""}
+                disabled={pending}
+              />
+            </label>
+            <label>
+              Major
+              <input
+                name="educationMajor"
+                maxLength={180}
+                defaultValue={initialProfile?.education?.major ?? ""}
                 disabled={pending}
               />
             </label>
@@ -805,12 +824,14 @@ function profileInputFromForm(
     street: optionalFieldValue(form, "street"),
     city: optionalFieldValue(form, "city"),
     state: optionalFieldValue(form, "state"),
+    country: optionalFieldValue(form, "country"),
     postalCode: optionalFieldValue(form, "postalCode"),
     linkedinUrl: optionalFieldValue(form, "linkedinUrl"),
     education: {
       university: optionalFieldValue(form, "educationUniversity"),
       location: optionalFieldValue(form, "educationLocation"),
       degree: optionalFieldValue(form, "educationDegree"),
+      major: optionalFieldValue(form, "educationMajor"),
       dateFrom: optionalFieldValue(form, "educationDateFrom"),
       dateTo: optionalFieldValue(form, "educationDateTo")
     },
@@ -854,7 +875,7 @@ function profileDisplayName(profile: TrackingProfile): string {
 }
 
 function profileLocation(profile: TrackingProfile): string {
-  return [profile.street, profile.city, profile.state, profile.postalCode]
+  return [profile.street, profile.city, profile.state, profile.postalCode, profile.country]
     .map((value) => value?.trim())
     .filter(Boolean)
     .join(", ");
