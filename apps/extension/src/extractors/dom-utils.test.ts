@@ -22,6 +22,8 @@ describe("upload field identity", () => {
   });
 
   it("does not treat generic file help as a semantic field name", () => {
-    expect(semanticUploadFieldName("Select file. Accepted DOC, DOCX, HTML, PDF, or TXT files")).toBe("");
+    expect(
+      semanticUploadFieldName("Select file. Accepted DOC, DOCX, HTML, PDF, or TXT files")
+    ).toBe("");
   });
 });

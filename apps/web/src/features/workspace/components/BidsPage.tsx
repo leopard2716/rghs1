@@ -223,10 +223,7 @@ export function BidsPage({
     setSelectedProfileIds(modalBid.profiles.map((profile) => profile.id));
     setProfileResumes(
       Object.fromEntries(
-        modalBid.profiles.map((profile) => [
-          profile.id,
-          profile.resumeHtml ?? profile.resume ?? ""
-        ])
+        modalBid.profiles.map((profile) => [profile.id, profile.resumeHtml ?? profile.resume ?? ""])
       )
     );
     setExpandedProfileResumes({});

@@ -27,7 +27,7 @@ const uploadDocumentTypes = [
 
 export function semanticUploadFieldName(value: string): string {
   const matches = uploadDocumentTypes.filter(({ pattern }) => pattern.test(value));
-  return matches.length === 1 ? matches[0]?.label ?? "" : "";
+  return matches.length === 1 ? (matches[0]?.label ?? "") : "";
 }
 
 export function isVisibleElement(element: Element): boolean {
@@ -283,9 +283,7 @@ function globalUploadContextLabelText(element: HTMLInputElement): string {
   }
 
   const candidates = Array.from(
-    document.querySelectorAll(
-      "h1,h2,h3,h4,h5,h6,[role='heading'],legend,label,p,[aria-label]"
-    )
+    document.querySelectorAll("h1,h2,h3,h4,h5,h6,[role='heading'],legend,label,p,[aria-label]")
   )
     .map((candidate) =>
       normalizeContext(candidate.getAttribute("aria-label") || candidate.textContent || "")

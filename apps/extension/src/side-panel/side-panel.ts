@@ -98,7 +98,10 @@ function jobDescriptionPreview(text: string, html?: string): HTMLElement {
   if (html) {
     content.innerHTML = html;
   } else {
-    for (const paragraph of text.split(/\n+/).map((value) => value.trim()).filter(Boolean)) {
+    for (const paragraph of text
+      .split(/\n+/)
+      .map((value) => value.trim())
+      .filter(Boolean)) {
       const element = document.createElement("p");
       element.textContent = paragraph;
       content.append(element);

@@ -103,19 +103,16 @@ export function registerApplyAssistantRoutes(app: ApiApp): void {
     }
   });
 
-  app.post(
-    "/v1/workspaces/:slug/apply-assistant/sessions/:sessionId/steps/extract",
-    async (c) => {
-      try {
-        const { service, extension } = await extensionContext(c);
-        const params = applySessionParams.parse({ sessionId: c.req.param("sessionId") });
-        const input = await parseRequiredJson(c, applyAssistantFieldMapInput);
-        return c.json(await service.extractStep(extension, params.sessionId, input), 201);
-      } catch (error) {
-        return applyAssistantError(c, error);
-      }
+  app.post("/v1/workspaces/:slug/apply-assistant/sessions/:sessionId/steps/extract", async (c) => {
+    try {
+      const { service, extension } = await extensionContext(c);
+      const params = applySessionParams.parse({ sessionId: c.req.param("sessionId") });
+      const input = await parseRequiredJson(c, applyAssistantFieldMapInput);
+      return c.json(await service.extractStep(extension, params.sessionId, input), 201);
+    } catch (error) {
+      return applyAssistantError(c, error);
     }
-  );
+  });
 
   app.post("/v1/workspaces/:slug/apply-assistant/sessions/:sessionId/resumes", async (c) => {
     try {

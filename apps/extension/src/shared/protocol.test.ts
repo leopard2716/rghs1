@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  extensionProtocolVersion,
-  requireCurrentExtensionProtocol
-} from "./protocol";
+import { extensionProtocolVersion, requireCurrentExtensionProtocol } from "./protocol";
 
 describe("extension protocol", () => {
   it("accepts the matching background worker version", () => {

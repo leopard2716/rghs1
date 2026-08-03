@@ -78,11 +78,11 @@ function jobContentHtml(document: Document): string | undefined {
     '[data-testid="job-description"]',
     '[data-testid*="job-description"]',
     '[itemprop="description"]',
-    '#job-description',
-    '#jobDescription',
+    "#job-description",
+    "#jobDescription",
     '[class*="job-description"]',
     '[class*="jobDescription"]',
-    'article'
+    "article"
   ];
   const source = selectors
     .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
@@ -97,10 +97,10 @@ function jobContentHtml(document: Document): string | undefined {
   }
   clone
     .querySelectorAll(
-      'script,style,noscript,svg,canvas,iframe,object,embed,form,input,textarea,select,button'
+      "script,style,noscript,svg,canvas,iframe,object,embed,form,input,textarea,select,button"
     )
     .forEach((element) => element.remove());
-  clone.querySelectorAll('*').forEach((element) => {
+  clone.querySelectorAll("*").forEach((element) => {
     for (const attribute of Array.from(element.attributes)) {
       element.removeAttribute(attribute.name);
     }

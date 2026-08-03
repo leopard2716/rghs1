@@ -71,13 +71,10 @@ export class ApplyAssistantApi {
   }
 
   async extractStep(sessionId: string, snapshot: PageSnapshot): Promise<FieldMap> {
-    const response = await this.fetchJson(
-      `/apply-assistant/sessions/${sessionId}/steps/extract`,
-      {
-        method: "POST",
-        body: JSON.stringify({ pageSnapshot: snapshot })
-      }
-    );
+    const response = await this.fetchJson(`/apply-assistant/sessions/${sessionId}/steps/extract`, {
+      method: "POST",
+      body: JSON.stringify({ pageSnapshot: snapshot })
+    });
 
     return parseWithSchema(fieldMapSchema, response, "Step extraction response");
   }

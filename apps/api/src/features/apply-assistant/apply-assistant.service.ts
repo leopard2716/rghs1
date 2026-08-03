@@ -512,7 +512,11 @@ export class ApplyAssistantService {
       session.extracted_job
     );
     const fieldMap = fieldMapFromAiDraft(extractionDraft, input.pageSnapshot, null);
-    const stepSnapshots = appendStepSnapshot(session.step_snapshots, session.page_snapshot, input.pageSnapshot);
+    const stepSnapshots = appendStepSnapshot(
+      session.step_snapshots,
+      session.page_snapshot,
+      input.pageSnapshot
+    );
     const now = new Date().toISOString();
     const [updated] = await this.supabase.update<ApplyAssistantSessionRow>(
       "apply_assistant_sessions",
@@ -530,7 +534,11 @@ export class ApplyAssistantService {
       }
     );
     if (!updated) {
-      throw apiError(502, "Apply step extraction did not return a row.", "apply_step_extract_failed");
+      throw apiError(
+        502,
+        "Apply step extraction did not return a row.",
+        "apply_step_extract_failed"
+      );
     }
 
     await this.auditExtension(context, "apply_assistant.step.extracted", session.id, {
@@ -1611,7 +1619,7 @@ export function richTextFromJobDescription(
         normalizeForMatch(line) === normalizeForMatch(extractedJob.location ?? ""));
     content.push(
       (isTitleOrLocation && !structuredLine.explicitHeading) ||
-      (!structuredLine.explicitHeading && !isJobDescriptionHeading(line))
+        (!structuredLine.explicitHeading && !isJobDescriptionHeading(line))
         ? textBlock("paragraph", line, undefined, inlineRichText(line))
         : textBlock("heading", line, { level: 3 }, inlineRichText(line))
     );
@@ -1741,9 +1749,7 @@ function sourceJobDescription(snapshot: PageSnapshot, extractedJob: ExtractedJob
     const description = plainTextFromHtml(sourceMarkup.html);
     if (description.length >= 50) {
       return [
-        ...(sourceMarkup.includesHeader
-          ? [extractedJob.jobTitle, extractedJob.location]
-          : []),
+        ...(sourceMarkup.includesHeader ? [extractedJob.jobTitle, extractedJob.location] : []),
         description
       ]
         .filter((value): value is string => Boolean(value?.trim()))
@@ -2163,10 +2169,7 @@ function fieldMatchText(field: ElementSnapshot): string {
 
 function isResumeUploadField(field: ElementSnapshot): boolean {
   const text = fieldMatchText(field);
-  return (
-    /\b(resume|curriculum vitae|cv)\b/.test(text) &&
-    !/\bcover letter\b/.test(text)
-  );
+  return /\b(resume|curriculum vitae|cv)\b/.test(text) && !/\bcover letter\b/.test(text);
 }
 
 function stringValue(value: unknown): string | undefined {
