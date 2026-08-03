@@ -1,3 +1,4 @@
+import type { RichTextDocument, RichTextNode } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
@@ -50,6 +51,8 @@ import type {
   AiFieldMapDraft,
   ApplyAssistantExtractionProvider,
   ApplyAssistantFieldMapProvider,
+  ApplyAssistantPageAnalysis,
+  ApplyAssistantPageAnalysisProviderInput,
   ApplyAssistantResumeProvider
 } from "./apply-assistant-ai";
 
@@ -64,7 +67,8 @@ export type ExtensionContext = {
 
 export type ApplyAssistantServiceOptions = {
   extractionProvider?: ApplyAssistantExtractionProvider | null;
-  fieldMapProvider?: ApplyAssistantFieldMapProvider | null;
+  fieldAutofillProvider?: ApplyAssistantFieldMapProvider | null;
+  fieldExtractionProvider?: ApplyAssistantFieldMapProvider | null;
   resumeProvider?: ApplyAssistantResumeProvider | null;
 };
 
@@ -77,11 +81,17 @@ type ProfileFieldSource = Exclude<
   | "user.review"
 >;
 
+type InitialPageAnalysis = {
+  extractedJob: ExtractedJob;
+  fieldMap: FieldMap | null;
+};
+
 export class ApplyAssistantService {
   private readonly access: TrackingAccessService;
   private readonly records = new TrackingRecordMapper();
   private readonly extractionProvider: ApplyAssistantExtractionProvider | null;
-  private readonly fieldMapProvider: ApplyAssistantFieldMapProvider | null;
+  private readonly fieldAutofillProvider: ApplyAssistantFieldMapProvider | null;
+  private readonly fieldExtractionProvider: ApplyAssistantFieldMapProvider | null;
   private readonly resumeProvider: ApplyAssistantResumeProvider | null;
 
   constructor(
@@ -91,7 +101,8 @@ export class ApplyAssistantService {
   ) {
     this.access = new TrackingAccessService(supabase);
     this.extractionProvider = options.extractionProvider ?? null;
-    this.fieldMapProvider = options.fieldMapProvider ?? null;
+    this.fieldAutofillProvider = options.fieldAutofillProvider ?? null;
+    this.fieldExtractionProvider = options.fieldExtractionProvider ?? null;
     this.resumeProvider = options.resumeProvider ?? null;
   }
 
@@ -440,7 +451,11 @@ export class ApplyAssistantService {
       await this.access.requireMarket(context.workspace.id, jobMarketId);
     }
 
-    const extractedJob = await this.extractJob(input.pageSnapshot);
+    const profile =
+      profileId && this.extractionProvider && supportsPageAnalysis(this.extractionProvider)
+        ? await this.profileById(context.workspace.id, profileId)
+        : null;
+    const initialAnalysis = await this.extractInitialPageAnalysis(input.pageSnapshot, profile);
     const id = crypto.randomUUID();
     const [session] = await this.supabase.insert<ApplyAssistantSessionRow>(
       "apply_assistant_sessions",
@@ -455,8 +470,9 @@ export class ApplyAssistantService {
           page_origin: input.pageSnapshot.pageOrigin,
           page_title: input.pageSnapshot.pageTitle,
           page_snapshot: input.pageSnapshot,
-          extracted_job: extractedJob,
-          field_map: null,
+          step_snapshots: [input.pageSnapshot],
+          extracted_job: initialAnalysis.extractedJob,
+          field_map: initialAnalysis.fieldMap,
           resume_versions: [],
           status: "draft"
         }
@@ -474,10 +490,55 @@ export class ApplyAssistantService {
     await this.auditExtension(context, "apply_assistant.session.created", session.id, {
       pageUrl: session.page_url,
       profileId: session.profile_id,
-      jobMarketId: session.job_market_id
+      jobMarketId: session.job_market_id,
+      initialMappedFieldCount: session.field_map?.fields.length ?? 0
     });
 
     return sessionResponse(session);
+  }
+
+  async extractStep(
+    context: ExtensionContext,
+    sessionId: string,
+    input: ApplyAssistantFieldMapInput
+  ): Promise<FieldMap> {
+    const session = await this.requireOwnedSession(context, sessionId);
+    const profile = session.profile_id
+      ? await this.profileById(context.workspace.id, session.profile_id)
+      : null;
+    const extractionDraft = await this.createFieldExtractionDraft(
+      input.pageSnapshot,
+      profile,
+      session.extracted_job
+    );
+    const fieldMap = fieldMapFromAiDraft(extractionDraft, input.pageSnapshot, null);
+    const stepSnapshots = appendStepSnapshot(session.step_snapshots, session.page_snapshot, input.pageSnapshot);
+    const now = new Date().toISOString();
+    const [updated] = await this.supabase.update<ApplyAssistantSessionRow>(
+      "apply_assistant_sessions",
+      {
+        page_snapshot: input.pageSnapshot,
+        step_snapshots: stepSnapshots,
+        field_map: fieldMap,
+        status: "reviewing",
+        updated_at: now
+      },
+      {
+        id: `eq.${session.id}`,
+        workspace_id: `eq.${context.workspace.id}`,
+        member_id: `eq.${context.member.id}`
+      }
+    );
+    if (!updated) {
+      throw apiError(502, "Apply step extraction did not return a row.", "apply_step_extract_failed");
+    }
+
+    await this.auditExtension(context, "apply_assistant.step.extracted", session.id, {
+      stepNumber: stepSnapshots.length,
+      pageUrl: input.pageSnapshot.pageUrl,
+      extractedFieldCount: fieldMap.fields.length
+    });
+    return fieldMapSchema.parse(fieldMap);
   }
 
   async requestFieldMap(
@@ -489,12 +550,12 @@ export class ApplyAssistantService {
     const profile = session.profile_id
       ? await this.profileById(context.workspace.id, session.profile_id)
       : null;
-    const deterministicFieldMap = createConservativeFieldMap(input.pageSnapshot, profile);
-    const fieldMap = await this.enhanceFieldMap(
+    const fieldMap = await this.createAiFieldMap(
       input.pageSnapshot,
       profile,
       session.extracted_job,
-      deterministicFieldMap
+      reusableFieldMap(session.field_map, input.pageSnapshot),
+      session.resume_versions.at(-1)
     );
     const now = new Date().toISOString();
     const [updated] = await this.supabase.update<ApplyAssistantSessionRow>(
@@ -528,33 +589,51 @@ export class ApplyAssistantService {
     return fieldMapSchema.parse(fieldMap);
   }
 
-  private async enhanceFieldMap(
+  private async createAiFieldMap(
     snapshot: PageSnapshot,
     profile: TrackingProfileRow | null,
     extractedJob: ExtractedJob | null,
-    deterministicFieldMap: FieldMap
+    initialFieldMap: FieldMap | null = null,
+    generatedResume?: GeneratedResume
   ): Promise<FieldMap> {
-    if (!this.fieldMapProvider) {
-      return deterministicFieldMap;
+    if (!initialFieldMap && !this.fieldExtractionProvider) {
+      throw apiError(
+        501,
+        "AI field extraction provider is not configured.",
+        "field_extraction_provider_required"
+      );
     }
 
+    if (!this.fieldAutofillProvider) {
+      throw apiError(
+        501,
+        "AI field autofill provider is not configured.",
+        "field_autofill_provider_required"
+      );
+    }
+
+    const extractionDraft = initialFieldMap
+      ? fieldMapToAiDraft(initialFieldMap)
+      : await this.createFieldExtractionDraft(snapshot, profile, extractedJob);
+
     try {
-      const draft = await this.fieldMapProvider.createFieldMap({
+      const autofillDraft = await this.fieldAutofillProvider.createFieldMap({
         snapshot,
         profile,
         extractedJob,
-        deterministicFieldMap
+        generatedResume,
+        fieldExtractionDraft: extractionDraft
       });
-      const aiFieldMap = fieldMapFromAiDraft(draft, snapshot, profile);
-      return mergeFieldMaps(deterministicFieldMap, aiFieldMap);
+      return mergeAiFieldMaps(
+        fieldMapFromAiDraft(extractionDraft, snapshot, null),
+        fieldMapFromAiDraft(autofillDraft, snapshot, profile)
+      );
     } catch (error) {
-      return fieldMapSchema.parse({
-        ...deterministicFieldMap,
-        warnings: appendWarning(
-          deterministicFieldMap.warnings,
-          `AI field analysis failed: ${errorMessage(error)}. Used deterministic mapping.`
-        )
-      });
+      throw apiError(
+        502,
+        `AI field autofill failed: ${errorMessage(error)}`,
+        "field_autofill_provider_failed"
+      );
     }
   }
 
@@ -623,10 +702,26 @@ export class ApplyAssistantService {
 
     const extractedJob = requireSessionExtractedJob(session);
     const selectedResume = selectedResumeVersion(session.resume_versions, input.resumeVersionId);
+    const reviewedFieldMap = input.fieldMap ?? session.field_map;
     const existingBid = await this.existingBidForSession(context, session);
     const bid = existingBid
-      ? await this.updateCommittedBid(context, existingBid, jobMarketId, extractedJob)
-      : await this.createCommittedBid(context, session, jobMarketId, extractedJob);
+      ? await this.updateCommittedBid(
+          context,
+          existingBid,
+          jobMarketId,
+          extractedJob,
+          session,
+          selectedResume,
+          reviewedFieldMap
+        )
+      : await this.createCommittedBid(
+          context,
+          session,
+          jobMarketId,
+          extractedJob,
+          selectedResume,
+          reviewedFieldMap
+        );
     await this.upsertCommittedBidProfile(context, bid.id, profileId, selectedResume);
 
     const now = new Date().toISOString();
@@ -634,6 +729,7 @@ export class ApplyAssistantService {
       "apply_assistant_sessions",
       {
         status: "committed",
+        field_map: reviewedFieldMap,
         updated_at: now
       },
       {
@@ -661,22 +757,68 @@ export class ApplyAssistantService {
     });
   }
 
-  private async extractJob(snapshot: PageSnapshot): Promise<ExtractedJob> {
-    const deterministic = extractJob(snapshot);
+  private async extractInitialPageAnalysis(
+    snapshot: PageSnapshot,
+    profile: TrackingProfileRow | null
+  ): Promise<InitialPageAnalysis> {
     if (!this.extractionProvider) {
-      return deterministic;
+      throw apiError(
+        501,
+        "AI job extraction provider is not configured.",
+        "extraction_provider_required"
+      );
     }
 
     try {
-      return await this.extractionProvider.extractJob({ snapshot });
+      if (supportsPageAnalysis(this.extractionProvider)) {
+        const analysis = await this.extractionProvider.analyzePage({ snapshot, profile });
+        return {
+          extractedJob: preserveSourceJobDescription(analysis.extractedJob, snapshot),
+          fieldMap: fieldMapFromAiDraft(analysis.fieldExtractionDraft, snapshot, null)
+        };
+      }
+
+      return {
+        extractedJob: preserveSourceJobDescription(
+          await this.extractionProvider.extractJob({ snapshot }),
+          snapshot
+        ),
+        fieldMap: null
+      };
     } catch (error) {
-      return extractedJobSchema.parse({
-        ...deterministic,
-        warnings: appendWarning(
-          deterministic.warnings,
-          `AI job extraction failed: ${errorMessage(error)}. Used deterministic extraction.`
-        )
+      throw apiError(
+        502,
+        `AI job extraction failed: ${errorMessage(error)}`,
+        "extraction_provider_failed"
+      );
+    }
+  }
+
+  private async createFieldExtractionDraft(
+    snapshot: PageSnapshot,
+    profile: TrackingProfileRow | null,
+    extractedJob: ExtractedJob | null
+  ): Promise<AiFieldMapDraft> {
+    if (!this.fieldExtractionProvider) {
+      throw apiError(
+        501,
+        "AI field extraction provider is not configured.",
+        "field_extraction_provider_required"
+      );
+    }
+
+    try {
+      return await this.fieldExtractionProvider.createFieldMap({
+        snapshot,
+        profile,
+        extractedJob
       });
+    } catch (error) {
+      throw apiError(
+        502,
+        `AI field extraction failed: ${errorMessage(error)}`,
+        "field_extraction_provider_failed"
+      );
     }
   }
 
@@ -806,7 +948,7 @@ export class ApplyAssistantService {
   ): Promise<BidRecordRow | null> {
     const [existing] = await this.supabase.select<BidRecordRow>(
       "bid_records",
-      "id,workspace_id,job_market_id,job_title,company,job_link,bid_at,job_description,created_by_member_id,created_at,updated_at,deleted_at",
+      "id,workspace_id,job_market_id,job_title,company,job_link,bid_at,job_description,application_metadata,created_by_member_id,created_at,updated_at,deleted_at",
       {
         workspace_id: `eq.${context.workspace.id}`,
         created_by_member_id: `eq.${context.member.id}`,
@@ -823,7 +965,9 @@ export class ApplyAssistantService {
     context: ExtensionContext,
     session: ApplyAssistantSessionRow,
     jobMarketId: string,
-    extractedJob: ExtractedJob
+    extractedJob: ExtractedJob,
+    resume: GeneratedResume | null,
+    fieldMap: FieldMap | null
   ): Promise<BidRecordRow> {
     const [bid] = await this.supabase.insert<BidRecordRow>("bid_records", [
       {
@@ -834,7 +978,11 @@ export class ApplyAssistantService {
         company: extractedJob.company,
         job_link: session.page_url,
         bid_at: new Date().toISOString(),
-        job_description: richTextFromPlainText(extractedJob.jobDescriptionText),
+        job_description: richTextFromJobDescription(
+          extractedJob,
+          sourceJobDescriptionRichHtml(jobDescriptionSnapshot(session), extractedJob)
+        ),
+        application_metadata: bidApplicationMetadata(session, extractedJob, resume, fieldMap),
         created_by_member_id: context.member.id
       }
     ]);
@@ -849,7 +997,10 @@ export class ApplyAssistantService {
     context: ExtensionContext,
     existingBid: BidRecordRow,
     jobMarketId: string,
-    extractedJob: ExtractedJob
+    extractedJob: ExtractedJob,
+    session: ApplyAssistantSessionRow,
+    resume: GeneratedResume | null,
+    fieldMap: FieldMap | null
   ): Promise<BidRecordRow> {
     const [updated] = await this.supabase.update<BidRecordRow>(
       "bid_records",
@@ -857,7 +1008,11 @@ export class ApplyAssistantService {
         job_market_id: jobMarketId,
         job_title: extractedJob.jobTitle,
         company: extractedJob.company,
-        job_description: richTextFromPlainText(extractedJob.jobDescriptionText),
+        job_description: richTextFromJobDescription(
+          extractedJob,
+          sourceJobDescriptionRichHtml(jobDescriptionSnapshot(session), extractedJob)
+        ),
+        application_metadata: bidApplicationMetadata(session, extractedJob, resume, fieldMap),
         updated_at: new Date().toISOString()
       },
       {
@@ -882,18 +1037,21 @@ export class ApplyAssistantService {
   ): Promise<void> {
     const [existing] = await this.supabase.select<BidRecordProfileRow>(
       "bid_record_profiles",
-      "workspace_id,bid_id,profile_id,resume,created_at",
+      "workspace_id,bid_id,profile_id,resume,resume_html,created_at",
       {
         workspace_id: `eq.${context.workspace.id}`,
         bid_id: `eq.${bidId}`,
         profile_id: `eq.${profileId}`
       }
     );
-    const resumeText = resume?.resumeText ?? null;
+    // The existing bid editor reads `resume`. Keep the complete HTML there as well
+    // as in the typed `resume_html` column so Apply Assistant records remain fully
+    // editable through the same UI as manually-created bid records.
+    const resumeHtml = resume?.resumeHtml ?? null;
     if (existing) {
       await this.supabase.update(
         "bid_record_profiles",
-        { resume: resumeText },
+        { resume: resumeHtml, resume_html: resumeHtml },
         {
           workspace_id: `eq.${context.workspace.id}`,
           bid_id: `eq.${bidId}`,
@@ -908,7 +1066,8 @@ export class ApplyAssistantService {
         workspace_id: context.workspace.id,
         bid_id: bidId,
         profile_id: profileId,
-        resume: resumeText
+        resume: resumeHtml,
+        resume_html: resumeHtml
       }
     ]);
   }
@@ -1025,6 +1184,63 @@ export class ApplyAssistantService {
   }
 }
 
+function bidApplicationMetadata(
+  session: ApplyAssistantSessionRow,
+  extractedJob: ExtractedJob,
+  resume: GeneratedResume | null,
+  fieldMap: FieldMap | null
+): Record<string, unknown> {
+  return {
+    source: "apply-assistant",
+    capturedAt: new Date().toISOString(),
+    page: {
+      url: session.page_url,
+      origin: session.page_origin,
+      title: session.page_title
+    },
+    pageSnapshot: session.page_snapshot,
+    pageSnapshots: session.step_snapshots ?? (session.page_snapshot ? [session.page_snapshot] : []),
+    extractedJob,
+    fieldMap,
+    selectedResume: resume
+      ? {
+          id: resume.id,
+          resumeText: resume.resumeText,
+          resumeHtml: resume.resumeHtml,
+          changes: resume.changes,
+          missingEvidence: resume.missingEvidence,
+          warnings: resume.warnings,
+          quality: resume.quality
+        }
+      : null
+  };
+}
+
+function appendStepSnapshot(
+  stored: PageSnapshot[] | undefined,
+  current: PageSnapshot | null,
+  next: PageSnapshot
+): PageSnapshot[] {
+  const snapshots = stored?.length ? [...stored] : current ? [current] : [];
+  const previous = snapshots.at(-1);
+  if (previous?.capturedAt === next.capturedAt) {
+    snapshots[snapshots.length - 1] = next;
+  } else {
+    snapshots.push(next);
+  }
+  return snapshots.slice(-50);
+}
+
+function jobDescriptionSnapshot(session: ApplyAssistantSessionRow): PageSnapshot | null {
+  return (
+    session.step_snapshots?.find(
+      (snapshot) =>
+        Boolean(snapshot.jobContentHtml) ||
+        snapshot.jsonLdJobPostings.some((posting) => typeof posting.description === "string")
+    ) ?? session.page_snapshot
+  );
+}
+
 function sessionResponse(session: ApplyAssistantSessionRow) {
   return applySessionResponseSchema.parse({
     id: session.id,
@@ -1034,6 +1250,48 @@ function sessionResponse(session: ApplyAssistantSessionRow) {
     fieldMap: session.field_map ?? undefined,
     resumeVersions: session.resume_versions ?? []
   });
+}
+
+function supportsPageAnalysis(
+  provider: ApplyAssistantExtractionProvider
+): provider is ApplyAssistantExtractionProvider & {
+  analyzePage(input: ApplyAssistantPageAnalysisProviderInput): Promise<ApplyAssistantPageAnalysis>;
+} {
+  return typeof provider.analyzePage === "function";
+}
+
+function reusableFieldMap(fieldMap: FieldMap | null, snapshot: PageSnapshot): FieldMap | null {
+  if (!fieldMap) {
+    return null;
+  }
+
+  const fieldRefs = new Set(snapshot.fields.map((field) => field.ref));
+  const buttonRefs = new Set(snapshot.buttons.map((button) => button.ref));
+  const hasFieldOverlap = fieldMap.fields.some((field) => fieldRefs.has(field.elementRef));
+  const hasActionOverlap =
+    Boolean(fieldMap.actions.nextButtonRef && buttonRefs.has(fieldMap.actions.nextButtonRef)) ||
+    Boolean(fieldMap.actions.submitButtonRef && buttonRefs.has(fieldMap.actions.submitButtonRef));
+
+  return hasFieldOverlap || hasActionOverlap ? fieldMap : null;
+}
+
+function fieldMapToAiDraft(fieldMap: FieldMap): AiFieldMapDraft {
+  return {
+    fields: fieldMap.fields.map((field) => ({
+      elementRef: field.elementRef,
+      valueSource: field.valueSource,
+      value: field.value,
+      confidence: field.confidence,
+      requiresUserReview: field.requiresUserReview
+    })),
+    actions: {
+      ...(fieldMap.actions.nextButtonRef ? { nextButtonRef: fieldMap.actions.nextButtonRef } : {}),
+      ...(fieldMap.actions.submitButtonRef
+        ? { submitButtonRef: fieldMap.actions.submitButtonRef }
+        : {})
+    },
+    warnings: fieldMap.warnings
+  };
 }
 
 function profileSummary(profile: TrackingProfileRow) {
@@ -1179,15 +1437,38 @@ function deterministicResume(
 function sanitizeGeneratedResume(resume: GeneratedResume): GeneratedResume {
   return generatedResumeSchema.parse({
     ...resume,
-    resumeHtml: sanitizeResumeHtml(resume.resumeHtml),
-    resumeText: compactWhitespace(resume.resumeText),
+    resumeHtml: formatResumeDates(sanitizeResumeHtml(resume.resumeHtml)),
+    resumeText: formatResumeDates(compactWhitespace(resume.resumeText)),
     changes: uniqueWarnings(resume.changes),
     missingEvidence: uniqueWarnings(resume.missingEvidence),
     warnings: uniqueWarnings(resume.warnings)
   });
 }
 
-function sanitizeResumeHtml(value: string): string {
+export function formatResumeDates(value: string): string {
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ];
+  return value.replace(
+    /\b(\d{4})-(0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\d|3[01]))?\b/g,
+    (_match, year, month) => {
+      return `${months[Number(month) - 1]} ${year}`;
+    }
+  );
+}
+
+export function sanitizeResumeHtml(value: string): string {
   const withoutBlockedBlocks = value.replace(
     /<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|link|img)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
     ""
@@ -1198,28 +1479,370 @@ function sanitizeResumeHtml(value: string): string {
       ""
     )
     .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-    .replace(/\s+(href|src|srcdoc|style)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(
+      /\s+style\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+      (_match, _quotedValue, doubleQuoted, singleQuoted, bareValue) => {
+        const style = sanitizeInlineStyle(doubleQuoted ?? singleQuoted ?? bareValue ?? "");
+        return style ? ` style="${escapeHtmlAttribute(style)}"` : "";
+      }
+    )
+    .replace(/\s+(href|src|srcdoc)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
     .trim();
 }
 
-function richTextFromPlainText(text: string) {
+const allowedResumeStyleProperties = new Set([
+  "background-color",
+  "border",
+  "border-bottom",
+  "border-color",
+  "border-left",
+  "border-radius",
+  "border-right",
+  "border-style",
+  "border-top",
+  "border-width",
+  "color",
+  "display",
+  "flex",
+  "flex-basis",
+  "flex-direction",
+  "flex-grow",
+  "flex-shrink",
+  "flex-wrap",
+  "font-family",
+  "font-size",
+  "font-style",
+  "font-weight",
+  "gap",
+  "grid-template-columns",
+  "justify-content",
+  "letter-spacing",
+  "line-height",
+  "margin",
+  "margin-bottom",
+  "margin-left",
+  "margin-right",
+  "margin-top",
+  "max-width",
+  "min-width",
+  "padding",
+  "padding-bottom",
+  "padding-left",
+  "padding-right",
+  "padding-top",
+  "text-align",
+  "text-decoration",
+  "text-transform",
+  "vertical-align",
+  "white-space",
+  "width"
+]);
+
+function sanitizeInlineStyle(value: string): string {
+  return value
+    .split(";")
+    .flatMap((declaration) => {
+      const separatorIndex = declaration.indexOf(":");
+      if (separatorIndex < 1) {
+        return [];
+      }
+      const property = declaration.slice(0, separatorIndex).trim().toLowerCase();
+      const propertyValue = declaration.slice(separatorIndex + 1).trim();
+      if (
+        !allowedResumeStyleProperties.has(property) ||
+        !propertyValue ||
+        /url\s*\(|expression\s*\(|@import|javascript:|data:/i.test(propertyValue)
+      ) {
+        return [];
+      }
+      return [`${property}: ${propertyValue}`];
+    })
+    .join("; ");
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+export function richTextFromJobDescription(
+  extractedJob: ExtractedJob,
+  sourceHtml?: string
+): RichTextDocument {
+  const lines = sourceHtml
+    ? structuredJobDescriptionLines(sourceHtml)
+    : extractedJob.jobDescriptionText
+        .split(/\r?\n/)
+        .map((line) => compactWhitespace(line))
+        .filter(Boolean)
+        .slice(0, 1000)
+        .map((line) => ({ line, explicitHeading: false, explicitBullet: false }));
+  const content: RichTextNode[] = [];
+  let bulletItems: RichTextNode[] = [];
+
+  const flushBullets = () => {
+    if (!bulletItems.length) {
+      return;
+    }
+    content.push({ type: "bulletList", content: bulletItems });
+    bulletItems = [];
+  };
+
+  for (const [index, structuredLine] of lines.entries()) {
+    const line = structuredLine.line;
+    const bullet = structuredLine.explicitBullet
+      ? line
+      : line.match(/^(?:[•*-]|\d+[.)])\s+(.+)$/)?.[1];
+    if (bullet) {
+      bulletItems.push({
+        type: "listItem",
+        content: [textBlock("paragraph", bullet, undefined, inlineRichText(bullet))]
+      });
+      continue;
+    }
+
+    flushBullets();
+    const isTitleOrLocation =
+      index < 2 &&
+      (normalizeForMatch(line) === normalizeForMatch(extractedJob.jobTitle) ||
+        normalizeForMatch(line) === normalizeForMatch(extractedJob.location ?? ""));
+    content.push(
+      (isTitleOrLocation && !structuredLine.explicitHeading) ||
+      (!structuredLine.explicitHeading && !isJobDescriptionHeading(line))
+        ? textBlock("paragraph", line, undefined, inlineRichText(line))
+        : textBlock("heading", line, { level: 3 }, inlineRichText(line))
+    );
+  }
+  flushBullets();
+
   return {
     type: "doc",
-    content: compactWhitespace(text)
-      .split(/\n{2,}|(?<=\.)\s+(?=[A-Z])/)
-      .map((paragraph) => compactWhitespace(paragraph))
-      .filter(Boolean)
-      .slice(0, 80)
-      .map((paragraph) => ({
-        type: "paragraph",
-        content: [
-          {
-            type: "text",
-            text: paragraph
-          }
-        ]
-      }))
+    content
   };
+}
+
+function textBlock(
+  type: "paragraph" | "heading",
+  text: string,
+  attrs?: { level: 2 | 3 },
+  content: RichTextNode[] = [{ type: "text", text }]
+): RichTextNode {
+  return {
+    type,
+    ...(attrs ? { attrs } : {}),
+    content
+  };
+}
+
+const boldStart = "\ue000";
+const boldEnd = "\ue001";
+const italicStart = "\ue002";
+const italicEnd = "\ue003";
+const headingStart = "\ue010";
+const bulletStart = "\ue011";
+
+function structuredJobDescriptionLines(html: string): Array<{
+  line: string;
+  explicitHeading: boolean;
+  explicitBullet: boolean;
+}> {
+  const marked = decodeHtmlEntities(
+    html
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(
+        /<\s*(script|style|noscript|iframe|object|embed|form|button)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
+        ""
+      )
+      .replace(/<\s*(?:strong|b)\b[^>]*>/gi, boldStart)
+      .replace(/<\s*\/\s*(?:strong|b)\s*>/gi, boldEnd)
+      .replace(/<\s*(?:em|i)\b[^>]*>/gi, italicStart)
+      .replace(/<\s*\/\s*(?:em|i)\s*>/gi, italicEnd)
+      .replace(/<\s*h[1-6]\b[^>]*>/gi, `\n${headingStart}`)
+      .replace(/<\s*\/\s*h[1-6]\s*>/gi, "\n")
+      .replace(/<\s*li\b[^>]*>/gi, `\n${bulletStart}`)
+      .replace(/<\s*\/\s*li\s*>/gi, "\n")
+      .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+      .replace(/<\s*\/?\s*(?:p|div|section|article|ul|ol|dl|dt|dd|tr)\b[^>]*>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+  );
+
+  return marked
+    .split(/\r?\n/)
+    .map((rawLine) => {
+      const explicitHeading = rawLine.includes(headingStart);
+      const explicitBullet = rawLine.includes(bulletStart);
+      const line = compactWhitespace(
+        rawLine.replaceAll(headingStart, "").replaceAll(bulletStart, "")
+      );
+      return { line, explicitHeading, explicitBullet };
+    })
+    .filter((item) => Boolean(plainStyledText(item.line)))
+    .slice(0, 1000);
+}
+
+function inlineRichText(value: string): RichTextNode[] {
+  const nodes: RichTextNode[] = [];
+  let bold = false;
+  let italic = false;
+  for (const token of value.split(/([\ue000-\ue003])/)) {
+    if (token === boldStart) {
+      bold = true;
+    } else if (token === boldEnd) {
+      bold = false;
+    } else if (token === italicStart) {
+      italic = true;
+    } else if (token === italicEnd) {
+      italic = false;
+    } else if (token) {
+      const marks: Array<{ type: "bold" | "italic" }> = [];
+      if (bold) marks.push({ type: "bold" });
+      if (italic) marks.push({ type: "italic" });
+      nodes.push({ type: "text", text: token, ...(marks.length ? { marks } : {}) });
+    }
+  }
+  return nodes;
+}
+
+function plainStyledText(value: string): string {
+  return value.replace(/[\ue000-\ue003]/g, "").trim();
+}
+
+function isJobDescriptionHeading(line: string): boolean {
+  const normalized = plainStyledText(line).replace(/:$/, "").trim();
+  if (normalized.length > 100 || /[.!?]$/.test(normalized)) {
+    return false;
+  }
+  return /^(?:about(?:\s+the)?\s+(?:company|team|role|job|position|opportunity|us|[\w&.' -]+)|responsibilities|what you(?:'|’)ll do|the role|qualifications|requirements|what we(?:'|’)re looking for|preferred qualifications|nice to have|skills|benefits|compensation|salary|pay range|location|equal opportunity|why join us)$/i.test(
+    normalized
+  );
+}
+
+function preserveSourceJobDescription(
+  extractedJob: ExtractedJob,
+  snapshot: PageSnapshot
+): ExtractedJob {
+  const sourceDescription = sourceJobDescription(snapshot, extractedJob);
+  if (sourceDescription.length < 50) {
+    return extractedJob;
+  }
+
+  return extractedJobSchema.parse({
+    ...extractedJob,
+    jobDescriptionText: sourceDescription.slice(0, 50000)
+  });
+}
+
+function sourceJobDescription(snapshot: PageSnapshot, extractedJob: ExtractedJob): string {
+  const sourceMarkup = sourceJobDescriptionMarkup(snapshot);
+  if (sourceMarkup) {
+    const description = plainTextFromHtml(sourceMarkup.html);
+    if (description.length >= 50) {
+      return [
+        ...(sourceMarkup.includesHeader
+          ? [extractedJob.jobTitle, extractedJob.location]
+          : []),
+        description
+      ]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join("\n\n")
+        .slice(0, 50000);
+    }
+  }
+
+  const visibleText = trimApplicationForm(snapshot.visibleText);
+  return visibleText.length >= 50 ? visibleText : extractedJob.jobDescriptionText;
+}
+
+function sourceJobDescriptionMarkup(
+  snapshot: PageSnapshot
+): { html: string; includesHeader: boolean } | null {
+  if (snapshot.jobContentHtml?.trim()) {
+    return { html: snapshot.jobContentHtml, includesHeader: false };
+  }
+  const posting = snapshot.jsonLdJobPostings.find(
+    (value) => typeof value.description === "string" && value.description.trim().length >= 50
+  );
+  return posting && typeof posting.description === "string"
+    ? { html: posting.description, includesHeader: true }
+    : null;
+}
+
+function sourceJobDescriptionRichHtml(
+  snapshot: PageSnapshot | null,
+  extractedJob: ExtractedJob
+): string | undefined {
+  if (!snapshot) {
+    return undefined;
+  }
+  const source = sourceJobDescriptionMarkup(snapshot);
+  if (!source) {
+    return undefined;
+  }
+  if (!source.includesHeader) {
+    return source.html;
+  }
+  const header = [extractedJob.jobTitle, extractedJob.location]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => `<p>${escapeHtml(value)}</p>`)
+    .join("");
+  return `${header}${source.html}`;
+}
+
+function trimApplicationForm(text: string): string {
+  const markers = [
+    /\bapply for this job\b/i,
+    /\bsubmit (?:your )?application\b/i,
+    /\bjob application\b/i
+  ];
+  const boundary = markers
+    .map((marker) => text.search(marker))
+    .filter((index) => index >= 300)
+    .sort((left, right) => left - right)[0];
+  return (boundary === undefined ? text : text.slice(0, boundary)).trim().slice(0, 50000);
+}
+
+function plainTextFromHtml(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<\s*br\s*\/?\s*>/gi, "\n")
+      .replace(/<\s*li\b[^>]*>/gi, "\n• ")
+      .replace(/<\/(?:p|div|section|article|h[1-6]|li|ul|ol)>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function decodeHtmlEntities(value: string): string {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"'
+  };
+  return value.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, token: string) => {
+    if (token.startsWith("#x")) {
+      return safeCodePoint(token.slice(2), 16, entity);
+    }
+    if (token.startsWith("#")) {
+      return safeCodePoint(token.slice(1), 10, entity);
+    }
+    return namedEntities[token.toLowerCase()] ?? entity;
+  });
+}
+
+function safeCodePoint(value: string, radix: number, fallback: string): string {
+  const codePoint = Number.parseInt(value, radix);
+  return Number.isInteger(codePoint) && codePoint >= 0 && codePoint <= 0x10ffff
+    ? String.fromCodePoint(codePoint)
+    : fallback;
 }
 
 function profileCareerText(value: unknown): string {
@@ -1234,195 +1857,16 @@ function profileCareerText(value: unknown): string {
       }
       return [
         stringValue(item.companyName),
+        stringValue(item.jobTitle),
         stringValue(item.companyLocation),
-        [stringValue(item.dateFrom), stringValue(item.dateTo)].filter(Boolean).join(" - ")
+        [stringValue(item.dateFrom), stringValue(item.dateTo)].filter(Boolean).join(" - "),
+        stringValue(item.description)
       ]
         .filter(Boolean)
         .join(", ");
     })
     .filter(Boolean)
     .join("\n");
-}
-
-function extractJob(snapshot: PageSnapshot): ExtractedJob {
-  const text = compactWhitespace(snapshot.visibleText);
-  if (text.length < 50) {
-    throw apiError(
-      400,
-      "The active page does not include enough visible job text to create an apply session.",
-      "job_text_too_short"
-    );
-  }
-
-  const jobPosting = firstJobPosting(snapshot);
-  const title = stringValue(jobPosting?.title) ?? titleFromPageTitle(snapshot.pageTitle);
-  const company =
-    stringValue(recordValue(jobPosting?.hiringOrganization, "name")) ??
-    companyFromPageTitle(snapshot.pageTitle);
-  const warnings: string[] = [];
-  if (!title) {
-    warnings.push("Job title was inferred from the page text and needs review.");
-  }
-  if (!company) {
-    warnings.push("Company name was inferred from the page text and needs review.");
-  }
-
-  const extracted = {
-    jobTitle: title ?? "Unknown role",
-    company: company ?? "Unknown company",
-    location: jobLocation(jobPosting),
-    employmentType: employmentType(jobPosting),
-    requirements: matchingSentences(text, /(require|qualification|must|experience|skill)/i),
-    responsibilities: matchingSentences(text, /(responsibil|what you.?ll do|you will|build|own)/i),
-    skills: detectedSkills(text),
-    jobDescriptionText: text,
-    confidence: extractionConfidence(Boolean(jobPosting), Boolean(title), Boolean(company), text),
-    warnings
-  };
-
-  return extractedJobSchema.parse(extracted);
-}
-
-function firstJobPosting(snapshot: PageSnapshot): Record<string, unknown> | null {
-  for (const item of snapshot.jsonLdJobPostings) {
-    const type = item["@type"];
-    if (
-      type === "JobPosting" ||
-      (Array.isArray(type) && type.includes("JobPosting")) ||
-      stringValue(item.title)
-    ) {
-      return item;
-    }
-  }
-
-  return null;
-}
-
-function titleFromPageTitle(pageTitle: string): string | undefined {
-  const [first] = pageTitle.split(/\s[-|]\s/);
-  return cleanText(first);
-}
-
-function companyFromPageTitle(pageTitle: string): string | undefined {
-  const parts = pageTitle
-    .split(/\s[-|]\s/)
-    .map(cleanText)
-    .filter(Boolean);
-  return parts.length > 1 ? parts.at(-1) : undefined;
-}
-
-function jobLocation(jobPosting: Record<string, unknown> | null): string | undefined {
-  const location = jobPosting?.jobLocation;
-  if (typeof location === "string") {
-    return cleanText(location);
-  }
-  if (Array.isArray(location)) {
-    return cleanText(location.map(locationText).filter(Boolean).join(", "));
-  }
-
-  return locationText(location);
-}
-
-function locationText(value: unknown): string | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const address = recordValue(value, "address");
-  if (typeof address === "string") {
-    return cleanText(address);
-  }
-  if (isRecord(address)) {
-    return cleanText(
-      [
-        stringValue(address.addressLocality),
-        stringValue(address.addressRegion),
-        stringValue(address.addressCountry)
-      ]
-        .filter(Boolean)
-        .join(", ")
-    );
-  }
-
-  return stringValue(value.name);
-}
-
-function employmentType(jobPosting: Record<string, unknown> | null): string | undefined {
-  const value = jobPosting?.employmentType;
-  if (Array.isArray(value)) {
-    return cleanText(value.map(stringValue).filter(Boolean).join(", "));
-  }
-
-  return stringValue(value);
-}
-
-function matchingSentences(text: string, pattern: RegExp): string[] {
-  return text
-    .split(/[.!?]\s+/)
-    .map(cleanText)
-    .filter((sentence): sentence is string => Boolean(sentence && pattern.test(sentence)))
-    .slice(0, 8);
-}
-
-function detectedSkills(text: string): string[] {
-  const skills = [
-    "React",
-    "TypeScript",
-    "JavaScript",
-    "Node.js",
-    "Python",
-    "Java",
-    "SQL",
-    "PostgreSQL",
-    "AWS",
-    "GCP",
-    "Azure",
-    "Docker",
-    "Kubernetes",
-    "GraphQL",
-    "REST",
-    "Accessibility",
-    "Testing",
-    "CI/CD",
-    "Machine Learning"
-  ];
-  const normalized = ` ${normalizeForMatch(text)} `;
-  return skills.filter((skill) => normalized.includes(` ${normalizeForMatch(skill)} `));
-}
-
-function extractionConfidence(
-  hasJsonLd: boolean,
-  hasTitle: boolean,
-  hasCompany: boolean,
-  text: string
-): number {
-  const score =
-    0.55 +
-    (hasJsonLd ? 0.12 : 0) +
-    (hasTitle ? 0.12 : 0) +
-    (hasCompany ? 0.12 : 0) +
-    (text.length >= 300 ? 0.07 : 0);
-  return Math.min(0.94, Number(score.toFixed(2)));
-}
-
-function createConservativeFieldMap(
-  snapshot: PageSnapshot,
-  profile: TrackingProfileRow | null
-): FieldMap {
-  const warnings: string[] = [];
-  if (!profile) {
-    warnings.push("No tracking profile was selected; detected fields require user review.");
-  }
-
-  const fields = snapshot.fields
-    .map((field) => mapSnapshotField(field, profile, warnings))
-    .filter((field): field is MappedField => Boolean(field));
-  const fieldMap = {
-    fields,
-    actions: detectedActions(snapshot.buttons),
-    warnings
-  };
-
-  return fieldMapSchema.parse(fieldMap);
 }
 
 function fieldMapFromAiDraft(
@@ -1433,17 +1877,27 @@ function fieldMapFromAiDraft(
   const fieldsByRef = new Map(snapshot.fields.map((field) => [field.ref, field]));
   const buttonRefs = new Set(snapshot.buttons.map((button) => button.ref));
   const warnings: string[] = [...draft.warnings];
-  const fields = draft.fields
-    .map((draftField) => {
-      const field = fieldsByRef.get(draftField.elementRef);
-      if (!field) {
-        warnings.push(`AI field map referenced unknown field ${draftField.elementRef}.`);
-        return null;
-      }
+  const mappedRefs = new Set<string>();
+  const fields: MappedField[] = [];
+  for (const draftField of draft.fields) {
+    const field = fieldsByRef.get(draftField.elementRef);
+    if (!field) {
+      warnings.push(`AI field map referenced unknown field ${draftField.elementRef}.`);
+      continue;
+    }
+    if (mappedRefs.has(field.ref)) {
+      continue;
+    }
 
-      return mappedFieldFromAiDraftField(field, draftField, profile, warnings);
-    })
-    .filter((field): field is MappedField => Boolean(field));
+    const mappedField = mappedFieldFromAiDraftField(field, draftField, profile, warnings);
+    fields.push(mappedField);
+    mappedRefs.add(mappedField.elementRef);
+  }
+  for (const field of snapshot.fields) {
+    if (!mappedRefs.has(field.ref)) {
+      fields.push(reviewField(field));
+    }
+  }
   const nextButtonRef =
     draft.actions.nextButtonRef && buttonRefs.has(draft.actions.nextButtonRef)
       ? draft.actions.nextButtonRef
@@ -1480,6 +1934,17 @@ function mappedFieldFromAiDraftField(
   warnings: string[]
 ): MappedField {
   const confidence = Number(draftField.confidence.toFixed(2));
+
+  if (field.kind === "file" && isResumeUploadField(field)) {
+    return {
+      elementRef: field.ref,
+      label: field.label,
+      valueSource: "generated.resumeFile",
+      value: "generated-resume.pdf",
+      confidence: Math.max(confidence, 0.98),
+      requiresUserReview: true
+    };
+  }
 
   if (draftField.valueSource === "user.review") {
     return reviewField(field);
@@ -1583,137 +2048,35 @@ function mappedFieldFromAiDraftField(
   return reviewField(field);
 }
 
-function mergeFieldMaps(deterministicFieldMap: FieldMap, aiFieldMap: FieldMap): FieldMap {
-  const fieldsByRef = new Map(
-    deterministicFieldMap.fields.map((field) => [field.elementRef, field])
-  );
-  for (const aiField of aiFieldMap.fields) {
-    const existing = fieldsByRef.get(aiField.elementRef);
-    if (!existing || shouldUseAiField(existing, aiField)) {
-      fieldsByRef.set(aiField.elementRef, aiField);
+function mergeAiFieldMaps(fieldExtractionMap: FieldMap, autofillMap: FieldMap): FieldMap {
+  const autofillFieldsByRef = new Map(autofillMap.fields.map((field) => [field.elementRef, field]));
+  const fields = fieldExtractionMap.fields.map((extractedField) => {
+    const autofillField = autofillFieldsByRef.get(extractedField.elementRef);
+    if (autofillField && shouldUseAutofillField(autofillField)) {
+      return autofillField;
     }
-  }
+
+    return extractedField;
+  });
 
   const nextButtonRef =
-    deterministicFieldMap.actions.nextButtonRef ?? aiFieldMap.actions.nextButtonRef;
+    fieldExtractionMap.actions.nextButtonRef ?? autofillMap.actions.nextButtonRef;
   const submitButtonRef =
-    deterministicFieldMap.actions.submitButtonRef ?? aiFieldMap.actions.submitButtonRef;
+    fieldExtractionMap.actions.submitButtonRef ?? autofillMap.actions.submitButtonRef;
 
   return fieldMapSchema.parse({
-    fields: Array.from(fieldsByRef.values()),
+    fields,
     actions: {
       ...(nextButtonRef ? { nextButtonRef } : {}),
       ...(submitButtonRef ? { submitButtonRef } : {}),
       submitRequiresConfirmation: true
     },
-    warnings: uniqueWarnings([...deterministicFieldMap.warnings, ...aiFieldMap.warnings])
+    warnings: uniqueWarnings([...fieldExtractionMap.warnings, ...autofillMap.warnings])
   });
 }
 
-function shouldUseAiField(existing: MappedField, candidate: MappedField): boolean {
-  if (candidate.valueSource === "user.review") {
-    return false;
-  }
-
-  if (
-    existing.valueSource === "generated.resumeFile" ||
-    (existing.valueSource === "generated.coverLetter" && existing.value)
-  ) {
-    return false;
-  }
-
-  if (existing.valueSource === "user.review") {
-    return true;
-  }
-
-  if (candidate.valueSource === "generated.answer" && candidate.value) {
-    return true;
-  }
-
-  return (
-    existing.valueSource === candidate.valueSource && !existing.value && Boolean(candidate.value)
-  );
-}
-
-function mapSnapshotField(
-  field: ElementSnapshot,
-  profile: TrackingProfileRow | null,
-  warnings: string[]
-): MappedField | null {
-  const text = fieldMatchText(field);
-  if (/\b(resume|cv|curriculum vitae)\b/.test(text)) {
-    return {
-      elementRef: field.ref,
-      label: field.label,
-      valueSource: "generated.resumeFile",
-      value: "generated-resume.pdf",
-      confidence: field.kind === "file" ? 0.84 : 0.5,
-      requiresUserReview: true
-    };
-  }
-
-  if (/\bcover letter\b/.test(text)) {
-    return {
-      elementRef: field.ref,
-      label: field.label,
-      valueSource: "generated.coverLetter",
-      value: field.kind === "file" ? "generated-cover-letter.pdf" : "",
-      confidence: field.kind === "file" || field.kind === "textarea" ? 0.78 : 0.55,
-      requiresUserReview: true
-    };
-  }
-
-  if (isSensitiveOrScreening(text)) {
-    return reviewField(field);
-  }
-
-  const source = profileSourceForField(text);
-  if (source) {
-    const value = profile ? profileValue(profile, source) : "";
-    const adjustedValue = value && hasOptions(field) ? selectCompatibleValue(field, value) : value;
-    const confidence = value ? profileFieldConfidence(field, source, adjustedValue) : 0.35;
-    const requiresUserReview =
-      !adjustedValue || confidence < minAutoFillConfidence || hasOptions(field);
-    if (value && !adjustedValue) {
-      warnings.push(
-        `Review ${field.label || field.ref}; profile value was not found in select options.`
-      );
-    }
-
-    return {
-      elementRef: field.ref,
-      label: field.label,
-      valueSource: source,
-      value: adjustedValue,
-      confidence,
-      requiresUserReview
-    };
-  }
-
-  if (field.required || field.kind === "textarea" || text.includes("?")) {
-    return reviewField(field);
-  }
-
-  return null;
-}
-
-function profileSourceForField(text: string): ProfileFieldSource | null {
-  if (/\b(e-?mail|email address)\b/.test(text)) return "profile.email";
-  if (/\b(phone|mobile|cell|telephone)\b/.test(text)) return "profile.phoneNumber";
-  if (/\blinkedin\b/.test(text)) return "profile.linkedinUrl";
-  if (/\b(first|given)\b.*\bname\b|\bname\b.*\b(first|given)\b/.test(text)) {
-    return "profile.firstName";
-  }
-  if (/\bmiddle\b.*\bname\b|\bname\b.*\bmiddle\b/.test(text)) return "profile.middleName";
-  if (/\b(last|family|surname)\b.*\bname\b|\bname\b.*\b(last|family|surname)\b/.test(text)) {
-    return "profile.lastName";
-  }
-  if (/\b(street|address line 1|address1|address)\b/.test(text)) return "profile.street";
-  if (/\bcity\b/.test(text)) return "profile.city";
-  if (/\b(state|province|region)\b/.test(text)) return "profile.state";
-  if (/\b(country|nation|nationality)\b/.test(text)) return "profile.country";
-  if (/\b(zip|postal)\b/.test(text)) return "profile.postalCode";
-  return null;
+function shouldUseAutofillField(field: MappedField): boolean {
+  return field.valueSource !== "user.review";
 }
 
 function isProfileFieldSource(source: MappedField["valueSource"]): source is ProfileFieldSource {
@@ -1749,30 +2112,6 @@ function profileValue(profile: TrackingProfileRow, source: ProfileFieldSource): 
   }
 }
 
-function profileFieldConfidence(
-  field: ElementSnapshot,
-  source: ProfileFieldSource,
-  value: string
-): number {
-  if (!value) {
-    return 0.35;
-  }
-  if (field.kind === "select") {
-    return 0.76;
-  }
-  if (source === "profile.email" && field.inputType === "email") {
-    return 0.96;
-  }
-  if (source === "profile.phoneNumber" && field.inputType === "tel") {
-    return 0.94;
-  }
-  if (source === "profile.country" && hasOptions(field)) {
-    return 0.78;
-  }
-
-  return 0.9;
-}
-
 function hasOptions(field: ElementSnapshot): boolean {
   return field.kind === "select" || field.kind === "combobox" || field.kind === "listbox";
 }
@@ -1781,21 +2120,6 @@ function selectCompatibleValue(field: ElementSnapshot, value: string): string {
   const normalized = normalizeForMatch(value);
   const match = field.options.find((option) => normalizeForMatch(option) === normalized);
   return match ?? "";
-}
-
-function detectedActions(buttons: ElementSnapshot[]): FieldMap["actions"] {
-  const nextButtonRef = buttons.find((button) =>
-    /\b(next|continue|save and continue)\b/.test(fieldMatchText(button))
-  )?.ref;
-  const submitButtonRef = buttons.find((button) =>
-    /\b(submit|send application|apply)\b/.test(fieldMatchText(button))
-  )?.ref;
-
-  return {
-    ...(nextButtonRef ? { nextButtonRef } : {}),
-    ...(submitButtonRef ? { submitButtonRef } : {}),
-    submitRequiresConfirmation: true
-  };
 }
 
 function reviewField(field: ElementSnapshot): MappedField {
@@ -1807,10 +2131,6 @@ function reviewField(field: ElementSnapshot): MappedField {
     confidence: 0.35,
     requiresUserReview: true
   };
-}
-
-function appendWarning(warnings: string[], warning: string): string[] {
-  return uniqueWarnings([...warnings, warning]);
 }
 
 function uniqueWarnings(warnings: string[]): string[] {
@@ -1841,12 +2161,16 @@ function fieldMatchText(field: ElementSnapshot): string {
   );
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" ? cleanText(value) : undefined;
+function isResumeUploadField(field: ElementSnapshot): boolean {
+  const text = fieldMatchText(field);
+  return (
+    /\b(resume|curriculum vitae|cv)\b/.test(text) &&
+    !/\bcover letter\b/.test(text)
+  );
 }
 
-function recordValue(value: unknown, key: string): unknown {
-  return isRecord(value) ? value[key] : undefined;
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? cleanText(value) : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

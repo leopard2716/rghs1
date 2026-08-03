@@ -41,6 +41,7 @@ export type ApplyAssistantSessionRow = {
   page_origin: string;
   page_title: string;
   page_snapshot: PageSnapshot | null;
+  step_snapshots?: PageSnapshot[];
   extracted_job: ExtractedJob | null;
   field_map: FieldMap | null;
   resume_versions: GeneratedResume[];
@@ -56,4 +57,4 @@ export const extensionTokenFields =
   "id,workspace_id,member_id,default_profile_id,default_job_market_id,token_hash,scopes,expires_at,last_used_at,revoked_at,created_at";
 
 export const applyAssistantSessionFields =
-  "id,workspace_id,member_id,profile_id,job_market_id,page_url,page_origin,page_title,page_snapshot,extracted_job,field_map,resume_versions,status,created_at,updated_at";
+  "id,workspace_id,member_id,profile_id,job_market_id,page_url,page_origin,page_title,page_snapshot,step_snapshots,extracted_job,field_map,resume_versions,status,created_at,updated_at";

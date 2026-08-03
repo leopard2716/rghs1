@@ -1,6 +1,9 @@
-import type { PageSnapshot } from "./schemas";
+import type { FieldMap, GeneratedResume, PageSnapshot } from "./schemas";
 
 export type ExtensionMessage =
+  | {
+      type: "GET_EXTENSION_CONTEXT";
+    }
   | {
       type: "GET_SETTINGS";
     }
@@ -29,6 +32,7 @@ export type ExtensionMessage =
   | {
       type: "APPLY_FIELD_MAP";
       fieldMap: unknown;
+      resume?: GeneratedResume;
     }
   | {
       type: "CREATE_APPLY_SESSION";
@@ -36,6 +40,11 @@ export type ExtensionMessage =
     }
   | {
       type: "REQUEST_FIELD_MAP";
+      sessionId: string;
+      snapshot: PageSnapshot;
+    }
+  | {
+      type: "EXTRACT_CURRENT_STEP";
       sessionId: string;
       snapshot: PageSnapshot;
     }
@@ -54,10 +63,7 @@ export type ExtensionMessage =
       type: "COMMIT_BID";
       sessionId: string;
       resumeVersionId?: string;
-    }
-  | {
-      type: "CLICK_ACTION";
-      buttonRef: string;
+      fieldMap?: FieldMap;
     };
 
 export type AnalyzeActiveTabResponse = {
@@ -67,10 +73,4 @@ export type AnalyzeActiveTabResponse = {
 export type ApplyFieldMapResponse = {
   applied: Array<{ elementRef: string; status: "filled" | "skipped" | "unsupported" }>;
   warnings: string[];
-};
-
-export type ClickActionResponse = {
-  clicked: boolean;
-  buttonRef: string;
-  label?: string;
 };

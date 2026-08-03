@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolvedAutofillValue, resumeFileName, resumePdfBytes } from "../autofill/autofill";
 import {
   evaluateExtractedJob,
   evaluateFieldMap,
@@ -71,5 +72,57 @@ describe("AI output validation gates", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("uses the generated resume text for mapped paste-resume fields", () => {
+    const field = {
+      elementRef: "field-resume-text",
+      label: "Paste your resume",
+      valueSource: "generated.resumeText" as const,
+      value: "",
+      confidence: 0.55,
+      requiresUserReview: true
+    };
+    const resume = generatedResumeSchema.parse({
+      resumeHtml: "<section><h1>Ada Lovelace</h1></section>",
+      resumeText: "Ada Lovelace\nSoftware Engineer",
+      changes: [],
+      missingEvidence: [],
+      warnings: [],
+      quality: {
+        jdCoverage: 0.9,
+        fabricationRisk: "low",
+        atsReadability: "good"
+      }
+    });
+
+    expect(resolvedAutofillValue(field, resume)).toBe(resume.resumeText);
+    expect(resolvedAutofillValue(field)).toBeUndefined();
+  });
+
+  it("creates a PDF payload for generated resume upload fields", () => {
+    const bytes = resumePdfBytes("Ada Lovelace\nSoftware Engineer");
+    const pdf = new TextDecoder().decode(bytes);
+
+    expect(pdf.startsWith("%PDF-1.4")).toBe(true);
+    expect(pdf).toContain("Ada Lovelace");
+    expect(pdf).toContain("%%EOF");
+  });
+
+  it("names the uploaded resume PDF after the candidate", () => {
+    const resume = generatedResumeSchema.parse({
+      resumeHtml: "<section><h1><span>Noah</span> Hall</h1></section>",
+      resumeText: "Noah Hall\nSoftware Engineer",
+      changes: [],
+      missingEvidence: [],
+      warnings: [],
+      quality: {
+        jdCoverage: 0.9,
+        fabricationRisk: "low",
+        atsReadability: "good"
+      }
+    });
+
+    expect(resumeFileName(resume)).toBe("NoahHallResume.pdf");
   });
 });

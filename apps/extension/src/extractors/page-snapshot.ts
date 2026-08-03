@@ -1,6 +1,5 @@
 import {
   elementLabel,
-  hasNearbyUploadAffordance,
   isVisibleElement,
   normalizeText,
   shouldSkipField,
@@ -62,6 +61,7 @@ export function extractPageSnapshot(document: Document, pageUrl: string): PageSn
       pageTitle: normalizeText(document.title, 500),
       capturedAt: new Date().toISOString(),
       visibleText: visiblePageText(document),
+      jobContentHtml: jobContentHtml(document),
       htmlSource: sanitizedHtmlSource(document),
       jsonLdJobPostings: jsonLdJobPostings(document),
       fields,
@@ -72,16 +72,60 @@ export function extractPageSnapshot(document: Document, pageUrl: string): PageSn
   );
 }
 
+function jobContentHtml(document: Document): string | undefined {
+  const selectors = [
+    '[data-automation-id="jobPostingDescription"]',
+    '[data-testid="job-description"]',
+    '[data-testid*="job-description"]',
+    '[itemprop="description"]',
+    '#job-description',
+    '#jobDescription',
+    '[class*="job-description"]',
+    '[class*="jobDescription"]',
+    'article'
+  ];
+  const source = selectors
+    .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+    .find((element) => normalizeText(element.textContent ?? "", 1000).length >= 300);
+  if (!source) {
+    return undefined;
+  }
+
+  const clone = source.cloneNode(true);
+  if (!(clone instanceof HTMLElement)) {
+    return undefined;
+  }
+  clone
+    .querySelectorAll(
+      'script,style,noscript,svg,canvas,iframe,object,embed,form,input,textarea,select,button'
+    )
+    .forEach((element) => element.remove());
+  clone.querySelectorAll('*').forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      element.removeAttribute(attribute.name);
+    }
+  });
+
+  const html = clone.outerHTML.trim().slice(0, 250000);
+  return html || undefined;
+}
+
 function shouldIncludeField(element: FieldElement): boolean {
-  if (isVisibleElement(element)) {
+  // Drag-and-drop upload widgets intentionally hide their native file input.
+  // The native input is still the only element that can receive a generated
+  // resume File, so it must be extracted regardless of visual dimensions.
+  if (element instanceof HTMLInputElement && isAlwaysExtractableInputType(element.type)) {
     return true;
   }
 
-  return (
-    element instanceof HTMLInputElement &&
-    element.type === "file" &&
-    hasNearbyUploadAffordance(element)
-  );
+  if (isVisibleElement(element)) {
+    return true;
+  }
+  return false;
+}
+
+export function isAlwaysExtractableInputType(type: string): boolean {
+  return type.toLowerCase() === "file";
 }
 
 function fieldSnapshot(element: FieldElement, ref: string): ElementSnapshot {

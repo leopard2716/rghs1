@@ -88,6 +88,7 @@ export const pageSnapshotSchema = z.object({
   pageTitle: z.string().trim().max(500),
   capturedAt: z.string().datetime(),
   visibleText: z.string().trim().max(50000),
+  jobContentHtml: z.string().trim().max(250000).optional(),
   htmlSource: z.string().trim().max(100000).optional(),
   jsonLdJobPostings: z.array(z.record(z.unknown())).max(10).default([]),
   fields: z.array(elementSnapshotSchema).max(250),
@@ -202,7 +203,8 @@ export const applyAssistantFieldMapInput = z.object({
 
 export const commitBidInput = z
   .object({
-    resumeVersionId: uuid.optional()
+    resumeVersionId: uuid.optional(),
+    fieldMap: fieldMapSchema.optional()
   })
   .default({});
 

@@ -45,8 +45,9 @@ before `Submit`.
 - `apps/extension` should contain Manifest V3 extension code.
 - `packages/domain` should get shared permission names and DTO types only when those types are used
   by both API and extension/web.
-- `tracking_profiles` already stores structured profile fields plus `resume_html_template` and
-  `resume_tailoring_note`, so resume generation can start without a new profile model.
+- `tracking_profiles` stores structured profile fields plus `resume_html_template` and
+  `resume_tailoring_note`. OpenAI generates detailed JD-aligned experience content from the saved
+  career history while preserving fixed profile facts and the required visual template.
 - `bid_records` and `bid_record_profiles.resume` already store job/application data and per-profile
   resume content. Add generated resume tables for versioning and PDF storage rather than overloading
   the current text field.
@@ -63,32 +64,30 @@ Gemini 3.1 Flash-Lite as a high-volume/simple-processing model and Gemini 2.5 Fl
 low-cost option. Gemini also supports structured JSON-schema outputs, which is the key requirement
 for safe JD extraction and field-map outputs.
 
-Use AI only where semantic judgment helps. Keep DOM scanning, input filling, clicking, PDF rendering,
-auth, tenant checks, and persistence as normal code.
+Use AI only where semantic judgment helps. Keep DOM scanning, input filling, PDF rendering, auth,
+tenant checks, and persistence as normal code. The extension never clicks Next or Submit.
 
-| Step                                         | Default model                   | Reasoning      | Why                                                                     |
-| -------------------------------------------- | ------------------------------- | -------------- | ----------------------------------------------------------------------- |
-| Job text cleanup and JD extraction           | `gemini-2.5-flash-lite`         | low            | Cheapest candidate for schema-first extraction after local DOM cleanup. |
-| Company/title/location/skills classification | `gemini-2.5-flash-lite`         | low            | Short structured extraction with low risk and high volume potential.    |
-| Form field semantic mapping                  | `gemini-3.1-flash-lite`         | low            | Cheap first pass for labels/options; fall back if confidence is low.    |
-| Screening-question draft answers             | `gpt-5.4-mini`                  | medium         | Needs profile evidence matching and careful wording.                    |
-| Resume tailoring first pass                  | `gpt-5.4-mini`                  | medium         | Best MVP balance for resume quality, speed, and cost.                   |
-| Resume final polish / high-value jobs        | `gpt-5.5`                       | medium or high | Use only when the user selects "best quality" or confidence is low.     |
-| Resume modification prompt                   | `gpt-5.4-mini`                  | medium         | Usually a constrained rewrite of an existing generated resume.          |
-| Extraction or resume QA rubric               | `gemini-3.1-flash-lite`         | low            | Good low-cost validation path; compare against OpenAI in evals.         |
-| Field/resume fallback                        | `gpt-5.4-nano` / `gpt-5.4-mini` | low/medium     | Keep a same-provider fallback for Gemini outages or weaker eval scores. |
+| Step                                         | Default model           | Reasoning | Why                                                                     |
+| -------------------------------------------- | ----------------------- | --------- | ----------------------------------------------------------------------- |
+| Job text cleanup and JD extraction           | `gemini-2.5-flash-lite` | low       | Cheapest candidate for schema-first extraction after local DOM cleanup. |
+| Company/title/location/skills classification | `gemini-2.5-flash-lite` | low       | Short structured extraction with low risk and high volume potential.    |
+| Form field semantic mapping                  | `gemini-3.1-flash-lite` | low       | Cheap first pass for labels/options; fall back if confidence is low.    |
+| Screening-question draft answers             | `gemini-3.5-flash`      | low       | Keeps all non-resume generation on Gemini.                              |
+| Resume tailoring and refinement              | `gpt-5.6-sol`           | medium    | The only workflow routed to OpenAI.                                     |
+| Extraction or resume QA rubric               | `gemini-3.1-flash-lite` | low       | Good low-cost validation path; compare against OpenAI in evals.         |
+| Non-resume fallback                          | Gemini model pool       | low       | Never falls back to OpenAI outside resume generation.                   |
 
 Recommended launch configuration:
 
 ```txt
 APPLY_ASSISTANT_EXTRACT_PROVIDER=gemini
 APPLY_ASSISTANT_EXTRACT_MODEL=gemini-2.5-flash-lite
-APPLY_ASSISTANT_FIELD_PROVIDER=gemini
-APPLY_ASSISTANT_FIELD_MODEL=gemini-3.1-flash-lite
+APPLY_ASSISTANT_FIELD_EXTRACT_PROVIDER=gemini
+APPLY_ASSISTANT_FIELD_EXTRACT_MODEL=gemini-3.1-flash-lite
+APPLY_ASSISTANT_FIELD_AUTOFILL_PROVIDER=gemini
+APPLY_ASSISTANT_FIELD_AUTOFILL_MODEL=gemini-3.5-flash
 APPLY_ASSISTANT_RESUME_PROVIDER=openai
-APPLY_ASSISTANT_RESUME_MODEL=gpt-5.4-mini
-APPLY_ASSISTANT_PREMIUM_PROVIDER=openai
-APPLY_ASSISTANT_PREMIUM_MODEL=gpt-5.5
+APPLY_ASSISTANT_RESUME_MODEL=gpt-5.6-sol
 ```
 
 Do not default to GPT-5.5 for every application. Use it as an upgrade path because the current
@@ -166,8 +165,10 @@ OPENAI_API_KEY?: string;
 GEMINI_API_KEY?: string;
 APPLY_ASSISTANT_EXTRACT_PROVIDER?: string;
 APPLY_ASSISTANT_EXTRACT_MODEL?: string;
-APPLY_ASSISTANT_FIELD_PROVIDER?: string;
-APPLY_ASSISTANT_FIELD_MODEL?: string;
+APPLY_ASSISTANT_FIELD_EXTRACT_PROVIDER?: string;
+APPLY_ASSISTANT_FIELD_EXTRACT_MODEL?: string;
+APPLY_ASSISTANT_FIELD_AUTOFILL_PROVIDER?: string;
+APPLY_ASSISTANT_FIELD_AUTOFILL_MODEL?: string;
 APPLY_ASSISTANT_RESUME_PROVIDER?: string;
 APPLY_ASSISTANT_RESUME_MODEL?: string;
 APPLY_ASSISTANT_PREMIUM_PROVIDER?: string;
@@ -267,10 +268,11 @@ Current implementation status:
   - Settings can later edit API base URL, token, profile, and market.
   - Content script is built separately as an IIFE bundle to avoid Chrome's `Cannot use import
 statement outside a module` content-script failure.
-- Current field-map route is deterministic and conservative. It maps common profile fields from
-  `tracking_profiles`, forces sensitive/screening fields into `user.review`, and always requires
-  submit confirmation.
-- AI provider routing, resume generation, PDF generation, bid commit, event storage, and web UI
+- Current extraction and field-map routes require configured AI providers. The backend still
+  validates AI field refs, injects profile values server-side, forces sensitive/screening fields into
+  `user.review`, and always requires submit confirmation.
+- OpenAI resume generation and modification, resume preview/print, generated resume-text autofill,
+  and bid commit are implemented. Direct PDF file-field attachment, event storage, and web UI
   budget/settings controls are still next-phase work.
 
 Use Zod schemas for every request and response. Validate selector strings, URL protocols, text
@@ -587,7 +589,7 @@ Prefer `activeTab` plus user-triggered injection for broad job-page support. Add
 
 ## Extraction Strategy
 
-Run local extractors first:
+Capture a compact page snapshot locally, then require AI semantic extraction:
 
 ```txt
 1. Identify ATS/site family from URL and page markers.
@@ -599,10 +601,10 @@ Run local extractors first:
    - DOM index fallback
    - input name/id fallback
 5. Redact password fields, hidden tokens, cookies, and page scripts.
-6. Send compact snapshot to backend.
+6. Send compact snapshot to backend for AI extraction.
 ```
 
-Then call AI for semantic normalization:
+The backend calls the configured AI provider for semantic normalization:
 
 ```json
 {
@@ -623,20 +625,7 @@ Low-confidence extraction should stop at review instead of autofilling.
 
 ## Field Mapping Strategy
 
-Use deterministic mapping before AI:
-
-```txt
-email -> profile.email
-phone -> profile.phoneNumber
-first name -> profile.firstName
-last name -> profile.lastName
-linkedin -> profile.linkedinUrl
-resume/cv upload -> generated resume file
-cover letter -> optional generated cover letter
-```
-
-Use `gpt-5.4-mini` only for ambiguous or site-specific fields. The model should return a structured
-map:
+Use AI field mapping for all fields. The model should return a structured map:
 
 ```json
 {
@@ -791,7 +780,7 @@ then the backend stores a revocable, scoped extension token.
 - Create apply session.
 - Normalize job description using the configured low-reasoning extraction provider, defaulting to
   `gemini-2.5-flash-lite`.
-- Highlight detected job description, fields, file input, next button, and submit button.
+- Highlight detected job description and form fields without highlighting or controlling navigation.
 
 Acceptance:
 
@@ -803,7 +792,7 @@ then the extension shows company, title, JD, fields, and confidence before autof
 
 ### Phase 3: Resume Tailoring and Review
 
-- Generate resume HTML with `gpt-5.4-mini`.
+- Generate and refine the tailored resume with `gpt-5.6-sol` before generating autofill values.
 - Show split view on the same page.
 - Support user modification prompts.
 - Store version history.
@@ -817,20 +806,20 @@ when the user generates a resume,
 then they can preview it, modify it, and select one version for the application.
 ```
 
-### Phase 4: Autofill and Bid Commit
+### Phase 4: Autofill
 
-- Map fields deterministically and with AI fallback.
+- Map fields with AI and validate the result before autofill.
 - Fill low-risk fields automatically after user approval.
 - Require review for low-confidence fields.
-- Require explicit confirmation for next/submit.
-- Commit bid record using the existing tracking service behavior.
+- Insert the generated resume PDF or resume text into detected resume fields.
+- Leave Next and Submit entirely to the user on the job application page.
 
 Acceptance:
 
 ```txt
 Given a reviewed field map and selected resume,
 when the user confirms autofill,
-then fields are populated and the final RGHS1 bid record includes the job, profile, and resume.
+then fields are populated and the user manually continues or submits on the job site.
 ```
 
 ### Phase 5: Hardening
@@ -861,9 +850,10 @@ Extension:
 Product quality:
 
 - Golden JD extraction fixtures.
-- Provider comparison fixtures for `gemini-2.5-flash-lite`, `gemini-3.1-flash-lite`,
-  `gpt-5.4-nano`, and `gpt-5.4-mini`.
-- Resume rubric eval: truthful, ATS-readable, covers JD keywords, no fabricated claims.
+- Provider comparison fixtures for the configured Gemini extraction/autofill models and `gpt-5.6-sol`
+  resume generation.
+- Resume rubric eval: ATS-readable, preserves fixed profile facts, generates credible career
+  narratives, and reaches the configured JD-coverage target.
 - Track user edits after generation. High edit rate means prompt or model routing needs work.
 
 ## Features to Add or Modify

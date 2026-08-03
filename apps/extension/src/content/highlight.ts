@@ -17,7 +17,7 @@ declare global {
 
 export function markElementRefs(document: Document, refs: RefTarget[]): void {
   for (const item of refs) {
-    const element = document.querySelector(item.selector);
+    const element = safeQuerySelector(document, item.selector);
     if (element instanceof HTMLElement) {
       element.dataset.rghs1Ref = item.ref;
       if (item.kind) {
@@ -27,6 +27,18 @@ export function markElementRefs(document: Document, refs: RefTarget[]): void {
         element.dataset.rghs1Label = item.label;
       }
     }
+  }
+}
+
+function safeQuerySelector(document: Document, selector: string): Element | null {
+  try {
+    return document.querySelector(selector);
+  } catch {
+    // Compatibility for snapshots produced before numeric IDs were represented
+    // as quoted attribute selectors. `#103` is invalid CSS but still identifies
+    // the element unambiguously through the DOM ID API.
+    const legacyId = selector.match(/^#([^\s>+~,[\]]+)$/)?.[1];
+    return legacyId ? document.getElementById(legacyId) : null;
   }
 }
 
@@ -59,6 +71,10 @@ export function highlightRefs(document: Document, refs: string[]): void {
       view.removeEventListener("orientationchange", schedule);
     };
   }
+}
+
+export function clearAssistantHighlights(document: Document): void {
+  clearHighlights(document);
 }
 
 function clearHighlights(document: Document): void {

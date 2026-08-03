@@ -366,9 +366,11 @@ describe("tracking schemas", () => {
       careerExperiences: [
         {
           companyName: "Acme",
+          jobTitle: "Platform Engineer",
           companyLocation: "Remote",
           dateFrom: "2020-01-01",
-          dateTo: ""
+          dateTo: "",
+          description: "Built reliable deployment tooling."
         }
       ],
       resumeHtmlTemplate: "<section>Resume</section>",
@@ -379,7 +381,13 @@ describe("tracking schemas", () => {
       name: "Alex Smith",
       firstName: "Alex",
       country: "United States",
-      careerExperiences: [{ companyName: "Acme" }]
+      careerExperiences: [
+        {
+          companyName: "Acme",
+          jobTitle: "Platform Engineer",
+          description: "Built reliable deployment tooling."
+        }
+      ]
     });
   });
 

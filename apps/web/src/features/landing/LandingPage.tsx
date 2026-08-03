@@ -12,6 +12,9 @@ export function LandingPage({ onOpenAdmin }: { onOpenAdmin: () => void }) {
             <span>RGHS1</span>
           </div>
           <div className="nav-actions">
+            <a className="nav-action" href="/privacy">
+              Privacy
+            </a>
             <button className="nav-action" type="button" onClick={onOpenAdmin}>
               <LogIn aria-hidden="true" />
               Sign in

@@ -21,6 +21,8 @@ type ApiErrorPayload = {
   code?: string;
 };
 
+const apiRequestTimeoutMs = 500_000;
+
 export type ApplyAssistantApiErrorDetails = Record<string, string | number | boolean | null>;
 
 export class ApplyAssistantApiError extends Error {
@@ -68,6 +70,18 @@ export class ApplyAssistantApi {
     return parseWithSchema(fieldMapSchema, response, "Field map response");
   }
 
+  async extractStep(sessionId: string, snapshot: PageSnapshot): Promise<FieldMap> {
+    const response = await this.fetchJson(
+      `/apply-assistant/sessions/${sessionId}/steps/extract`,
+      {
+        method: "POST",
+        body: JSON.stringify({ pageSnapshot: snapshot })
+      }
+    );
+
+    return parseWithSchema(fieldMapSchema, response, "Step extraction response");
+  }
+
   async generateResume(sessionId: string, refinementNote?: string): Promise<GeneratedResume> {
     const response = await this.fetchJson(`/apply-assistant/sessions/${sessionId}/resumes`, {
       method: "POST",
@@ -93,10 +107,14 @@ export class ApplyAssistantApi {
     return parseWithSchema(generatedResumeSchema, response, "Modified resume response");
   }
 
-  async commitBid(sessionId: string, resumeVersionId?: string): Promise<CommitBidResponse> {
+  async commitBid(
+    sessionId: string,
+    resumeVersionId?: string,
+    fieldMap?: FieldMap
+  ): Promise<CommitBidResponse> {
     const response = await this.fetchJson(`/apply-assistant/sessions/${sessionId}/commit-bid`, {
       method: "POST",
-      body: JSON.stringify({ resumeVersionId })
+      body: JSON.stringify({ resumeVersionId, fieldMap })
     });
 
     return parseWithSchema(commitBidResponseSchema, response, "Bid commit response");
@@ -147,11 +165,12 @@ export class ApplyAssistantApi {
       const permission = await hostPermissionStatus(candidateUrl);
       let response: Response;
       try {
-        response = await fetch(candidateUrl, {
-          ...init,
-          headers
-        });
+        response = await fetchWithTimeout(candidateUrl, { ...init, headers }, apiRequestTimeoutMs);
       } catch (error) {
+        if (error instanceof ApplyAssistantApiError) {
+          throw error;
+        }
+
         lastNetworkError = networkErrorFromFetch(
           error,
           candidateUrl,
@@ -283,6 +302,31 @@ async function hostPermissionStatus(url: URL): Promise<HostPermissionStatus> {
       });
     });
   });
+}
+
+async function fetchWithTimeout(url: URL, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApplyAssistantApiError(
+        `The apply-assistant API request timed out after ${Math.round(timeoutMs / 1000)}s.`,
+        undefined,
+        "api_request_timeout",
+        {
+          requestUrl: url.toString()
+        }
+      );
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 function networkErrorFromFetch(

@@ -694,6 +694,17 @@ function ProfileFormModal({
                     />
                   </label>
                   <label>
+                    Job title
+                    <input
+                      maxLength={180}
+                      value={experience.jobTitle ?? ""}
+                      disabled={pending}
+                      onChange={(event) =>
+                        updateCareerExperience(index, { jobTitle: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
                     Company location
                     <input
                       maxLength={180}
@@ -727,6 +738,19 @@ function ProfileFormModal({
                     />
                   </label>
                 </div>
+                <label>
+                  Responsibilities and accomplishments
+                  <textarea
+                    rows={5}
+                    maxLength={10000}
+                    value={experience.description ?? ""}
+                    disabled={pending}
+                    placeholder="Use one achievement or responsibility per line. Include technologies and metrics only when factual."
+                    onChange={(event) =>
+                      updateCareerExperience(index, { description: event.target.value })
+                    }
+                  />
+                </label>
                 {careerExperiences.length > 1 ? (
                   <button
                     className="secondary-action compact-action danger-action"
@@ -846,24 +870,33 @@ function cleanCareerExperience(
 ): TrackingProfileCareerExperience {
   return {
     companyName: trimOptional(experience.companyName),
+    jobTitle: trimOptional(experience.jobTitle),
     companyLocation: trimOptional(experience.companyLocation),
     dateFrom: trimOptional(experience.dateFrom),
-    dateTo: trimOptional(experience.dateTo)
+    dateTo: trimOptional(experience.dateTo),
+    description: trimOptional(experience.description)
   };
 }
 
 function hasCareerExperience(experience: TrackingProfileCareerExperience): boolean {
   return Boolean(
-    experience.companyName || experience.companyLocation || experience.dateFrom || experience.dateTo
+    experience.companyName ||
+    experience.jobTitle ||
+    experience.companyLocation ||
+    experience.dateFrom ||
+    experience.dateTo ||
+    experience.description
   );
 }
 
 function emptyCareerExperience(): TrackingProfileCareerExperience {
   return {
     companyName: "",
+    jobTitle: "",
     companyLocation: "",
     dateFrom: "",
-    dateTo: ""
+    dateTo: "",
+    description: ""
   };
 }
 

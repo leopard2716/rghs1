@@ -1,6 +1,7 @@
 import type { ExtensionMessage } from "./messages";
 
 type ChromeCallback<T> = (value: T) => void;
+const runtimeMessageTimeoutMs = 510_000;
 
 type ChromeStorageArea = {
   get(keys?: string | string[] | Record<string, unknown> | null): Promise<Record<string, unknown>>;
@@ -75,7 +76,23 @@ export function chromeApi(): ChromeApi {
 export async function sendRuntimeMessage<T>(message: ExtensionMessage): Promise<T> {
   return new Promise((resolve, reject) => {
     const api = chromeApi();
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(
+        new Error("The extension request timed out. Check the API and AI provider connection.")
+      );
+    }, runtimeMessageTimeoutMs);
+
     api.runtime.sendMessage<T>(message, (response) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
       const lastError = api.runtime.lastError;
       if (lastError) {
         reject(new Error(lastError.message ?? "Chrome runtime message failed."));

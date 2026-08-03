@@ -6,12 +6,29 @@ const genericActionLabels = new Set([
   "browse",
   "choose",
   "choose file",
+  "drop file",
   "dropbox",
   "enter manually",
   "manual",
   "select",
+  "select file",
   "upload"
 ]);
+
+const uploadDocumentTypes = [
+  { label: "Cover Letter", pattern: /\bcover\s+letter\b/i },
+  { label: "Resume/CV", pattern: /\b(resume|curriculum\s+vitae|cv)\b/i },
+  { label: "Portfolio", pattern: /\bportfolio\b/i },
+  { label: "Transcript", pattern: /\btranscript\b/i },
+  { label: "Writing Sample", pattern: /\bwriting\s+sample\b/i },
+  { label: "Work Sample", pattern: /\bwork\s+sample\b/i },
+  { label: "Certificate", pattern: /\b(certification|certificate)\b/i }
+] as const;
+
+export function semanticUploadFieldName(value: string): string {
+  const matches = uploadDocumentTypes.filter(({ pattern }) => pattern.test(value));
+  return matches.length === 1 ? matches[0]?.label ?? "" : "";
+}
 
 export function isVisibleElement(element: Element): boolean {
   if (!(element instanceof HTMLElement)) {
@@ -92,7 +109,14 @@ export function elementLabel(
       visibleText ||
       ""
   ).slice(0, 500);
-  const uploadContext = uploadAction ? uploadContextLabelText(element, uploadAction) : "";
+  const uploadContext =
+    element instanceof HTMLInputElement && element.type === "file"
+      ? uploadContextLabelText(element, uploadAction || base)
+      : "";
+
+  if (uploadContext && semanticUploadFieldName(uploadContext)) {
+    return semanticUploadFieldName(uploadContext);
+  }
   const nearbyContext =
     uploadAction && nearby && shouldPrefixContext(uploadAction, nearby)
       ? normalizeContext(nearby)
@@ -150,11 +174,15 @@ function nearbyUploadActionText(element: Element): string {
     return "";
   }
 
-  const candidate = Array.from(container.querySelectorAll("button, [role='button'], label"))
+  const candidate = Array.from(
+    container.querySelectorAll("button, [role='button'], label, a, [tabindex]")
+  )
     .filter((item): item is HTMLElement => item instanceof HTMLElement && isVisibleElement(item))
     .sort((left, right) => uploadActionRank(left) - uploadActionRank(right))
     .find((item) =>
-      /\b(attach|upload|choose|browse|dropbox|enter manually|manual)\b/i.test(itemText(item))
+      /\b(attach|upload|choose|browse|select file|drop file|dropbox|enter manually|manual)\b/i.test(
+        itemText(item)
+      )
     );
 
   return candidate ? itemText(candidate) : "";
@@ -167,7 +195,7 @@ export function hasNearbyUploadAffordance(element: Element): boolean {
 function closestUploadContainer(element: Element): Element | null {
   let current = element.parentElement;
   let depth = 0;
-  while (current && depth < 5) {
+  while (current && depth < 10) {
     const text = current.textContent ?? "";
     if (/\b(resume|cv|cover\s+letter|attach|upload|dropbox|file)\b/i.test(text)) {
       return current;
@@ -208,19 +236,75 @@ function uploadContextLabelText(element: Element, uploadAction: string): string 
   }
 
   const action = normalizeContext(uploadAction);
+  const directIdentity = semanticUploadFieldName(
+    [
+      element.name,
+      element.id,
+      element.getAttribute("aria-label"),
+      element.getAttribute("data-testid"),
+      element.getAttribute("data-automation-id")
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  if (directIdentity) {
+    return directIdentity;
+  }
+
+  let fallback = "";
   let current = element.parentElement;
   let depth = 0;
-  while (current && depth < 8) {
+  while (current && depth < 12) {
+    const semanticIdentity = semanticUploadFieldName(current.textContent ?? "");
+    if (semanticIdentity) {
+      return semanticIdentity;
+    }
+
     const context = uploadContextFromContainer(current, element, action);
     if (context) {
-      return context;
+      const semanticContext = semanticUploadFieldName(context);
+      if (semanticContext) {
+        return semanticContext;
+      }
+      fallback ||= context;
     }
 
     current = current.parentElement;
     depth += 1;
   }
+  return globalUploadContextLabelText(element) || fallback;
+}
 
-  return "";
+function globalUploadContextLabelText(element: HTMLInputElement): string {
+  const document = element.ownerDocument;
+  const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+  if (fileInputs.length !== 1) {
+    return "";
+  }
+
+  const candidates = Array.from(
+    document.querySelectorAll(
+      "h1,h2,h3,h4,h5,h6,[role='heading'],legend,label,p,[aria-label]"
+    )
+  )
+    .map((candidate) =>
+      normalizeContext(candidate.getAttribute("aria-label") || candidate.textContent || "")
+    )
+    .filter(
+      (text) =>
+        text.length > 0 &&
+        text.length <= 180 &&
+        /\b(resume|curriculum vitae|cv)\b/i.test(text) &&
+        !/\bcover\s+letter\b/i.test(text)
+    )
+    .sort((left, right) => uploadContextRank(left) - uploadContextRank(right));
+  return semanticUploadFieldName(candidates[0] ?? "");
+}
+
+function uploadContextRank(value: string): number {
+  if (/\b(attach|upload|drop|select)\b/i.test(value)) return 0;
+  if (/\bresume\b/i.test(value)) return 1;
+  return 2;
 }
 
 function uploadContextFromContainer(container: Element, target: Element, action: string): string {
@@ -386,17 +470,17 @@ export function stableSelector(element: Element): string {
   }
 
   if (element.id && !looksGenerated(element.id)) {
-    return `#${cssEscape(element.id)}`;
+    return idSelector(element.id);
   }
 
   const name = element.getAttribute("name");
   if (name && !looksGenerated(name)) {
-    return `${element.tagName.toLowerCase()}[name="${cssEscape(name)}"]`;
+    return `${element.tagName.toLowerCase()}[name="${cssAttributeEscape(name)}"]`;
   }
 
   const aria = element.getAttribute("aria-label");
   if (aria) {
-    return `${element.tagName.toLowerCase()}[aria-label="${cssEscape(aria)}"]`;
+    return `${element.tagName.toLowerCase()}[aria-label="${cssAttributeEscape(aria)}"]`;
   }
 
   return nthPath(element);
@@ -429,6 +513,16 @@ function looksGenerated(value: string): boolean {
   return /[a-f0-9]{8,}|[:]/i.test(value) || value.length > 80;
 }
 
-function cssEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/#/g, "\\#");
+export function idSelector(id: string): string {
+  return `[id="${cssAttributeEscape(id)}"]`;
+}
+
+function cssAttributeEscape(value: string): string {
+  return value
+    .replace(/\0/g, "�")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\a ")
+    .replace(/\r/g, "\\d ")
+    .replace(/\f/g, "\\c ");
 }

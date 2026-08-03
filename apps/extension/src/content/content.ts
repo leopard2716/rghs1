@@ -1,15 +1,11 @@
 import { applyFieldMap } from "../autofill/autofill";
 import { extractPageSnapshot } from "../extractors/page-snapshot";
 import { chromeApi } from "../shared/chrome";
-import type {
-  ApplyFieldMapResponse,
-  ClickActionResponse,
-  ExtensionMessage
-} from "../shared/messages";
-import { highlightRefs, markElementRefs } from "./highlight";
+import type { ApplyFieldMapResponse, ExtensionMessage } from "../shared/messages";
+import { clearAssistantHighlights, highlightRefs, markElementRefs } from "./highlight";
 
 let lastSnapshotRefs: Array<{ ref: string; selector: string; kind?: string; label?: string }> = [];
-export const contentBridgeVersion = "2026-07-07.3";
+export const contentBridgeVersion = "2026-08-03.5";
 
 declare global {
   interface Window {
@@ -17,8 +13,7 @@ declare global {
       version: string;
       analyzePage(): { snapshot: ReturnType<typeof extractPageSnapshot> };
       highlightRefs(refs: string[]): { ok: true };
-      applyFieldMap(fieldMap: unknown): ApplyFieldMapResponse;
-      clickAction(buttonRef: string): ClickActionResponse;
+      applyFieldMap(fieldMap: unknown, resume?: unknown): ApplyFieldMapResponse;
     };
     __rghs1ApplyAssistantListenerLoaded?: boolean;
   }
@@ -31,13 +26,9 @@ window.__rghs1ApplyAssistant = {
     highlightRefs(document, refs);
     return { ok: true };
   },
-  applyFieldMap: (fieldMap) => {
+  applyFieldMap: (fieldMap, resume) => {
     ensureElementRefs();
-    return applyFieldMap(document, fieldMap);
-  },
-  clickAction: (buttonRef) => {
-    ensureElementRefs();
-    return clickAction(document, buttonRef);
+    return applyFieldMap(document, fieldMap, resume);
   }
 };
 
@@ -61,13 +52,8 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       return window.__rghs1ApplyAssistant?.highlightRefs(message.refs) ?? { ok: true };
     case "APPLY_FIELD_MAP":
       return (
-        window.__rghs1ApplyAssistant?.applyFieldMap(message.fieldMap) ??
-        (applyFieldMap(document, message.fieldMap) satisfies ApplyFieldMapResponse)
-      );
-    case "CLICK_ACTION":
-      return (
-        window.__rghs1ApplyAssistant?.clickAction(message.buttonRef) ??
-        clickAction(document, message.buttonRef)
+        window.__rghs1ApplyAssistant?.applyFieldMap(message.fieldMap, message.resume) ??
+        (applyFieldMap(document, message.fieldMap, message.resume) satisfies ApplyFieldMapResponse)
       );
     default:
       return { ok: false };
@@ -85,49 +71,14 @@ function analyzePage(): { snapshot: ReturnType<typeof extractPageSnapshot> } {
     })
   );
   markElementRefs(document, lastSnapshotRefs);
-  highlightRefs(document, defaultHighlightedRefs(snapshot.fields));
+  clearAssistantHighlights(document);
   return { snapshot };
-}
-
-function defaultHighlightedRefs(
-  fields: Array<{ kind: string; label: string; ref: string }>
-): string[] {
-  const refs = new Set(fields.slice(0, 12).map((field) => field.ref));
-  for (const field of fields) {
-    if (isUploadField(field)) {
-      refs.add(field.ref);
-    }
-  }
-
-  return Array.from(refs).slice(0, 24);
-}
-
-function isUploadField(field: { kind: string; label: string }): boolean {
-  return (
-    field.kind === "file" ||
-    /\b(resume|cv|cover\s+letter|attach|upload|dropbox|file)\b/i.test(field.label)
-  );
 }
 
 function ensureElementRefs(): void {
   if (lastSnapshotRefs.length > 0) {
     markElementRefs(document, lastSnapshotRefs);
   }
-}
-
-function clickAction(document: Document, buttonRef: string): ClickActionResponse {
-  const target = document.querySelector(`[data-rghs1-ref="${attrEscape(buttonRef)}"]`);
-  if (!(target instanceof HTMLElement)) {
-    throw new Error(`Button ${buttonRef} was not found on the active page.`);
-  }
-  if (target.getAttribute("aria-disabled") === "true" || target.hasAttribute("disabled")) {
-    throw new Error(`Button ${buttonRef} is disabled.`);
-  }
-
-  const label = target.dataset.rghs1Label || target.textContent?.trim() || undefined;
-  target.scrollIntoView({ block: "center", behavior: "smooth" });
-  target.click();
-  return { clicked: true, buttonRef, label };
 }
 
 function errorResponse(error: unknown): Record<string, unknown> {
@@ -153,8 +104,4 @@ function errorProperty(error: Error, key: string): unknown {
   }
 
   return (error as unknown as Record<string, unknown>)[key];
-}
-
-function attrEscape(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

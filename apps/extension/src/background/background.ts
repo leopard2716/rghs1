@@ -1,11 +1,8 @@
 import { ApplyAssistantApi } from "../api/apply-assistant-api";
 import { chromeApi, type ChromeTab } from "../shared/chrome";
-import type {
-  ApplyFieldMapResponse,
-  ClickActionResponse,
-  ExtensionMessage
-} from "../shared/messages";
+import type { ApplyFieldMapResponse, ExtensionMessage } from "../shared/messages";
 import { pageSnapshotSchema, parseWithSchema } from "../shared/schemas";
+import { extensionProtocolVersion } from "../shared/protocol";
 import {
   connectExtensionTokenSettings,
   refreshSettingsContext,
@@ -13,7 +10,7 @@ import {
 } from "../storage/connection";
 import { getSettings } from "../storage/settings";
 
-const expectedContentBridgeVersion = "2026-07-07.3";
+const expectedContentBridgeVersion = "2026-08-03.5";
 
 chromeApi().runtime.onMessage.addListener((message, _sender, sendResponse) => {
   void handleMessage(message)
@@ -27,6 +24,8 @@ chromeApi().runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function handleMessage(message: ExtensionMessage): Promise<unknown> {
   switch (message.type) {
+    case "GET_EXTENSION_CONTEXT":
+      return { protocolVersion: extensionProtocolVersion };
     case "GET_SETTINGS":
       return { settings: await getSettings() };
     case "SAVE_SETTINGS":
@@ -48,6 +47,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const settings = await getSettings();
       const api = new ApplyAssistantApi(settings);
       return { fieldMap: await api.requestFieldMap(message.sessionId, message.snapshot) };
+    }
+    case "EXTRACT_CURRENT_STEP": {
+      const settings = await getSettings();
+      const api = new ApplyAssistantApi(settings);
+      return { fieldMap: await api.extractStep(message.sessionId, message.snapshot) };
     }
     case "GENERATE_RESUME": {
       const settings = await getSettings();
@@ -71,13 +75,11 @@ async function handleMessage(message: ExtensionMessage): Promise<unknown> {
       const settings = await getSettings();
       const api = new ApplyAssistantApi(settings);
       return {
-        bid: await api.commitBid(message.sessionId, message.resumeVersionId)
+        bid: await api.commitBid(message.sessionId, message.resumeVersionId, message.fieldMap)
       };
     }
     case "APPLY_FIELD_MAP":
-      return runContentBridge("applyFieldMap", [message.fieldMap]);
-    case "CLICK_ACTION":
-      return runContentBridge("clickAction", [message.buttonRef]);
+      return runContentBridge("applyFieldMap", [message.fieldMap, message.resume]);
     case "HIGHLIGHT_REFS":
       return runContentBridge("highlightRefs", [message.refs]);
     default:
@@ -110,7 +112,7 @@ async function analyzeActiveTab(): Promise<unknown> {
 }
 
 async function runContentBridge(
-  method: "highlightRefs" | "applyFieldMap" | "clickAction",
+  method: "highlightRefs" | "applyFieldMap",
   args: unknown[]
 ): Promise<unknown> {
   const tab = await activeTab();
@@ -123,7 +125,7 @@ async function runContentBridge(
 
 async function runContentBridgeForTab(
   tabId: number,
-  method: "analyzePage" | "highlightRefs" | "applyFieldMap" | "clickAction",
+  method: "analyzePage" | "highlightRefs" | "applyFieldMap",
   args: unknown[]
 ): Promise<unknown> {
   await injectContentScript(tabId);
@@ -140,8 +142,7 @@ async function runContentBridgeForTab(
               version: string;
               analyzePage(): unknown;
               highlightRefs(refs: string[]): unknown;
-              applyFieldMap(fieldMap: unknown): ApplyFieldMapResponse;
-              clickAction(buttonRef: string): ClickActionResponse;
+              applyFieldMap(fieldMap: unknown, resume?: unknown): ApplyFieldMapResponse;
             };
           }
         ).__rghs1ApplyAssistant;
@@ -161,10 +162,7 @@ async function runContentBridgeForTab(
           return assistant.highlightRefs((methodArgs[0] as string[]) ?? []);
         }
         if (methodName === "applyFieldMap") {
-          return assistant.applyFieldMap(methodArgs[0]);
-        }
-        if (methodName === "clickAction") {
-          return assistant.clickAction(String(methodArgs[0] ?? ""));
+          return assistant.applyFieldMap(methodArgs[0], methodArgs[1]);
         }
 
         throw new Error("Unknown apply assistant content bridge method.");
