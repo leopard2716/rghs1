@@ -8,6 +8,7 @@ import {
   FileUp,
   LoaderCircle,
   Plus,
+  Printer,
   RefreshCw,
   Save,
   Trash2,
@@ -221,7 +222,9 @@ export function BidsPage({
     setJobDescriptionExpanded(false);
     setSelectedProfileIds(modalBid.profiles.map((profile) => profile.id));
     setProfileResumes(
-      Object.fromEntries(modalBid.profiles.map((profile) => [profile.id, profile.resume ?? ""]))
+      Object.fromEntries(
+        modalBid.profiles.map((profile) => [profile.id, profile.resumeHtml ?? profile.resume ?? ""])
+      )
     );
     setExpandedProfileResumes({});
     setSelectedBidId(null);
@@ -278,7 +281,9 @@ export function BidsPage({
     setJobDescriptionExpanded(false);
     setSelectedProfileIds(bid.profiles.map((profile) => profile.id));
     setProfileResumes(
-      Object.fromEntries(bid.profiles.map((profile) => [profile.id, profile.resume ?? ""]))
+      Object.fromEntries(
+        bid.profiles.map((profile) => [profile.id, profile.resumeHtml ?? profile.resume ?? ""])
+      )
     );
     setExpandedProfileResumes({});
     setSelectedBidId(null);
@@ -447,7 +452,7 @@ export function BidsPage({
                               >
                                 <summary>{profile.name}</summary>
                                 <p className="plain-resume">
-                                  {profile.resume ?? "No resume stored."}
+                                  {profile.resumeHtml ?? profile.resume ?? "No resume stored."}
                                 </p>
                               </details>
                             ))}
@@ -865,6 +870,17 @@ export function BidsPage({
                             <Copy aria-hidden="true" />
                           </button>
                           <button
+                            className="secondary-action compact-print-button"
+                            type="button"
+                            title="Print PDF"
+                            aria-label={`Print resume for ${profile.name}`}
+                            disabled={!resumeValue.trim()}
+                            onClick={() => printResume(resumeValue, profile.name, setFormError)}
+                          >
+                            <Printer aria-hidden="true" />
+                            Print PDF
+                          </button>
+                          <button
                             className="collapsible-toggle-button"
                             type="button"
                             onClick={() =>
@@ -883,7 +899,7 @@ export function BidsPage({
                       >
                         <textarea
                           rows={8}
-                          maxLength={50000}
+                          maxLength={250000}
                           value={resumeValue}
                           disabled={bidFormDisabled}
                           placeholder={`Paste the resume used for ${profile.name}`}
@@ -1027,6 +1043,60 @@ async function copyToClipboard(text: string, onError: (message: string) => void)
   } catch {
     onError("Copy failed. Check browser clipboard permission and try again.");
   }
+}
+
+function printResume(
+  resume: string,
+  profileName: string,
+  onError: (message: string) => void
+): void {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    onError("Allow popups to open the resume print preview.");
+    return;
+  }
+  printWindow.opener = null;
+
+  const printable = printableResumeHtml(resume);
+  printWindow.document.open();
+  printWindow.document.write(
+    `<!doctype html><html><head><title>${escapeHtml(profileName)} Resume</title><style>body{font-family:Arial,sans-serif;margin:32px;line-height:1.35;color:#111827}pre{font:inherit;white-space:pre-wrap}@page{margin:0.5in}@media print{body{margin:0}}</style></head><body>${printable}</body></html>`
+  );
+  printWindow.document.close();
+  printWindow.focus();
+  window.setTimeout(() => printWindow.print(), 100);
+}
+
+function printableResumeHtml(resume: string): string {
+  if (!/<[a-z][\s\S]*>/i.test(resume)) {
+    return `<pre>${escapeHtml(resume)}</pre>`;
+  }
+
+  const parsed = new DOMParser().parseFromString(resume, "text/html");
+  parsed
+    .querySelectorAll("script,iframe,object,embed,form,input,button,link,meta,base")
+    .forEach((element) => element.remove());
+  parsed.querySelectorAll("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      if (
+        /^on/i.test(attribute.name) ||
+        ((attribute.name === "href" || attribute.name === "src") &&
+          /^\s*javascript:/i.test(attribute.value))
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  return parsed.body.innerHTML;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function richTextPlainText(value: RichTextDocument | null): string {
