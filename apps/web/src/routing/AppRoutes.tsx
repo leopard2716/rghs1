@@ -7,6 +7,7 @@ import {
   AdminProtectedRoute
 } from "../features/admin/routes/AdminRoutes";
 import { LandingPage } from "../features/landing/LandingPage";
+import { PrivacyPage } from "../features/legal/PrivacyPage";
 import {
   WorkspaceAccountRoute,
   WorkspaceBidsRoute,
@@ -27,6 +28,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path={paths.landing} element={<LandingRoute />} />
+      <Route path={paths.privacy} element={<PrivacyPage />} />
       <Route path={paths.recovery} element={<RecoveryRoute />} />
 
       <Route path={paths.adminRoot} element={<AdminIndexRoute />} />

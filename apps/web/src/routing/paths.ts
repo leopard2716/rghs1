@@ -1,5 +1,6 @@
 export const paths = {
   landing: "/",
+  privacy: "/privacy",
   recovery: "/recover",
   adminRoot: "/admin",
   adminLogin: "/admin/login",

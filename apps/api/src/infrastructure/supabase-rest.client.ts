@@ -283,7 +283,10 @@ export class SupabaseRestClient {
       message.includes("custom_payment_records") ||
       message.includes("payment_amount") ||
       message.includes("payment_manager_amount") ||
-      message.includes("payment_manager")
+      message.includes("payment_manager") ||
+      message.includes("extension_tokens") ||
+      message.includes("extension_connection_codes") ||
+      message.includes("apply_assistant_sessions")
     ) {
       return apiError(
         503,

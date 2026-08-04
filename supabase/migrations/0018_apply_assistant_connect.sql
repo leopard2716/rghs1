@@ -91,6 +91,5 @@ comment on column public.extension_tokens.token_hash is
 
 comment on column public.extension_connection_codes.code_hash is
   'SHA-256 hash of the one-time connection code plus the backend token secret.';
-
 comment on column public.apply_assistant_sessions.page_snapshot is
   'Validated extension page snapshot used for deterministic mapping and later AI review.';

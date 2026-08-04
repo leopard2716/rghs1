@@ -37,9 +37,11 @@ export type TrackingProfileEducation = {
 
 export type TrackingProfileCareerExperience = {
   companyName?: string | null;
+  jobTitle?: string | null;
   companyLocation?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
+  description?: string | null;
 };
 
 export type TrackingProfileInput = {
@@ -65,6 +67,7 @@ export type TrackingProfileInput = {
 
 export type TrackingBidProfile = TrackingProfile & {
   resume: string | null;
+  resumeHtml?: string | null;
 };
 
 export type TrackingJobMarket = {
@@ -105,6 +108,7 @@ export type BidRecord = {
   jobLink: string;
   bidAt: string;
   jobDescription: RichTextDocument | string | null;
+  applicationMetadata?: Record<string, unknown> | null;
   jobMarket: TrackingJobMarket;
   profiles: TrackingBidProfile[];
   referenceInterviews: BidInterviewReference[];
