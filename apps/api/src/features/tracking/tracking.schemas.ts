@@ -62,9 +62,11 @@ const profileEducationInput = z.object({
 
 const profileCareerExperienceInput = z.object({
   companyName: optionalProfileText(180),
+  jobTitle: optionalProfileText(180),
   companyLocation: optionalProfileText(180),
   dateFrom: optionalProfileDate,
-  dateTo: optionalProfileDate
+  dateTo: optionalProfileDate,
+  description: optionalProfileText(10000)
 });
 
 export const trackingProfileInput = z
@@ -172,7 +174,7 @@ export const bidRecordInput = z
       .array(
         z.object({
           profileId: z.string().uuid(),
-          resume: z.string().trim().min(1).max(50000)
+          resume: z.string().trim().min(1).max(250000)
         })
       )
       .max(25)

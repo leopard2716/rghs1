@@ -23,6 +23,16 @@ export default tseslint.config(
     }
   },
   {
+    files: ["apps/extension/**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.serviceworker,
+        chrome: "readonly"
+      }
+    }
+  },
+  {
     files: ["apps/api/**/*.ts", "packages/**/*.ts", "scripts/**/*.mjs", "**/*.config.{js,mjs,ts}"],
     languageOptions: {
       globals: {

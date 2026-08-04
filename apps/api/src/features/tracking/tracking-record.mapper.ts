@@ -45,9 +45,11 @@ export type ProfileEducationResponse = {
 
 export type ProfileCareerExperienceResponse = {
   companyName: string | null;
+  jobTitle: string | null;
   companyLocation: string | null;
   dateFrom: string | null;
   dateTo: string | null;
+  description: string | null;
 };
 
 export type JobMarketResponse = {
@@ -66,6 +68,7 @@ export type MemberSummary = {
 
 export type BidProfileResponse = ProfileResponse & {
   resume: string | null;
+  resumeHtml: string | null;
 };
 
 export type BidInterviewReferenceResponse = {
@@ -92,6 +95,7 @@ export type BidResponse = {
   jobLink: string;
   bidAt: string;
   jobDescription: RichTextDocument | string | null;
+  applicationMetadata: Record<string, unknown> | null;
   jobMarket: JobMarketResponse;
   profiles: BidProfileResponse[];
   referenceInterviews: BidInterviewReferenceResponse[];
@@ -278,7 +282,8 @@ export class TrackingRecordMapper {
       }
       return {
         ...profile,
-        resume: assignment.resume
+        resume: assignment.resume,
+        resumeHtml: assignment.resume_html ?? null
       };
     });
     const ownedByCurrentMember =
@@ -292,6 +297,7 @@ export class TrackingRecordMapper {
       jobLink: row.job_link,
       bidAt: row.bid_at,
       jobDescription: row.job_description,
+      applicationMetadata: row.application_metadata ?? null,
       jobMarket: market,
       profiles,
       referenceInterviews,
@@ -505,9 +511,11 @@ function profileCareerExperiences(value: unknown): ProfileCareerExperienceRespon
     return [
       {
         companyName: textOrNull(record.companyName),
+        jobTitle: textOrNull(record.jobTitle),
         companyLocation: textOrNull(record.companyLocation),
         dateFrom: textOrNull(record.dateFrom),
-        dateTo: textOrNull(record.dateTo)
+        dateTo: textOrNull(record.dateTo),
+        description: textOrNull(record.description)
       }
     ];
   });

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { ApiBindings, ApiVariables } from "./app.types";
+import { registerApplyAssistantRoutes } from "./features/apply-assistant/apply-assistant.routes";
 import { registerAdminRoutes } from "./features/admin/admin.routes";
 import { registerFileRoutes } from "./features/files/files.routes";
 import { registerHealthRoutes } from "./features/health/health.routes";
@@ -25,6 +26,7 @@ export function createApp() {
   registerNotificationRoutes(app);
   registerTrackingRoutes(app);
   registerWorkspaceRoutes(app);
+  registerApplyAssistantRoutes(app);
   registerAdminRoutes(app);
   registerFileRoutes(app);
 

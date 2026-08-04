@@ -145,6 +145,27 @@ describe("RGHS1 API", () => {
     expect(body.code).toBe("auth_required");
   });
 
+  it("registers apply-assistant connect behind authentication", async () => {
+    const response = await app.request(
+      "/v1/workspaces/rg-team/apply-assistant/connect",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({})
+      },
+      {
+        SUPABASE_URL: "https://example.supabase.co",
+        SUPABASE_ANON_KEY: "anon-key",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+        EXTENSION_TOKEN_SECRET: "test-secret"
+      }
+    );
+    const body = (await response.json()) as JsonObject;
+
+    expect(response.status).toBe(401);
+    expect(body.code).toBe("auth_required");
+  });
+
   it("keeps unfinished tenant write endpoints disabled", async () => {
     const response = await app.request(
       "/v1/applications",
