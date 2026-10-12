@@ -1749,3 +1749,37 @@ it("rechecks duplicate selection before deletion and guards against concurrently
     spy.mockRestore();
   }
 });
+
+it("exports all pending records scoped to the bidder and workspace", async () => {
+  const base = trackingSupabase("bidder", "bid_records");
+  const selectAll = vi.fn(async () => [
+    { job_title: "Engineer", company: "Acme", job_link: "https://example.com/job" }
+  ]);
+  const service = new TrackingService({ ...base, selectAll } as unknown as SupabaseRestClient);
+  await expect(service.exportPendingBids("rg-team", { id: authUserId })).resolves.toEqual({
+    records: [{ jobTitle: "Engineer", company: "Acme", link: "https://example.com/job" }]
+  });
+  expect(selectAll).toHaveBeenCalledWith(
+    "bid_records",
+    "job_title,company,job_link",
+    {
+      workspace_id: `eq.${workspaceId}`,
+      created_by_member_id: `eq.${memberId}`,
+      applied_at: "is.null",
+      deleted_at: "is.null"
+    },
+    { order: "bid_at.desc,id.desc" }
+  );
+});
+
+it("rejects pending exports for members without the bidder role", async () => {
+  const selectAll = vi.fn();
+  const service = new TrackingService({
+    ...trackingSupabase("interviewer", "bid_records"),
+    selectAll
+  } as unknown as SupabaseRestClient);
+  await expect(service.exportPendingBids("rg-team", { id: authUserId })).rejects.toMatchObject({
+    status: 403
+  });
+  expect(selectAll).not.toHaveBeenCalled();
+});

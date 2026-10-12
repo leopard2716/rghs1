@@ -1107,3 +1107,13 @@ export async function markBidApplied(
     )
   );
 }
+
+export type PendingBidExportRow = { jobTitle: string; company: string; link: string };
+export async function fetchPendingBidExport(session: AuthSession, slug: string) {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids/export-pending`,
+    { headers: authHeaders() }
+  );
+  return parseJson<{ records: PendingBidExportRow[] }>(response);
+}
