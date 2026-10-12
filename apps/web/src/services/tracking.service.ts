@@ -990,3 +990,43 @@ function queryString(query: object): string {
   const value = params.toString();
   return value ? `?${value}` : "";
 }
+
+export type BulkBidDeleteFilter = { profileId: string; dateFrom: string; dateTo: string };
+export type BulkBidDeletePreview = {
+  bids: Array<{ id: string; company: string; jobTitle: string; bidAt: string }>;
+  hasMore: boolean;
+};
+
+export async function previewBulkDeleteBids(
+  session: AuthSession,
+  slug: string,
+  filter: BulkBidDeleteFilter
+) {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/bids/bulk-delete/preview`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(filter)
+    }
+  );
+  return parseJson<BulkBidDeletePreview>(response);
+}
+
+export async function bulkDeleteBids(
+  session: AuthSession,
+  slug: string,
+  input: { filter: BulkBidDeleteFilter; bidIds: string[] }
+) {
+  const response = await authenticatedApiFetch(
+    session,
+    `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/bids/bulk-delete`,
+    {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(input)
+    }
+  );
+  return parseJson<{ deleted: number; skipped: number }>(response);
+}

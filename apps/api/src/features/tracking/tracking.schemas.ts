@@ -269,6 +269,29 @@ export const paymentPayInput = z.object({
   paymentRecordIds: z.array(z.string().uuid()).min(1)
 });
 
+export const bulkBidDeleteFilter = z
+  .object({
+    profileId: z.string().uuid(),
+    dateFrom: z.string().datetime(),
+    dateTo: z.string().datetime()
+  })
+  .refine((input) => Date.parse(input.dateTo) > Date.parse(input.dateFrom), {
+    message: "End date must be after the start date.",
+    path: ["dateTo"]
+  });
+
+export const bulkBidDeleteInput = z.object({
+  filter: bulkBidDeleteFilter,
+  bidIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(200)
+    .refine((ids) => new Set(ids).size === ids.length, "Select each bid only once.")
+});
+
+export type BulkBidDeleteFilter = z.infer<typeof bulkBidDeleteFilter>;
+export type BulkBidDeleteInput = z.infer<typeof bulkBidDeleteInput>;
+
 export const bulkBidRecordInput = z.object({
   records: z.array(bidRecordInput).min(1)
 });
