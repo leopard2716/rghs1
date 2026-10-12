@@ -3865,12 +3865,3 @@ td span {
   max-height: 360px;
   overflow: auto;
 }
-.bulk-delete-choice {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.bulk-delete-choice input[type="checkbox"],
-.bulk-delete-preview input[type="checkbox"] {
-  width: auto;
-}
