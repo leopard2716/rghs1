@@ -1409,7 +1409,11 @@ function bulkDeleteFixture(role = "bidder") {
       }
       if (value === "is.null") return row[key] == null;
       if (value.startsWith("eq.")) return row[key] === value.slice(3);
-      if (value.startsWith("in.(")) return value.slice(4, -1).split(",").includes(String(row[key]));
+      if (value.startsWith("in.(")) {
+        const values: string[] =
+          key === "company" ? JSON.parse(`[${value.slice(4, -1)}]`) : value.slice(4, -1).split(",");
+        return values.includes(String(row[key]));
+      }
       return false;
     });
   }
@@ -1606,4 +1610,108 @@ describe("application rule permissions", () => {
       )
     ).rejects.toMatchObject({ status: 409 });
   });
+});
+
+describe("bulk deletion company filter", () => {
+  it("previews exact normalized company matches and leaves blank filters unrestricted", async () => {
+    const { service, bids } = bulkDeleteFixture();
+    bids[0]!.company = "Acme, Inc.";
+    expect(
+      (
+        await service.previewBulkDeleteBids(
+          "rg-team",
+          { id: authUserId },
+          { ...bulkFilter, company: " ACME LLC " }
+        )
+      ).bids
+    ).toHaveLength(1);
+    expect(
+      (
+        await service.previewBulkDeleteBids(
+          "rg-team",
+          { id: authUserId },
+          { ...bulkFilter, company: "Acme Cloud" }
+        )
+      ).bids
+    ).toHaveLength(0);
+    expect(
+      (
+        await service.previewBulkDeleteBids(
+          "rg-team",
+          { id: authUserId },
+          { ...bulkFilter, company: " " }
+        )
+      ).bids
+    ).toHaveLength(1);
+  });
+  it("deletes only selected bids that still match the requested company", async () => {
+    const { service, bids } = bulkDeleteFixture();
+    bids[0]!.company = "Acme, Inc.";
+    expect(
+      await service.bulkDeleteBids(
+        "rg-team",
+        { id: authUserId },
+        { filter: { ...bulkFilter, company: "ACME LLC" }, bidIds: [recordId] }
+      )
+    ).toEqual({ deleted: 1, skipped: 0 });
+  });
+  it("rejects company edits between preview and deletion before changing any bids", async () => {
+    const { service, bids, db } = bulkDeleteFixture();
+    bids[0]!.company = "Acme";
+    await service.previewBulkDeleteBids(
+      "rg-team",
+      { id: authUserId },
+      { ...bulkFilter, company: "Acme" }
+    );
+    bids[0]!.company = "Another Business";
+    await expect(
+      service.bulkDeleteBids(
+        "rg-team",
+        { id: authUserId },
+        { filter: { ...bulkFilter, company: "Acme" }, bidIds: [recordId] }
+      )
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("does not stop at nonmatching records before reaching a later matching batch", async () => {
+    const { service, bids, assignments } = bulkDeleteFixture();
+    for (let i = 0; i < 205; i++) {
+      const id = crypto.randomUUID();
+      bids.push({ ...bids[0]!, id, company: "Unrelated" });
+      assignments.push({ bid_id: id, workspace_id: workspaceId, profile_id: bulkProfileId });
+    }
+    const id = crypto.randomUUID();
+    bids.push({ ...bids[0]!, id, company: "Last Batch Inc." });
+    assignments.push({ bid_id: id, workspace_id: workspaceId, profile_id: bulkProfileId });
+    expect(
+      (
+        await service.previewBulkDeleteBids(
+          "rg-team",
+          { id: authUserId },
+          { ...bulkFilter, company: "Last Batch" }
+        )
+      ).bids.map((row) => row.id)
+    ).toEqual([id]);
+  });
+});
+
+it("skips a company renamed between eligibility recheck and the database update", async () => {
+  const { service, bids, db } = bulkDeleteFixture();
+  bids[0]!.company = 'Acme, "Special" Inc.';
+  const update = db.update.getMockImplementation()!;
+  db.update.mockImplementationOnce(async (table, values, filters) => {
+    bids[0]!.company = "Different Business";
+    return update(table, values, filters);
+  });
+  expect(
+    await service.bulkDeleteBids(
+      "rg-team",
+      { id: authUserId },
+      {
+        filter: { ...bulkFilter, company: 'Acme, "Special" LLC' },
+        bidIds: [recordId]
+      }
+    )
+  ).toEqual({ deleted: 0, skipped: 1 });
+  expect(bids[0]!.deleted_at).toBeNull();
 });
