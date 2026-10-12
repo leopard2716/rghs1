@@ -631,6 +631,8 @@ export class TrackingService {
       ...marketIds.map((marketId) => this.access.requireMarket(context.workspace.id, marketId))
     ]);
     const createdIds: string[] = [];
+    const importBatchId = crypto.randomUUID();
+    const importedAt = new Date().toISOString();
     const batchSize = 200;
     try {
       for (let offset = 0; offset < input.records.length; offset += batchSize) {
@@ -642,8 +644,12 @@ export class TrackingService {
         createdIds.push(...prepared.map((item) => item.id));
         const inserted = await this.supabase.insert<BidRecordRow>(
           "bid_records",
-          prepared.map((item) => ({
+          prepared.map((item, index) => ({
             id: item.id,
+            imported_at: importedAt,
+            import_batch_id: importBatchId,
+            import_order: offset + index,
+            applied_at: null,
             workspace_id: context.workspace.id,
             job_market_id: item.record.jobMarketId,
             job_title: item.record.jobTitle,
@@ -799,6 +805,7 @@ export class TrackingService {
         company: input.company,
         job_link: input.jobLink,
         bid_at: input.bidAt,
+        applied_at: existing.applied_at ? input.bidAt : null,
         job_description: input.jobDescription ?? null,
         updated_at: now
       },
@@ -856,6 +863,7 @@ export class TrackingService {
         company: input.company,
         job_link: input.jobLink,
         bid_at: input.bidAt,
+        applied_at: input.bidAt,
         job_description: input.jobDescription ?? null,
         created_by_member_id: context.member.id
       }

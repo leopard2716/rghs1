@@ -96,6 +96,8 @@ export type BidResponse = {
   bidAt: string;
   jobDescription: RichTextDocument | string | null;
   applicationMetadata: Record<string, unknown> | null;
+  appliedAt?: string | null;
+  importedAt?: string | null;
   jobMarket: JobMarketResponse;
   profiles: BidProfileResponse[];
   referenceInterviews: BidInterviewReferenceResponse[];
@@ -298,6 +300,8 @@ export class TrackingRecordMapper {
       bidAt: row.bid_at,
       jobDescription: row.job_description,
       applicationMetadata: row.application_metadata ?? null,
+      appliedAt: row.applied_at ?? null,
+      importedAt: row.imported_at ?? null,
       jobMarket: market,
       profiles,
       referenceInterviews,

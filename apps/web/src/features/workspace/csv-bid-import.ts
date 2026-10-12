@@ -26,6 +26,39 @@ const aliases: Record<CsvBidField, string[]> = {
   jobDescription: ["job description", "description", "jd"]
 };
 
+export async function parseBidSpreadsheet(file: File): Promise<CsvTable> {
+  if (file.name.toLowerCase().endsWith(".csv")) return parseBidCsv(file);
+  if (!file.name.toLowerCase().endsWith(".xlsx"))
+    throw new Error("Choose a CSV or Excel (.xlsx) file.");
+  return parseBidWorkbook(await file.arrayBuffer());
+}
+
+export async function parseBidWorkbook(buffer: ArrayBuffer): Promise<CsvTable> {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.default.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) throw new Error("The workbook has no worksheets.");
+  const data: string[][] = [];
+  sheet.eachRow((row) => {
+    const values: string[] = [];
+    for (let index = 1; index <= sheet.columnCount; index++) {
+      const cell = row.getCell(index);
+      const value = cell.value;
+      if (value instanceof Date) values.push(value.toISOString().slice(0, 19).replace("T", " "));
+      else if (value && typeof value === "object" && "hyperlink" in value)
+        values.push(value.hyperlink);
+      else values.push(cell.text.trim());
+    }
+    if (values.some((value) => value.trim())) data.push(values);
+  });
+  const [header, ...rows] = data;
+  if (!header || !rows.length)
+    throw new Error("The first worksheet must contain a header and data rows.");
+  const headers = header.map((value, index) => value.trim() || `Column ${index + 1}`);
+  return { headers, rows: rows.map((row) => headers.map((_, index) => row[index] ?? "")) };
+}
+
 export async function parseBidCsv(file: File): Promise<CsvTable> {
   if (!file.name.toLocaleLowerCase().endsWith(".csv")) {
     throw new Error("Choose a CSV file.");

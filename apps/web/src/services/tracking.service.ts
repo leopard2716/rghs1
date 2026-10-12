@@ -109,6 +109,8 @@ export type BidRecord = {
   bidAt: string;
   jobDescription: RichTextDocument | string | null;
   applicationMetadata?: Record<string, unknown> | null;
+  appliedAt?: string | null;
+  importedAt?: string | null;
   jobMarket: TrackingJobMarket;
   profiles: TrackingBidProfile[];
   referenceInterviews: BidInterviewReference[];
@@ -1029,4 +1031,73 @@ export async function bulkDeleteBids(
     }
   );
   return parseJson<{ deleted: number; skipped: number }>(response);
+}
+
+export type ApplicationRules = { cooldownDays: number; timeZone: string };
+export type EligibilityResult = {
+  bidId: string;
+  showBadge: boolean;
+  duplicated: boolean;
+  matches: Array<{
+    id: string;
+    company: string;
+    jobTitle: string;
+    appliedAt: string | null;
+    importedAt: string | null;
+    profileIds: string[];
+    deleted: boolean;
+    blocks: boolean;
+    reason: string;
+  }>;
+};
+export async function fetchApplicationRules(
+  session: AuthSession,
+  slug: string
+): Promise<ApplicationRules> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/application-rules`,
+      { headers: authHeaders() }
+    )
+  );
+}
+export async function saveApplicationRules(
+  session: AuthSession,
+  slug: string,
+  input: ApplicationRules
+): Promise<ApplicationRules> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/application-rules`,
+      { method: "PUT", headers: authHeaders(), body: JSON.stringify(input) }
+    )
+  );
+}
+export async function fetchApplicationEligibility(
+  session: AuthSession,
+  slug: string,
+  bidIds: string[]
+): Promise<{ rules: ApplicationRules; results: EligibilityResult[] }> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/application-eligibility`,
+      { method: "POST", headers: authHeaders(), body: JSON.stringify({ bidIds }) }
+    )
+  );
+}
+export async function markBidApplied(
+  session: AuthSession,
+  slug: string,
+  bidId: string
+): Promise<{ appliedAt: string }> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/bids/${encodeURIComponent(bidId)}/applied`,
+      { method: "POST", headers: authHeaders() }
+    )
+  );
 }

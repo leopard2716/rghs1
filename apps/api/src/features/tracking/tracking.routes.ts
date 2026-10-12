@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { ApplicationRulesService } from "./application-rules.service";
 import { zValidator } from "@hono/zod-validator";
 import type { Hono } from "hono";
 import { authTokenFromHeader, getAuthUser, requireAal2 } from "../../auth/supabase-auth.service";
@@ -43,6 +45,81 @@ type ApiApp = Hono<{
 }>;
 
 export function registerTrackingRoutes(app: ApiApp): void {
+  const rulesInput = z.object({
+    cooldownDays: z.number().int().min(1).max(3650),
+    timeZone: z
+      .string()
+      .max(100)
+      .refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      })
+  });
+  app.get("/v1/workspaces/:slug/tracking/application-rules", async (c) => {
+    try {
+      const { user } = await requestContext(c);
+      return c.json(
+        await new ApplicationRulesService(
+          new SupabaseRestClient(requireSupabaseConfig(c.env))
+        ).rules(c.req.param("slug"), user)
+      );
+    } catch (error) {
+      return trackingError(c, error);
+    }
+  });
+  app.put(
+    "/v1/workspaces/:slug/tracking/application-rules",
+    zValidator("json", rulesInput),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new ApplicationRulesService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).saveRules(c.req.param("slug"), user, c.req.valid("json"))
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+  app.post(
+    "/v1/workspaces/:slug/tracking/application-eligibility",
+    zValidator("json", z.object({ bidIds: z.array(z.string().uuid()).min(1).max(100) })),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new ApplicationRulesService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).eligibility(c.req.param("slug"), user, c.req.valid("json").bidIds)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+  app.post(
+    "/v1/workspaces/:slug/tracking/bids/:bidId/applied",
+    zValidator("param", bidRecordParams),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new ApplicationRulesService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).markApplied(c.req.param("slug"), user, c.req.valid("param").bidId)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
   app.post(
     "/v1/workspaces/:slug/tracking/bids/bulk-delete/preview",
     zValidator("json", bulkBidDeleteFilter),

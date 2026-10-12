@@ -3,3 +3,4 @@ export * from "./permissions";
 export * from "./rich-text";
 export * from "./types";
 export * from "./workflow";
+export * from "./company-name";
