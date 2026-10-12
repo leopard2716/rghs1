@@ -1,3 +1,4 @@
+import { updateBidActionCache } from "../bid-action-cache";
 import { ApplicationEligibilityBadge } from "./ApplicationEligibilityBadge";
 import { isRichTextEmpty, type RichTextDocument } from "@rghs1/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,7 +16,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Modal } from "../../../components/shared/Modal";
 import { errorMessage } from "../../../errors";
@@ -91,7 +92,24 @@ export function BidsPage({
   const [profileResumes, setProfileResumes] = useState<Record<string, string>>({});
   const [expandedProfileResumes, setExpandedProfileResumes] = useState<Record<string, boolean>>({});
   const [selectedBidId, setSelectedBidId] = useState<string | null>(null);
-  const [deletingBidId, setDeletingBidId] = useState<string | null>(null);
+  const bidActionLocks = useRef(new Set<string>());
+  const [pendingBidActions, setPendingBidActions] = useState<Record<string, "delete" | "applied">>(
+    {}
+  );
+  function beginBidAction(bidId: string, action: "delete" | "applied") {
+    if (bidActionLocks.current.has(bidId)) return false;
+    bidActionLocks.current.add(bidId);
+    setPendingBidActions((current) => ({ ...current, [bidId]: action }));
+    return true;
+  }
+  function finishBidAction(bidId: string) {
+    bidActionLocks.current.delete(bidId);
+    setPendingBidActions((current) => {
+      const next = { ...current };
+      delete next[bidId];
+      return next;
+    });
+  }
   const [companySearch, setCompanySearch] = useState("");
   const bidsQuery = useQuery({
     queryKey: ["tracking-bids", slug, memberId, listQuery],
@@ -132,14 +150,16 @@ export function BidsPage({
   const [reviewEligibility, setReviewEligibility] = useState<EligibilityResult | null>(null);
   const appliedMutation = useMutation({
     mutationFn: (bidId: string) => markBidApplied(session, slug, bidId),
-    onSuccess: async () => {
-      await Promise.all([
+    onSuccess: (result, bidId) => {
+      updateBidActionCache(queryClient, slug, memberId, bidId, result.appliedAt);
+      void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
         queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
       ]);
-    }
+    },
+    onSettled: (_data, _error, bidId) => finishBidAction(bidId)
   });
   const updateListQuery = useCallback(
     (change: Partial<TrackingListQuery>) => {
@@ -181,15 +201,16 @@ export function BidsPage({
   });
   const deleteMutation = useMutation({
     mutationFn: (bidId: string) => deleteBidRecord(session, slug, bidId),
-    onSuccess: async () => {
-      await Promise.all([
+    onSuccess: (_result, bidId) => {
+      updateBidActionCache(queryClient, slug, memberId, bidId);
+      void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
         queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
       ]);
     },
-    onSettled: () => setDeletingBidId(null)
+    onSettled: (_data, _error, bidId) => finishBidAction(bidId)
   });
   const companyMatches = useMemo(
     () =>
@@ -427,16 +448,16 @@ export function BidsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {bidsQuery.isFetching ? (
+                  {bidsQuery.isPlaceholderData ? (
                     <TableLoadingRow colSpan={showActions ? 9 : 8} label="Loading bid results" />
                   ) : bidsQuery.data.bids.length ? (
                     bidsQuery.data.bids.map((bid) => (
                       <tr
                         key={bid.id}
                         className={`tracking-row-clickable${
-                          deletingBidId === bid.id ? " tenant-row-pending" : ""
+                          pendingBidActions[bid.id] ? " tenant-row-pending" : ""
                         }`}
-                        aria-busy={deletingBidId === bid.id}
+                        aria-busy={Boolean(pendingBidActions[bid.id])}
                         tabIndex={0}
                         onClick={() => openBidView(bid)}
                         onKeyDown={(event) => {
@@ -523,18 +544,22 @@ export function BidsPage({
                             <button
                               className="secondary-action small"
                               type="button"
-                              disabled={appliedMutation.isPending}
+                              disabled={Boolean(pendingBidActions[bid.id])}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 if (
                                   window.confirm(
                                     "Mark this application as actually submitted now? This starts the company cooldown."
                                   )
-                                )
-                                  appliedMutation.mutate(bid.id);
+                                ) {
+                                  if (beginBidAction(bid.id, "applied"))
+                                    appliedMutation.mutate(bid.id);
+                                }
                               }}
                             >
-                              Mark applied
+                              {pendingBidActions[bid.id] === "applied"
+                                ? "Marking…"
+                                : "Mark applied"}
                             </button>
                           ) : null}
                         </td>
@@ -566,7 +591,7 @@ export function BidsPage({
                                 <button
                                   className="secondary-action compact-action"
                                   type="button"
-                                  disabled={deletingBidId === bid.id}
+                                  disabled={Boolean(pendingBidActions[bid.id])}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     navigate(paths.workspaceInterviewForBid(slug, bid.id));
@@ -580,24 +605,24 @@ export function BidsPage({
                                 <button
                                   className="secondary-action compact-action danger-action"
                                   type="button"
-                                  disabled={deletingBidId === bid.id}
+                                  disabled={Boolean(pendingBidActions[bid.id])}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     const confirmed = window.confirm(
                                       `Delete the bid for "${bid.jobTitle}" at ${bid.company}? Existing interview history will be preserved.`
                                     );
                                     if (confirmed) {
-                                      setDeletingBidId(bid.id);
-                                      deleteMutation.mutate(bid.id);
+                                      if (beginBidAction(bid.id, "delete"))
+                                        deleteMutation.mutate(bid.id);
                                     }
                                   }}
                                 >
-                                  {deletingBidId === bid.id ? (
+                                  {pendingBidActions[bid.id] === "delete" ? (
                                     <LoaderCircle className="spin-icon" aria-hidden="true" />
                                   ) : (
                                     <Trash2 aria-hidden="true" />
                                   )}
-                                  {deletingBidId === bid.id ? "Deleting" : "Delete"}
+                                  {pendingBidActions[bid.id] === "delete" ? "Deleting" : "Delete"}
                                 </button>
                               ) : null}
                             </div>
