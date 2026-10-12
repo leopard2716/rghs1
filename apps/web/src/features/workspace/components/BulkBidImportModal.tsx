@@ -18,7 +18,7 @@ import {
   inferProfileResumeHeader,
   matchingProfile,
   normalizeProfileName,
-  parseBidCsv,
+  parseBidSpreadsheet,
   parseCsvBidDate,
   plainTextToRichText,
   splitProfileNames,
@@ -158,7 +158,7 @@ export function BulkBidImportModal({
 
   function importConfigurationError(): string | null {
     if (!table || !mapping || !jobMarketId) {
-      return "Choose a CSV file and job market.";
+      return "Choose a CSV or Excel (.xlsx) file and job market.";
     }
     if (
       !Number.isInteger(yearForYearlessDates) ||
@@ -182,7 +182,8 @@ export function BulkBidImportModal({
 
   async function loadFile(file: File) {
     try {
-      const parsed = await parseBidCsv(file);
+      // XLSX uses the first worksheet and keeps the existing column-mapping/resume workflow.
+      const parsed = await parseBidSpreadsheet(file);
       setTable(parsed);
       setFileName(file.name);
       setMapping(inferBidCsvMapping(parsed.headers));
@@ -207,7 +208,7 @@ export function BulkBidImportModal({
       throw new Error(configurationError);
     }
     if (!table || !mapping) {
-      throw new Error("Choose a CSV file.");
+      throw new Error("Choose a CSV or Excel (.xlsx) file.");
     }
     const records: Parameters<typeof bulkCreateBids>[2] = [];
     for (let rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
@@ -285,7 +286,7 @@ export function BulkBidImportModal({
 
   return (
     <Modal
-      title="Bulk Import Bids"
+      title="Import application spreadsheet"
       size="large"
       onClose={() => {
         if (!importLock.current && !importBusy) {
@@ -297,7 +298,7 @@ export function BulkBidImportModal({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           hidden
           onChange={(event) => {
             if (importLock.current) {
@@ -328,9 +329,11 @@ export function BulkBidImportModal({
         >
           {table ? <FileSpreadsheet aria-hidden="true" /> : <Upload aria-hidden="true" />}
           <span>
-            <strong>{table ? fileName : "Import or drag CSV here"}</strong>
+            <strong>{table ? fileName : "Import or drag CSV / Excel (.xlsx) here"}</strong>
             <small>
-              {table ? `${table.rows.length} data rows` : "CSV only; processed in batches"}
+              {table
+                ? `${table.rows.length} data rows`
+                : "CSV or Excel (.xlsx); Excel uses the first worksheet"}
             </small>
           </span>
         </button>

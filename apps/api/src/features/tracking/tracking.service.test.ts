@@ -1528,3 +1528,82 @@ describe("Bulk bid deletion", () => {
     ).toEqual([]);
   });
 });
+
+describe("application rule permissions", () => {
+  it("rejects a bidder changing the workspace cooldown", async () => {
+    const { ApplicationRulesService } = await import("./application-rules.service");
+    const db = trackingSupabase("bidder", "bid_records");
+    await expect(
+      new ApplicationRulesService(db as unknown as SupabaseRestClient).saveRules(
+        "rg-team",
+        { id: authUserId },
+        { cooldownDays: 10, timeZone: "UTC" }
+      )
+    ).rejects.toMatchObject({ status: 403 });
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+  it("requires bidder ownership to mark an application submitted", async () => {
+    const { ApplicationRulesService } = await import("./application-rules.service");
+    const db = trackingSupabase("bidder", "bid_records", "someone-else");
+    await expect(
+      new ApplicationRulesService(db as unknown as SupabaseRestClient).markApplied(
+        "rg-team",
+        { id: authUserId },
+        recordId
+      )
+    ).rejects.toMatchObject({ status: 403 });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+  it("lets admins save and audit application rules for their workspace", async () => {
+    const { ApplicationRulesService } = await import("./application-rules.service");
+    const db = trackingSupabase("admin", "workspace_application_rules");
+    const rules = { cooldownDays: 60, timeZone: "America/Chicago" };
+    expect(
+      await new ApplicationRulesService(db as unknown as SupabaseRestClient).saveRules(
+        "rg-team",
+        { id: authUserId },
+        rules
+      )
+    ).toEqual(rules);
+    expect(db.update).toHaveBeenCalledWith(
+      "workspace_application_rules",
+      expect.objectContaining({ cooldown_days: 60 }),
+      { workspace_id: `eq.${workspaceId}` }
+    );
+    expect(db.insert).toHaveBeenCalledWith("audit_logs", [
+      expect.objectContaining({
+        action: "workspace.application_rules.updated",
+        workspace_id: workspaceId
+      })
+    ]);
+  });
+  it("marks only the creator's pending active bid applied and prevents overwriting an applied date", async () => {
+    const { ApplicationRulesService } = await import("./application-rules.service");
+    const db = trackingSupabase("bidder", "bid_records");
+    await new ApplicationRulesService(db as unknown as SupabaseRestClient).markApplied(
+      "rg-team",
+      { id: authUserId },
+      recordId
+    );
+    expect(db.update).toHaveBeenCalledWith(
+      "bid_records",
+      expect.objectContaining({ applied_at: expect.any(String) }),
+      {
+        workspace_id: `eq.${workspaceId}`,
+        id: `eq.${recordId}`,
+        created_by_member_id: `eq.${memberId}`,
+        applied_at: "is.null",
+        deleted_at: "is.null"
+      }
+    );
+    db.update.mockResolvedValueOnce([]);
+    await expect(
+      new ApplicationRulesService(db as unknown as SupabaseRestClient).markApplied(
+        "rg-team",
+        { id: authUserId },
+        recordId
+      )
+    ).rejects.toMatchObject({ status: 409 });
+  });
+});

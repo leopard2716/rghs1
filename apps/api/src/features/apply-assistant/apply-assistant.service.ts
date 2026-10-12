@@ -986,6 +986,7 @@ export class ApplyAssistantService {
         company: extractedJob.company,
         job_link: session.page_url,
         bid_at: new Date().toISOString(),
+        applied_at: new Date().toISOString(),
         job_description: richTextFromJobDescription(
           extractedJob,
           sourceJobDescriptionRichHtml(jobDescriptionSnapshot(session), extractedJob)

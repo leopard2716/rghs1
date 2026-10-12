@@ -1,3 +1,4 @@
+import { ApplicationRulesForm } from "./ApplicationRulesForm";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   LoaderCircle,
@@ -105,6 +106,7 @@ export function WorkspaceUsersPage({
       onRecoverPassword={onRecoverPassword}
       onSignOut={onSignOut}
     >
+      <ApplicationRulesForm session={session} slug={workspaceSession.workspace.slug} />
       <section className="panel">
         <div className="panel-header">
           <div>
