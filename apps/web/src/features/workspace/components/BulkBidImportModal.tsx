@@ -1,3 +1,4 @@
+import { isUnknownCompanyName } from "@rghs1/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileSpreadsheet, LoaderCircle, Save, Send, Upload, X } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -100,11 +101,13 @@ export function BulkBidImportModal({
       table && mapping?.profiles
         ? [
             ...new Set(
-              table.rows.flatMap((row) => splitProfileNames(csvValue(table, row, mapping.profiles)))
+              table.rows
+                .filter((row) => !isUnknownCompanyName(csvValue(table, row, mapping.company)))
+                .flatMap((row) => splitProfileNames(csvValue(table, row, mapping.profiles)))
             )
           ]
         : [],
-    [mapping?.profiles, table]
+    [mapping?.profiles, mapping?.company, table]
   );
   const requestsByName = useMemo(() => {
     const requests = new Map<string, TrackingProfileRequest>();
@@ -215,6 +218,7 @@ export function BulkBidImportModal({
       const row = table.rows[rowIndex] ?? [];
       const jobTitle = csvValue(table, row, mapping.jobTitle);
       const company = csvValue(table, row, mapping.company);
+      if (isUnknownCompanyName(company)) continue;
       const jobLink = csvValue(table, row, mapping.jobLink);
       const names = splitProfileNames(csvValue(table, row, mapping.profiles));
       if (!names.length) {
@@ -278,7 +282,7 @@ export function BulkBidImportModal({
     }
     if (!records.length) {
       throw new Error(
-        "No bids remain to import because every CSV row contains only ignored profiles."
+        "No applications remain after skipping unknown/empty companies and ignored profiles."
       );
     }
     return records;
@@ -342,6 +346,14 @@ export function BulkBidImportModal({
           <>
             <section className="bulk-import-section">
               <h4>Preview</h4>
+              <p role="status">
+                {
+                  table.rows.filter((row) =>
+                    isUnknownCompanyName(csvValue(table, row, mapping.company))
+                  ).length
+                }{" "}
+                rows with unknown or empty company names will be skipped.
+              </p>
               <div className="table-wrap">
                 <table className="csv-preview-table">
                   <thead>

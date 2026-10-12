@@ -1,7 +1,7 @@
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import type { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
-import { TrackingAccessService } from "./tracking-access.service";
+import { TrackingAccessService, type TrackingContext } from "./tracking-access.service";
 import {
   applicationEligibility,
   defaultApplicationRules,
@@ -61,7 +61,18 @@ export class ApplicationRulesService {
   }
   async eligibility(slug: string, user: AuthUser, bidIds: string[]) {
     const context = await this.access.requireContext(slug, user.id);
-    const rules = await this.rules(slug, user);
+    return this.eligibilityForContext(context, bidIds);
+  }
+  async eligibilityForContext(context: TrackingContext, bidIds: string[]) {
+    const [settings] = await this.db.select<{ cooldown_days: number; time_zone: string }>(
+      "workspace_application_rules",
+      "cooldown_days,time_zone",
+      { workspace_id: `eq.${context.workspace.id}` }
+    );
+    const rules = settings
+      ? { cooldownDays: settings.cooldown_days, timeZone: settings.time_zone }
+      : defaultApplicationRules;
+    const selectedIds = new Set(bidIds);
     const rows = await this.db.selectAll<ApplicationRow>(
       "bid_records",
       "id,company,job_title,applied_at,imported_at,import_batch_id,import_order,deleted_at",
@@ -77,7 +88,7 @@ export class ApplicationRulesService {
       rules,
       checkedAt: now.toISOString(),
       results: rows
-        .filter((row) => bidIds.includes(row.id) && !row.deleted_at)
+        .filter((row) => selectedIds.has(row.id) && !row.deleted_at)
         .map((row) => applicationEligibility(row, rows, assignments, rules, now))
     };
   }

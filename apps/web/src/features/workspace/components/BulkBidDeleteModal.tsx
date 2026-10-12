@@ -29,6 +29,7 @@ export function BulkBidDeleteModal({
   onDeleted: () => Promise<void>;
 }) {
   const [profileId, setProfileId] = useState(initialProfileId ?? "");
+  const [duplicatedOnly, setDuplicatedOnly] = useState(false);
   const [company, setCompany] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -51,7 +52,7 @@ export function BulkBidDeleteModal({
   }
 
   async function loadPreview() {
-    const filter = bulkBidDeleteDateFilter(profileId, from, to, company);
+    const filter = bulkBidDeleteDateFilter(profileId, from, to, company, duplicatedOnly);
     if (!filter) {
       setError("Select a profile and a valid start/end date range.");
       return;
@@ -184,6 +185,18 @@ export function BulkBidDeleteModal({
             />
           </label>
         </div>
+        <label className="bulk-delete-choice">
+          <input
+            type="checkbox"
+            checked={duplicatedOnly}
+            disabled={busy}
+            onChange={(event) => {
+              setDuplicatedOnly(event.target.checked);
+              clearPreview();
+            }}
+          />
+          Duplicated pending imports only (today)
+        </label>
         <button
           type="button"
           className="secondary-action"
@@ -219,7 +232,8 @@ export function BulkBidDeleteModal({
                       setConfirmed(false);
                     }}
                   />{" "}
-                  Select all {preview.bids.length} previewed bids
+                  Select all {preview.bids.length} {duplicatedOnly ? "duplicated" : "previewed"}{" "}
+                  bids
                 </label>
                 <div className="table-wrap bulk-delete-preview">
                   <table className="tracking-table">

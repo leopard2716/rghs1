@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
+import { ApplicationRulesService } from "./application-rules.service";
 import { TrackingService } from "./tracking.service";
 
 const workspaceId = "36d3bc70-8739-49c3-bf51-fe4ed570cc8b";
@@ -1714,4 +1715,37 @@ it("skips a company renamed between eligibility recheck and the database update"
     )
   ).toEqual({ deleted: 0, skipped: 1 });
   expect(bids[0]!.deleted_at).toBeNull();
+});
+
+it("rechecks duplicate selection before deletion and guards against concurrently applied records", async () => {
+  const { service, db } = bulkDeleteFixture();
+  const spy = vi.spyOn(ApplicationRulesService.prototype, "eligibilityForContext");
+  const result = {
+    rules: { cooldownDays: 45, timeZone: "America/Chicago" },
+    checkedAt: new Date().toISOString(),
+    results: [{ bidId: recordId, showBadge: true, duplicated: true, pending: true, matches: [] }]
+  };
+  spy.mockResolvedValue(
+    result as Awaited<ReturnType<ApplicationRulesService["eligibilityForContext"]>>
+  );
+  try {
+    const filter = { ...bulkFilter, duplicatedOnly: true };
+    expect(
+      (await service.previewBulkDeleteBids("rg-team", { id: authUserId }, filter)).bids.map(
+        (row) => row.id
+      )
+    ).toEqual([recordId]);
+    await service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] });
+    expect(db.update).toHaveBeenCalledWith(
+      "bid_records",
+      expect.anything(),
+      expect.objectContaining({ applied_at: "is.null" })
+    );
+    spy.mockResolvedValue({ ...result, results: [] });
+    await expect(
+      service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] })
+    ).rejects.toMatchObject({ status: 409 });
+  } finally {
+    spy.mockRestore();
+  }
 });

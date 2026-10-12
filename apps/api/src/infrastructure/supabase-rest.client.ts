@@ -94,6 +94,20 @@ export class SupabaseRestClient {
     };
   }
 
+  async rpc<T>(name: string, args: Record<string, unknown> = {}): Promise<T> {
+    const response = await this.request(
+      `${this.config.url}/rest/v1/rpc/${encodeURIComponent(name)}`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify(args)
+      },
+      "supabase_rpc_failed"
+    );
+    if (!response.ok) throw await this.responseError(response, "supabase_rpc_failed");
+    return (await response.json()) as T;
+  }
+
   async insert<T>(table: string, rows: Record<string, unknown>[]): Promise<T[]> {
     if (rows.length === 0) {
       return [];

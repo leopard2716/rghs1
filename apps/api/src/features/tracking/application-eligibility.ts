@@ -82,6 +82,7 @@ export function applicationEligibility(
     );
   return {
     bidId: target.id,
+    pending: !target.applied_at,
     showBadge: !!target.imported_at && calendarDay(target.imported_at, rules.timeZone) === today,
     duplicated: matches.some((item) => item.blocks),
     matches
