@@ -521,3 +521,38 @@ describe("bulk bid deletion validation", () => {
     ).toBe(false);
   });
 });
+
+describe("unknown company import filtering", () => {
+  it("skips placeholders before validating other fields and preserves real companies", () => {
+    const valid = {
+      jobTitle: "Engineer",
+      company: "Unknown Ventures",
+      jobLink: "https://example.com",
+      bidAt: "2026-10-12T12:00:00.000Z",
+      jobMarketId: marketId,
+      profileIds: [profileId]
+    };
+    const result = bulkBidRecordInput.parse({
+      records: [
+        valid,
+        { company: " UNKNOWN " },
+        { company: " Unknown   Company " },
+        { company: "" },
+        { company: null },
+        {}
+      ],
+      skippedUnknownCompanies: 999
+    });
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]?.company).toBe("Unknown Ventures");
+    expect(result.skippedUnknownCompanies).toBe(5);
+  });
+  it("allows an all-skipped import but rejects empty input and malformed real rows", () => {
+    expect(bulkBidRecordInput.parse({ records: [{ company: "unknown" }] })).toMatchObject({
+      records: [],
+      skippedUnknownCompanies: 1
+    });
+    expect(bulkBidRecordInput.safeParse({ records: [] }).success).toBe(false);
+    expect(bulkBidRecordInput.safeParse({ records: [{ company: "Acme" }] }).success).toBe(false);
+  });
+});

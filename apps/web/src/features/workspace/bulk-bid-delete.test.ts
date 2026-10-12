@@ -26,3 +26,12 @@ it("includes a trimmed optional company in the reviewed filter", () => {
     "company"
   );
 });
+
+it("carries duplicate selection in the preview and commit filter", () => {
+  expect(
+    bulkBidDeleteDateFilter("profile", "2026-10-12", "2026-10-12", "Acme", true)
+  ).toMatchObject({ company: "Acme", duplicatedOnly: true });
+  expect(
+    bulkBidDeleteDateFilter("profile", "2026-10-12", "2026-10-12", "", false)
+  ).not.toHaveProperty("duplicatedOnly");
+});

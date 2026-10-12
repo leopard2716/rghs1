@@ -1,4 +1,9 @@
-import { INTERVIEW_STEPS, isRichTextEmpty, richTextDocumentSchema } from "@rghs1/domain";
+import {
+  isUnknownCompanyName,
+  INTERVIEW_STEPS,
+  isRichTextEmpty,
+  richTextDocumentSchema
+} from "@rghs1/domain";
 import { z } from "zod";
 
 const webUrl = z
@@ -272,6 +277,7 @@ export const paymentPayInput = z.object({
 export const bulkBidDeleteFilter = z
   .object({
     company: z.string().trim().max(180).optional(),
+    duplicatedOnly: z.boolean().optional(),
     profileId: z.string().uuid(),
     dateFrom: z.string().datetime(),
     dateTo: z.string().datetime()
@@ -293,9 +299,32 @@ export const bulkBidDeleteInput = z.object({
 export type BulkBidDeleteFilter = z.infer<typeof bulkBidDeleteFilter>;
 export type BulkBidDeleteInput = z.infer<typeof bulkBidDeleteInput>;
 
-export const bulkBidRecordInput = z.object({
-  records: z.array(bidRecordInput).min(1)
-});
+export const bulkBidRecordInput = z.preprocess(
+  (value) => {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("records" in value) ||
+      !Array.isArray(value.records)
+    )
+      return value;
+    const records = value.records.filter((record) => {
+      if (!record || typeof record !== "object") return true;
+      const company = record.company;
+      return !(company == null || (typeof company === "string" && isUnknownCompanyName(company)));
+    });
+    return { ...value, records, skippedUnknownCompanies: value.records.length - records.length };
+  },
+  z
+    .object({
+      records: z.array(bidRecordInput),
+      skippedUnknownCompanies: z.number().int().min(0).optional()
+    })
+    .refine(
+      (input) => input.records.length > 0 || (input.skippedUnknownCompanies ?? 0) > 0,
+      "Provide at least one application row."
+    )
+);
 
 const listQueryBase = z.object({
   page: z.coerce.number().int().min(1).default(1),
