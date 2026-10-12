@@ -21,7 +21,14 @@ export default {
   fetch(request: Request, env: ApiBindings, context: ExecutionContext) {
     return app.fetch(request, env, context);
   },
-  scheduled(_event: ScheduledController, env: ApiBindings, context: ExecutionContext) {
-    context.waitUntil(purgeExpiredTenantDeletions(env));
+  scheduled(event: ScheduledController, env: ApiBindings, context: ExecutionContext) {
+    const cleanup = new SupabaseRestClient(requireSupabaseConfig(env)).rpc<number>(
+      "expire_pending_imports"
+    );
+    context.waitUntil(
+      event.cron === "17 * * * *"
+        ? Promise.all([cleanup, purgeExpiredTenantDeletions(env)])
+        : cleanup
+    );
   }
 } satisfies ExportedHandler<ApiBindings>;

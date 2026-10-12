@@ -76,3 +76,8 @@ function endsWithTokens(tokens: string[], suffix: readonly string[]): boolean {
   const offset = tokens.length - suffix.length;
   return suffix.every((token, index) => tokens[offset + index] === token);
 }
+
+export function isUnknownCompanyName(value: string | null | undefined): boolean {
+  const name = (value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+  return name === "" || name === "unknown" || name === "unknown company";
+}

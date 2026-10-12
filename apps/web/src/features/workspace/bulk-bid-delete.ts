@@ -4,7 +4,8 @@ export function bulkBidDeleteDateFilter(
   profileId: string,
   from: string,
   to: string,
-  company?: string
+  company?: string,
+  duplicatedOnly?: boolean
 ): BulkBidDeleteFilter | null {
   if (
     !profileId ||
@@ -25,6 +26,7 @@ export function bulkBidDeleteDateFilter(
     profileId,
     dateFrom: start.toISOString(),
     dateTo: end.toISOString(),
-    ...(company?.trim() ? { company: company.trim() } : {})
+    ...(company?.trim() ? { company: company.trim() } : {}),
+    ...(duplicatedOnly ? { duplicatedOnly: true } : {})
   };
 }

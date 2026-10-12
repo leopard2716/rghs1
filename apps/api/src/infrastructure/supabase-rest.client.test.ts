@@ -83,3 +83,22 @@ describe("SupabaseRestClient pagination", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("offset=1000");
   });
 });
+
+it("invokes pending cleanup with service credentials and returns the deleted count", async () => {
+  const fetchMock = vi.fn(async () => Response.json(7));
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new SupabaseRestClient({
+    url: "https://example.supabase.co",
+    anonKey: "anon",
+    serviceRoleKey: "service"
+  });
+  await expect(client.rpc<number>("expire_pending_imports")).resolves.toBe(7);
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://example.supabase.co/rest/v1/rpc/expire_pending_imports",
+    expect.objectContaining({
+      method: "POST",
+      body: "{}",
+      headers: expect.objectContaining({ authorization: "Bearer service" })
+    })
+  );
+});

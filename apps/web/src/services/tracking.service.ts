@@ -610,7 +610,7 @@ export async function bulkCreateBids(
       body: JSON.stringify({ records })
     }
   );
-  return parseJson<{ imported: number }>(response);
+  return parseJson<{ imported: number; skippedUnknownCompanies: number }>(response);
 }
 
 export async function updateBid(
@@ -998,6 +998,7 @@ export type BulkBidDeleteFilter = {
   dateFrom: string;
   dateTo: string;
   company?: string;
+  duplicatedOnly?: boolean;
 };
 export type BulkBidDeletePreview = {
   bids: Array<{ id: string; company: string; jobTitle: string; bidAt: string }>;

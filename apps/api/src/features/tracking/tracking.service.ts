@@ -1,4 +1,5 @@
-import { normalizeCompanyName } from "@rghs1/domain";
+import { ApplicationRulesService } from "./application-rules.service";
+import { normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
@@ -625,8 +626,12 @@ export class TrackingService {
   async bulkCreateBids(slug: string, user: AuthUser, input: BulkBidRecordInput) {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireRole(context, "bidder");
-    const profileIds = [...new Set(input.records.flatMap((record) => record.profileIds))];
-    const marketIds = [...new Set(input.records.map((record) => record.jobMarketId))];
+    const recordsToImport = input.records.filter((record) => !isUnknownCompanyName(record.company));
+    const skippedUnknownCompanies =
+      (input.skippedUnknownCompanies ?? 0) + input.records.length - recordsToImport.length;
+    if (!recordsToImport.length) return { imported: 0, skippedUnknownCompanies };
+    const profileIds = [...new Set(recordsToImport.flatMap((record) => record.profileIds))];
+    const marketIds = [...new Set(recordsToImport.map((record) => record.jobMarketId))];
     await Promise.all([
       this.access.requireProfiles(context.workspace.id, profileIds),
       ...marketIds.map((marketId) => this.access.requireMarket(context.workspace.id, marketId))
@@ -636,8 +641,8 @@ export class TrackingService {
     const importedAt = new Date().toISOString();
     const batchSize = 200;
     try {
-      for (let offset = 0; offset < input.records.length; offset += batchSize) {
-        const records = input.records.slice(offset, offset + batchSize);
+      for (let offset = 0; offset < recordsToImport.length; offset += batchSize) {
+        const records = recordsToImport.slice(offset, offset + batchSize);
         const prepared = records.map((record) => ({
           id: crypto.randomUUID(),
           record
@@ -701,7 +706,7 @@ export class TrackingService {
     await this.audit(context, "tracking.bid.bulk_created", createdIds[0] ?? crypto.randomUUID(), {
       count: createdIds.length
     });
-    return { imported: createdIds.length };
+    return { imported: createdIds.length, skippedUnknownCompanies };
   }
 
   async updateBid(slug: string, bidId: string, user: AuthUser, input: BidRecordInput) {
@@ -949,6 +954,7 @@ export class TrackingService {
       },
       {
         ...this.bulkDeleteFilters(context, input.filter),
+        ...(input.filter.duplicatedOnly ? { applied_at: "is.null" } : {}),
         ...(input.filter.company?.trim()
           ? {
               company: `in.(${[...new Set(eligible.map((row) => row.company))].map((company) => JSON.stringify(company)).join(",")})`
@@ -961,6 +967,7 @@ export class TrackingService {
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
         count: deleted.length,
+        duplicatedOnly: !!input.filter.duplicatedOnly,
         company: input.filter.company?.trim() || null,
         profileId: input.filter.profileId,
         dateFrom: input.filter.dateFrom,
@@ -993,7 +1000,19 @@ export class TrackingService {
         ...(selectedIds ? { bid_id: `in.(${selectedIds.join(",")})` } : {})
       }
     );
-    const ids = [...new Set(assignments.map((row) => row.bid_id))];
+    let ids = [...new Set(assignments.map((row) => row.bid_id))];
+    if (filter.duplicatedOnly && ids.length) {
+      const eligibility = await new ApplicationRulesService(this.supabase).eligibilityForContext(
+        context,
+        ids
+      );
+      const duplicatedIds = new Set(
+        eligibility.results
+          .filter((row) => row.showBadge && row.duplicated && row.pending)
+          .map((row) => row.bidId)
+      );
+      ids = ids.filter((id) => duplicatedIds.has(id));
+    }
     const rows: Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">> = [];
     const company = filter.company?.trim() ? normalizeCompanyName(filter.company) : null;
     for (const batch of chunkValues(ids, 100)) {
