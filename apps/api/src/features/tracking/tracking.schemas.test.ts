@@ -495,3 +495,29 @@ describe("tracking schemas", () => {
     expect(interviewRecordParams.safeParse({ interviewId: "not-a-uuid" }).success).toBe(false);
   });
 });
+
+describe("bulk bid deletion validation", () => {
+  it("requires an explicit profile, increasing date range, and a bounded unique selection", async () => {
+    const { bulkBidDeleteFilter, bulkBidDeleteInput } = await import("./tracking.schemas");
+    const filter = {
+      profileId,
+      dateFrom: "2026-10-01T00:00:00.000Z",
+      dateTo: "2026-10-02T00:00:00.000Z"
+    };
+    expect(bulkBidDeleteFilter.safeParse(filter).success).toBe(true);
+    expect(bulkBidDeleteFilter.safeParse({ ...filter, dateTo: filter.dateFrom }).success).toBe(
+      false
+    );
+    expect(bulkBidDeleteFilter.safeParse({ ...filter, profileId: undefined }).success).toBe(false);
+    expect(bulkBidDeleteInput.safeParse({ filter, bidIds: [] }).success).toBe(false);
+    expect(bulkBidDeleteInput.safeParse({ filter, bidIds: [profileId, profileId] }).success).toBe(
+      false
+    );
+    expect(
+      bulkBidDeleteInput.safeParse({
+        filter,
+        bidIds: Array.from({ length: 201 }, () => crypto.randomUUID())
+      }).success
+    ).toBe(false);
+  });
+});

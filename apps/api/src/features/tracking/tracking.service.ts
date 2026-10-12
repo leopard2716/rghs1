@@ -5,6 +5,8 @@ import { NotificationService } from "../notifications/notification.service";
 import type { WorkspaceMemberRow, WorkspaceRow } from "../workspace/workspace-access.types";
 import type {
   BidListQuery,
+  BulkBidDeleteFilter,
+  BulkBidDeleteInput,
   BulkBidRecordInput,
   BidRecordInput,
   CustomPaymentRecordInput,
@@ -900,6 +902,101 @@ export class TrackingService {
       context.member.id,
       true
     );
+  }
+
+  async previewBulkDeleteBids(slug: string, user: AuthUser, filter: BulkBidDeleteFilter) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "bidder");
+    const rows = await this.bulkDeleteCandidates(context, filter);
+    return {
+      bids: rows.slice(0, 200).map((row) => ({
+        id: row.id,
+        company: row.company,
+        jobTitle: row.job_title,
+        bidAt: row.bid_at
+      })),
+      hasMore: rows.length > 200
+    };
+  }
+
+  async bulkDeleteBids(slug: string, user: AuthUser, input: BulkBidDeleteInput) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "bidder");
+    const eligible = await this.bulkDeleteCandidates(context, input.filter, input.bidIds);
+    const eligibleIds = new Set(eligible.map((row) => row.id));
+    if (input.bidIds.some((id) => !eligibleIds.has(id))) {
+      throw apiError(
+        409,
+        "Some selected bids changed or are no longer eligible. Preview again.",
+        "bulk_bid_delete_stale"
+      );
+    }
+    const now = new Date().toISOString();
+    const deleted = await this.supabase.update<{ id: string }>(
+      "bid_records",
+      {
+        deleted_at: now,
+        updated_at: now
+      },
+      {
+        ...this.bulkDeleteFilters(context, input.filter),
+        id: `in.(${input.bidIds.join(",")})`
+      }
+    );
+    if (deleted.length) {
+      await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
+        bidIds: deleted.map((row) => row.id),
+        count: deleted.length,
+        profileId: input.filter.profileId,
+        dateFrom: input.filter.dateFrom,
+        dateTo: input.filter.dateTo
+      });
+    }
+    return { deleted: deleted.length, skipped: input.bidIds.length - deleted.length };
+  }
+
+  private bulkDeleteFilters(context: TrackingContext, filter: BulkBidDeleteFilter) {
+    return {
+      workspace_id: `eq.${context.workspace.id}`,
+      created_by_member_id: `eq.${context.member.id}`,
+      deleted_at: "is.null",
+      and: `(bid_at.gte.${filter.dateFrom},bid_at.lt.${filter.dateTo})`
+    };
+  }
+
+  private async bulkDeleteCandidates(
+    context: TrackingContext,
+    filter: BulkBidDeleteFilter,
+    selectedIds?: string[]
+  ) {
+    const assignments = await this.selectAllPages<{ bid_id: string }>(
+      "bid_record_profiles",
+      "bid_id",
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        profile_id: `eq.${filter.profileId}`,
+        ...(selectedIds ? { bid_id: `in.(${selectedIds.join(",")})` } : {})
+      }
+    );
+    const ids = [...new Set(assignments.map((row) => row.bid_id))];
+    const rows: Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">> = [];
+    for (const batch of chunkValues(ids, 100)) {
+      rows.push(
+        ...(await this.supabase.select<
+          Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">
+        >(
+          "bid_records",
+          "id,company,job_title,bid_at",
+          {
+            ...this.bulkDeleteFilters(context, filter),
+            id: `in.(${batch.join(",")})`
+          },
+          { order: "bid_at.desc,id.desc", limit: 201 }
+        ))
+      );
+      if (!selectedIds && rows.length > 200) break;
+    }
+    return rows.sort((a, b) => b.bid_at.localeCompare(a.bid_at) || b.id.localeCompare(a.id));
   }
 
   async deleteBid(slug: string, bidId: string, user: AuthUser) {

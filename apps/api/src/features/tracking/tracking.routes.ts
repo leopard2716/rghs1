@@ -7,6 +7,8 @@ import { ApiError, jsonError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
 import {
   bidListQuery,
+  bulkBidDeleteFilter,
+  bulkBidDeleteInput,
   bulkBidRecordInput,
   bidRecordInput,
   bidRecordParams,
@@ -41,6 +43,33 @@ type ApiApp = Hono<{
 }>;
 
 export function registerTrackingRoutes(app: ApiApp): void {
+  app.post(
+    "/v1/workspaces/:slug/tracking/bids/bulk-delete/preview",
+    zValidator("json", bulkBidDeleteFilter),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.previewBulkDeleteBids(c.req.param("slug"), user, c.req.valid("json"))
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+  app.post(
+    "/v1/workspaces/:slug/tracking/bids/bulk-delete",
+    zValidator("json", bulkBidDeleteInput),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(await service.bulkDeleteBids(c.req.param("slug"), user, c.req.valid("json")));
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+
   app.get("/v1/workspaces/:slug/tracking/profiles", async (c) => {
     try {
       const { service, user } = await requestContext(c);
