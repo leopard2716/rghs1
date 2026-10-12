@@ -45,6 +45,7 @@ import {
   trackingListQueryFromParams,
   updateTrackingListParams
 } from "../tracking-list-url";
+import { BulkBidDeleteModal } from "./BulkBidDeleteModal";
 import { BulkBidImportModal } from "./BulkBidImportModal";
 import { PaginationControls } from "./PaginationControls";
 import { RichTextContent, RichTextEditor } from "./RichTextEditor";
@@ -74,6 +75,7 @@ export function BidsPage({
   const requestedBidId = searchParams.get("bidId");
   const creating = searchParams.get("modal") === "new";
   const queryClient = useQueryClient();
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkImporting, setBulkImporting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [company, setCompany] = useState("");
@@ -205,6 +207,7 @@ export function BidsPage({
 
   useEffect(() => {
     setBulkImporting(false);
+    setBulkDeleting(false);
   }, [memberId]);
 
   useEffect(() => {
@@ -337,6 +340,13 @@ export function BidsPage({
                 >
                   <FileUp aria-hidden="true" />
                   Import CSV
+                </button>
+                <button
+                  className="secondary-action small"
+                  type="button"
+                  onClick={() => setBulkDeleting(true)}
+                >
+                  <Trash2 aria-hidden="true" /> Bulk delete
                 </button>
                 <button
                   className="primary-action small"
@@ -553,6 +563,25 @@ export function BidsPage({
           <p className="form-error">{errorMessage(requestedBidQuery.error)}</p>
         ) : null}
       </section>
+
+      {bulkDeleting && bidsQuery.data ? (
+        <BulkBidDeleteModal
+          key={`${slug}:${memberId}`}
+          session={session}
+          slug={slug}
+          profiles={bidsQuery.data.filterProfiles}
+          initialProfileId={listQuery.profileId}
+          onClose={() => setBulkDeleting(false)}
+          onDeleted={async () => {
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+              queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
+              queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
+              queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
+            ]);
+          }}
+        />
+      ) : null}
 
       {showBidForm && bidsQuery.data ? (
         <Modal

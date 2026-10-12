@@ -1356,3 +1356,175 @@ function dashboardSupabase(bidCount: number) {
     delete: vi.fn(async () => [])
   };
 }
+
+const bulkProfileId = "68249812-0473-4c0b-9c65-1a9fb61d8ddc";
+const bulkFilter = {
+  profileId: bulkProfileId,
+  dateFrom: "2026-10-01T00:00:00.000Z",
+  dateTo: "2026-10-03T00:00:00.000Z"
+};
+
+function bulkDeleteFixture(role = "bidder") {
+  const base = trackingSupabase(role, "bid_records");
+  const bids = [
+    {
+      id: recordId,
+      workspace_id: workspaceId,
+      created_by_member_id: memberId,
+      company: "Test Company",
+      job_title: "Test Job",
+      bid_at: bulkFilter.dateFrom,
+      deleted_at: null
+    },
+    {
+      id: "31bff340-808e-4ee1-aeb6-07c2445a9497",
+      workspace_id: workspaceId,
+      created_by_member_id: "another-member",
+      company: "Other",
+      job_title: "Other",
+      bid_at: bulkFilter.dateFrom,
+      deleted_at: null
+    },
+    {
+      id: "1baf1b80-045e-4386-a1c0-1422a24fb0c2",
+      workspace_id: workspaceId,
+      created_by_member_id: memberId,
+      company: "End boundary",
+      job_title: "Other",
+      bid_at: bulkFilter.dateTo,
+      deleted_at: null
+    }
+  ];
+  const assignments = bids.map((bid) => ({
+    bid_id: bid.id,
+    workspace_id: workspaceId,
+    profile_id: bulkProfileId
+  }));
+  const originalSelect = base.select;
+  function matches(row: Record<string, unknown>, filters: Record<string, string>) {
+    return Object.entries(filters).every(([key, value]) => {
+      if (key === "and") {
+        const date = Date.parse(String(row.bid_at));
+        return date >= Date.parse(bulkFilter.dateFrom) && date < Date.parse(bulkFilter.dateTo);
+      }
+      if (value === "is.null") return row[key] == null;
+      if (value.startsWith("eq.")) return row[key] === value.slice(3);
+      if (value.startsWith("in.(")) return value.slice(4, -1).split(",").includes(String(row[key]));
+      return false;
+    });
+  }
+  const select = vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
+    if (table === "bid_records") return bids.filter((row) => matches(row, filters));
+    return originalSelect(table);
+  });
+  const selectPage = vi.fn(
+    async (_table: string, _fields: string, filters: Record<string, string>) => {
+      const records = assignments.filter((row) => matches(row, filters));
+      return { records, total: records.length };
+    }
+  );
+  const update = vi.fn(
+    async (_table: string, values: Record<string, unknown>, filters: Record<string, string>) => {
+      const changed = bids.filter((row) => matches(row, filters));
+      for (const row of changed) Object.assign(row, values);
+      return changed;
+    }
+  );
+  const db = { ...base, select, selectPage, update };
+  return {
+    db,
+    bids,
+    assignments,
+    service: new TrackingService(db as unknown as SupabaseRestClient)
+  };
+}
+
+describe("Bulk bid deletion", () => {
+  it("previews only the creator's bids in the profile and half-open date range", async () => {
+    const { service } = bulkDeleteFixture();
+    expect(await service.previewBulkDeleteBids("rg-team", { id: authUserId }, bulkFilter)).toEqual({
+      bids: [
+        { id: recordId, company: "Test Company", jobTitle: "Test Job", bidAt: bulkFilter.dateFrom }
+      ],
+      hasMore: false
+    });
+  });
+
+  it("soft-deletes reviewed bids, preserves other bids, and audits the selection", async () => {
+    const { service, db, bids } = bulkDeleteFixture();
+    expect(
+      await service.bulkDeleteBids(
+        "rg-team",
+        { id: authUserId },
+        {
+          filter: bulkFilter,
+          bidIds: [recordId]
+        }
+      )
+    ).toEqual({ deleted: 1, skipped: 0 });
+    expect(bids[0]?.deleted_at).not.toBeNull();
+    expect(bids.slice(1).every((row) => row.deleted_at === null)).toBe(true);
+    expect(db.delete).not.toHaveBeenCalled();
+    expect(db.insert).toHaveBeenCalledWith("audit_logs", [
+      expect.objectContaining({
+        action: "tracking.bid.bulk_deleted",
+        metadata: expect.objectContaining({ bidIds: [recordId], count: 1 })
+      })
+    ]);
+  });
+
+  it("rejects a mixed selection without deleting any records", async () => {
+    const { service, db, bids } = bulkDeleteFixture();
+    await expect(
+      service.bulkDeleteBids(
+        "rg-team",
+        { id: authUserId },
+        {
+          filter: bulkFilter,
+          bidIds: [recordId, bids[1]!.id]
+        }
+      )
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("rechecks profile assignment after preview", async () => {
+    const { service, db, assignments } = bulkDeleteFixture();
+    await service.previewBulkDeleteBids("rg-team", { id: authUserId }, bulkFilter);
+    assignments[0]!.profile_id = "other-profile";
+    await expect(
+      service.bulkDeleteBids(
+        "rg-team",
+        { id: authUserId },
+        {
+          filter: bulkFilter,
+          bidIds: [recordId]
+        }
+      )
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("does not permit an interviewer to bulk delete bids", async () => {
+    const { service, db } = bulkDeleteFixture("interviewer");
+    await expect(
+      service.bulkDeleteBids(
+        "rg-team",
+        { id: authUserId },
+        {
+          filter: bulkFilter,
+          bidIds: [recordId]
+        }
+      )
+    ).rejects.toMatchObject({ status: 403 });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("does not match another workspace's profile assignments", async () => {
+    const { service, assignments } = bulkDeleteFixture();
+    assignments[0]!.workspace_id = "another-workspace";
+    expect(
+      (await service.previewBulkDeleteBids("rg-team", { id: authUserId }, bulkFilter)).bids
+    ).toEqual([]);
+  });
+});
