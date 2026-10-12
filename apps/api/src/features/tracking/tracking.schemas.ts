@@ -271,6 +271,7 @@ export const paymentPayInput = z.object({
 
 export const bulkBidDeleteFilter = z
   .object({
+    company: z.string().trim().max(180).optional(),
     profileId: z.string().uuid(),
     dateFrom: z.string().datetime(),
     dateTo: z.string().datetime()

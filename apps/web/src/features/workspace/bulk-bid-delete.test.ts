@@ -17,3 +17,12 @@ describe("bulk bid delete date boundaries", () => {
     expect(filter?.dateTo).toBe(new Date("2026-03-09T00:00:00").toISOString());
   });
 });
+
+it("includes a trimmed optional company in the reviewed filter", () => {
+  expect(
+    bulkBidDeleteDateFilter("profile", "2026-10-12", "2026-10-12", "  Acme Inc.  ")?.company
+  ).toBe("Acme Inc.");
+  expect(bulkBidDeleteDateFilter("profile", "2026-10-12", "2026-10-12", "  ")).not.toHaveProperty(
+    "company"
+  );
+});

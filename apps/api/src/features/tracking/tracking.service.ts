@@ -1,3 +1,4 @@
+import { normalizeCompanyName } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
@@ -948,6 +949,11 @@ export class TrackingService {
       },
       {
         ...this.bulkDeleteFilters(context, input.filter),
+        ...(input.filter.company?.trim()
+          ? {
+              company: `in.(${[...new Set(eligible.map((row) => row.company))].map((company) => JSON.stringify(company)).join(",")})`
+            }
+          : {}),
         id: `in.(${input.bidIds.join(",")})`
       }
     );
@@ -955,6 +961,7 @@ export class TrackingService {
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
         count: deleted.length,
+        company: input.filter.company?.trim() || null,
         profileId: input.filter.profileId,
         dateFrom: input.filter.dateFrom,
         dateTo: input.filter.dateTo
@@ -988,19 +995,20 @@ export class TrackingService {
     );
     const ids = [...new Set(assignments.map((row) => row.bid_id))];
     const rows: Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">> = [];
+    const company = filter.company?.trim() ? normalizeCompanyName(filter.company) : null;
     for (const batch of chunkValues(ids, 100)) {
       rows.push(
-        ...(await this.supabase.select<
-          Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">
-        >(
-          "bid_records",
-          "id,company,job_title,bid_at",
-          {
-            ...this.bulkDeleteFilters(context, filter),
-            id: `in.(${batch.join(",")})`
-          },
-          { order: "bid_at.desc,id.desc", limit: 201 }
-        ))
+        ...(
+          await this.supabase.select<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">>(
+            "bid_records",
+            "id,company,job_title,bid_at",
+            {
+              ...this.bulkDeleteFilters(context, filter),
+              id: `in.(${batch.join(",")})`
+            },
+            { order: "bid_at.desc,id.desc", limit: 201 }
+          )
+        ).filter((row) => company === null || normalizeCompanyName(row.company) === company)
       );
       if (!selectedIds && rows.length > 200) break;
     }
