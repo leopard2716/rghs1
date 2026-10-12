@@ -993,7 +993,12 @@ function queryString(query: object): string {
   return value ? `?${value}` : "";
 }
 
-export type BulkBidDeleteFilter = { profileId: string; dateFrom: string; dateTo: string };
+export type BulkBidDeleteFilter = {
+  profileId: string;
+  dateFrom: string;
+  dateTo: string;
+  company?: string;
+};
 export type BulkBidDeletePreview = {
   bids: Array<{ id: string; company: string; jobTitle: string; bidAt: string }>;
   hasMore: boolean;

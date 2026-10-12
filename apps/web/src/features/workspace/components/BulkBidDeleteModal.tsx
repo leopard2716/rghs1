@@ -29,6 +29,7 @@ export function BulkBidDeleteModal({
   onDeleted: () => Promise<void>;
 }) {
   const [profileId, setProfileId] = useState(initialProfileId ?? "");
+  const [company, setCompany] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [preview, setPreview] = useState<BulkBidDeletePreview | null>(null);
@@ -50,7 +51,7 @@ export function BulkBidDeleteModal({
   }
 
   async function loadPreview() {
-    const filter = bulkBidDeleteDateFilter(profileId, from, to);
+    const filter = bulkBidDeleteDateFilter(profileId, from, to, company);
     if (!filter) {
       setError("Select a profile and a valid start/end date range.");
       return;
@@ -112,14 +113,32 @@ export function BulkBidDeleteModal({
     >
       <div className="modal-form">
         <p>
-          Find bids you created by profile and bid date. Both dates are included, using{" "}
-          {deviceTimeZone()}.
+          Find bids you created by profile, bid date, and optionally company name. Both dates are
+          included, using {deviceTimeZone()}.
         </p>
         <p>
           Deletion removes the whole bid from tracking, including bids assigned to multiple
           profiles. Linked interviews and historical records are preserved.
         </p>
+        <p>
+          Company matching ignores capitalization, punctuation, and common legal suffixes. Enter the
+          full company name; leave blank for all companies.
+        </p>
         <div className="form-grid">
+          <label>
+            Company name (optional)
+            <input
+              type="text"
+              value={company}
+              maxLength={180}
+              disabled={busy}
+              placeholder="e.g. Acme Inc."
+              onChange={(event) => {
+                setCompany(event.target.value);
+                clearPreview();
+              }}
+            />
+          </label>
           <label>
             Profile
             <select

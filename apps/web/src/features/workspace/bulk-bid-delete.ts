@@ -3,7 +3,8 @@ import type { BulkBidDeleteFilter } from "../../services/tracking.service";
 export function bulkBidDeleteDateFilter(
   profileId: string,
   from: string,
-  to: string
+  to: string,
+  company?: string
 ): BulkBidDeleteFilter | null {
   if (
     !profileId ||
@@ -20,5 +21,10 @@ export function bulkBidDeleteDateFilter(
   if (localDay(start) !== from || localDay(end) !== to) return null;
   // Advance a calendar day, not 24 hours: daylight-saving days can have 23 or 25 hours.
   end.setDate(end.getDate() + 1);
-  return { profileId, dateFrom: start.toISOString(), dateTo: end.toISOString() };
+  return {
+    profileId,
+    dateFrom: start.toISOString(),
+    dateTo: end.toISOString(),
+    ...(company?.trim() ? { company: company.trim() } : {})
+  };
 }
