@@ -1,3 +1,4 @@
+import { ApplicationEligibilityBadge } from "./ApplicationEligibilityBadge";
 import { isRichTextEmpty, type RichTextDocument } from "@rghs1/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -22,6 +23,9 @@ import { paths } from "../../../routing/paths";
 import type { AuthSession } from "../../../services/auth.service";
 import {
   createBid,
+  fetchApplicationEligibility,
+  markBidApplied,
+  type EligibilityResult,
   deleteBid as deleteBidRecord,
   fetchBid,
   fetchBids,
@@ -118,6 +122,25 @@ export function BidsPage({
       }),
     enabled: creating && !modalBid && companySearch.length >= 2
   });
+  const visibleBidIds = bidsQuery.data?.bids.map((bid) => bid.id) ?? [];
+  const eligibilityQuery = useQuery({
+    queryKey: ["application-eligibility", slug, memberId, visibleBidIds],
+    queryFn: () => fetchApplicationEligibility(session, slug, visibleBidIds),
+    enabled: visibleBidIds.length > 0,
+    refetchInterval: 30000
+  });
+  const [reviewEligibility, setReviewEligibility] = useState<EligibilityResult | null>(null);
+  const appliedMutation = useMutation({
+    mutationFn: (bidId: string) => markBidApplied(session, slug, bidId),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
+      ]);
+    }
+  });
   const updateListQuery = useCallback(
     (change: Partial<TrackingListQuery>) => {
       setSearchParams(updateTrackingListParams(new URLSearchParams(searchParamsValue), change), {
@@ -135,6 +158,7 @@ export function BidsPage({
       setFormError(null);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
       ]);
@@ -149,6 +173,7 @@ export function BidsPage({
       });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
       ]);
@@ -159,6 +184,7 @@ export function BidsPage({
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
       ]);
@@ -339,7 +365,7 @@ export function BidsPage({
                   onClick={() => setBulkImporting(true)}
                 >
                   <FileUp aria-hidden="true" />
-                  Import CSV
+                  Import spreadsheet
                 </button>
                 <button
                   className="secondary-action small"
@@ -469,7 +495,49 @@ export function BidsPage({
                           </div>
                         </td>
                         <td>{bid.bidder?.name ?? "Former member"}</td>
-                        <td>{displayDate(bid.bidAt)}</td>
+                        <td>
+                          {displayDate(bid.bidAt)}
+                          <div>{bid.appliedAt ? "Applied" : "Pending"}</div>
+                          {bid.importedAt &&
+                          eligibilityQuery.data?.results.find(
+                            (result) => result.bidId === bid.id
+                          ) ? (
+                            <ApplicationEligibilityBadge
+                              result={
+                                eligibilityQuery.data.results.find(
+                                  (result) => result.bidId === bid.id
+                                )!
+                              }
+                              importedAt={bid.importedAt}
+                              timeZone={eligibilityQuery.data.rules.timeZone}
+                              onReview={() =>
+                                setReviewEligibility(
+                                  eligibilityQuery.data!.results.find(
+                                    (result) => result.bidId === bid.id
+                                  )!
+                                )
+                              }
+                            />
+                          ) : null}
+                          {!bid.appliedAt && canEditBid(bid, memberId) ? (
+                            <button
+                              className="secondary-action small"
+                              type="button"
+                              disabled={appliedMutation.isPending}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (
+                                  window.confirm(
+                                    "Mark this application as actually submitted now? This starts the company cooldown."
+                                  )
+                                )
+                                  appliedMutation.mutate(bid.id);
+                              }}
+                            >
+                              Mark applied
+                            </button>
+                          ) : null}
+                        </td>
                         <td>
                           <BidReferenceInterviews
                             interviews={bid.referenceInterviews}
@@ -564,6 +632,77 @@ export function BidsPage({
         ) : null}
       </section>
 
+      {eligibilityQuery.error || appliedMutation.error ? (
+        <p className="form-error">
+          {errorMessage(eligibilityQuery.error ?? appliedMutation.error)}
+        </p>
+      ) : null}
+      {reviewEligibility ? (
+        <Modal
+          title="Company application history"
+          size="large"
+          onClose={() => setReviewEligibility(null)}
+        >
+          <div className="modal-form">
+            <p>
+              {eligibilityQuery.data?.rules.cooldownDays}-day cooldown; same-profile company matches
+              across all bidders. Earlier pending import rows also count. This is a warning, not a
+              submission block.
+            </p>
+            <p>{reviewEligibility.duplicated ? "❌ Duplicated" : "✅ Applicable"}</p>
+            {reviewEligibility.matches.length ? (
+              <table className="tracking-table">
+                <thead>
+                  <tr>
+                    <th>Company / role</th>
+                    <th>Date / state</th>
+                    <th>Matching profiles</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewEligibility.matches.map((match) => (
+                    <tr key={match.id}>
+                      <td>
+                        {match.deleted ? (
+                          <span>
+                            {match.company} — {match.jobTitle} (deleted)
+                          </span>
+                        ) : (
+                          <Link
+                            to={paths.workspaceBid(slug, match.id)}
+                            onClick={() => setReviewEligibility(null)}
+                          >
+                            {match.company} — {match.jobTitle}
+                          </Link>
+                        )}
+                      </td>
+                      <td>
+                        {displayDate(match.appliedAt ?? match.importedAt)} /{" "}
+                        {match.appliedAt ? "Applied" : "Pending"}
+                      </td>
+                      <td>
+                        {match.profileIds
+                          .map(
+                            (id) =>
+                              bidsQuery.data?.filterProfiles.find((profile) => profile.id === id)
+                                ?.name ?? "Former profile"
+                          )
+                          .join(", ")}
+                      </td>
+                      <td>{match.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p>No earlier matching applications or pending import rows.</p>
+            )}
+            <p>To skip this role, close this dialog and delete its pending bid from the table.</p>
+          </div>
+        </Modal>
+      ) : null}
+
       {bulkDeleting && bidsQuery.data ? (
         <BulkBidDeleteModal
           key={`${slug}:${memberId}`}
@@ -575,6 +714,7 @@ export function BidsPage({
           onDeleted={async () => {
             await Promise.all([
               queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+              queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
               queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
               queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
               queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
