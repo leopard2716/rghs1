@@ -9,7 +9,7 @@ const authUserId = "12f253ea-6d0e-4a34-bdca-488a393dd7de";
 const recordId = "9df4620e-5d19-4d48-90d2-2a08450b13c3";
 
 describe("TrackingService deletion ownership", () => {
-  it("soft-deletes a bid only through its workspace and creator member id", async () => {
+  it("permanently deletes a bid only through its workspace and creator member id", async () => {
     const supabase = trackingSupabase("bidder", "bid_records");
     const service = trackingService(supabase);
 
@@ -18,20 +18,13 @@ describe("TrackingService deletion ownership", () => {
       bidId: recordId
     });
 
-    expect(supabase.update).toHaveBeenCalledWith(
-      "bid_records",
-      expect.objectContaining({
-        deleted_at: expect.any(String),
-        updated_at: expect.any(String)
-      }),
-      {
-        workspace_id: `eq.${workspaceId}`,
-        id: `eq.${recordId}`,
-        created_by_member_id: `eq.${memberId}`,
-        deleted_at: "is.null"
-      }
-    );
-    expect(supabase.delete).not.toHaveBeenCalled();
+    expect(supabase.delete).toHaveBeenCalledWith("bid_records", {
+      workspace_id: `eq.${workspaceId}`,
+      id: `eq.${recordId}`,
+      created_by_member_id: `eq.${memberId}`,
+      deleted_at: "is.null"
+    });
+    expect(supabase.update).not.toHaveBeenCalled();
   });
 
   it("soft-deletes an interview only through its workspace and creator member id", async () => {
@@ -550,7 +543,7 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
       ];
     }),
     insert: vi.fn(async () => []),
-    delete: vi.fn(async () => [])
+    delete: vi.fn(async () => [{ id: recordId }])
   };
 }
 
@@ -1435,7 +1428,12 @@ function bulkDeleteFixture(role = "bidder") {
       return changed;
     }
   );
-  const db = { ...base, select, selectPage, update };
+  const remove = vi.fn(async (_table: string, filters: Record<string, string>) => {
+    const changed = bids.filter((row) => matches(row, filters));
+    for (const row of changed) bids.splice(bids.indexOf(row), 1);
+    return changed;
+  });
+  const db = { ...base, select, selectPage, update, delete: remove };
   return {
     db,
     bids,
@@ -1455,7 +1453,7 @@ describe("Bulk bid deletion", () => {
     });
   });
 
-  it("soft-deletes reviewed bids, preserves other bids, and audits the selection", async () => {
+  it("permanently deletes reviewed bids, preserves other bids, and audits the selection", async () => {
     const { service, db, bids } = bulkDeleteFixture();
     expect(
       await service.bulkDeleteBids(
@@ -1467,9 +1465,9 @@ describe("Bulk bid deletion", () => {
         }
       )
     ).toEqual({ deleted: 1, skipped: 0 });
-    expect(bids[0]?.deleted_at).not.toBeNull();
-    expect(bids.slice(1).every((row) => row.deleted_at === null)).toBe(true);
-    expect(db.delete).not.toHaveBeenCalled();
+    expect(bids.some((row) => row.id === recordId)).toBe(false);
+    expect(db.update).not.toHaveBeenCalled();
+    expect(db.delete).toHaveBeenCalledTimes(1);
     expect(db.insert).toHaveBeenCalledWith("audit_logs", [
       expect.objectContaining({
         action: "tracking.bid.bulk_deleted",
@@ -1490,7 +1488,7 @@ describe("Bulk bid deletion", () => {
         }
       )
     ).rejects.toMatchObject({ status: 409 });
-    expect(db.update).not.toHaveBeenCalled();
+    expect(db.delete).not.toHaveBeenCalled();
   });
 
   it("rechecks profile assignment after preview", async () => {
@@ -1507,7 +1505,7 @@ describe("Bulk bid deletion", () => {
         }
       )
     ).rejects.toMatchObject({ status: 409 });
-    expect(db.update).not.toHaveBeenCalled();
+    expect(db.delete).not.toHaveBeenCalled();
   });
 
   it("does not permit an interviewer to bulk delete bids", async () => {
@@ -1522,7 +1520,7 @@ describe("Bulk bid deletion", () => {
         }
       )
     ).rejects.toMatchObject({ status: 403 });
-    expect(db.update).not.toHaveBeenCalled();
+    expect(db.delete).not.toHaveBeenCalled();
   });
 
   it("does not match another workspace's profile assignments", async () => {
@@ -1699,10 +1697,10 @@ describe("bulk deletion company filter", () => {
 it("skips a company renamed between eligibility recheck and the database update", async () => {
   const { service, bids, db } = bulkDeleteFixture();
   bids[0]!.company = 'Acme, "Special" Inc.';
-  const update = db.update.getMockImplementation()!;
-  db.update.mockImplementationOnce(async (table, values, filters) => {
+  const remove = db.delete.getMockImplementation()!;
+  db.delete.mockImplementationOnce(async (table, filters) => {
     bids[0]!.company = "Different Business";
-    return update(table, values, filters);
+    return remove(table, filters);
   });
   expect(
     await service.bulkDeleteBids(
@@ -1736,9 +1734,8 @@ it("rechecks duplicate selection before deletion and guards against concurrently
       )
     ).toEqual([recordId]);
     await service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] });
-    expect(db.update).toHaveBeenCalledWith(
+    expect(db.delete).toHaveBeenCalledWith(
       "bid_records",
-      expect.anything(),
       expect.objectContaining({ applied_at: "is.null" })
     );
     spy.mockResolvedValue({ ...result, results: [] });

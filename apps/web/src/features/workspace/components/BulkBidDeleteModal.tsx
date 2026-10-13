@@ -118,8 +118,8 @@ export function BulkBidDeleteModal({
           included, using {deviceTimeZone()}.
         </p>
         <p>
-          Deletion removes the whole bid from tracking, including bids assigned to multiple
-          profiles. Linked interviews and historical records are preserved.
+          Deletion permanently removes the bid and its profile assignments and linked interviews.
+          Bids linked to job records cannot be deleted.
         </p>
         <p>
           Company matching ignores capitalization, punctuation, and common legal suffixes. Enter the
