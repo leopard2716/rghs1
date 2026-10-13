@@ -1,5 +1,5 @@
 import { downloadPendingBids } from "../pending-bid-export";
-import { updateBidActionCache } from "../bid-action-cache";
+import { updateBidActionCache, updateBidRejectionCache } from "../bid-action-cache";
 import { ApplicationEligibilityBadge } from "./ApplicationEligibilityBadge";
 import { isRichTextEmpty, type RichTextDocument } from "@rghs1/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ import {
   fetchApplicationEligibility,
   fetchPendingBidExport,
   markBidApplied,
+  setBidRejected,
   type EligibilityResult,
   deleteBid as deleteBidRecord,
   fetchBid,
@@ -103,10 +104,10 @@ export function BidsPage({
   const [expandedProfileResumes, setExpandedProfileResumes] = useState<Record<string, boolean>>({});
   const [selectedBidId, setSelectedBidId] = useState<string | null>(null);
   const bidActionLocks = useRef(new Set<string>());
-  const [pendingBidActions, setPendingBidActions] = useState<Record<string, "delete" | "applied">>(
-    {}
-  );
-  function beginBidAction(bidId: string, action: "delete" | "applied") {
+  const [pendingBidActions, setPendingBidActions] = useState<
+    Record<string, "delete" | "applied" | "rejection">
+  >({});
+  function beginBidAction(bidId: string, action: "delete" | "applied" | "rejection") {
     if (bidActionLocks.current.has(bidId)) return false;
     bidActionLocks.current.add(bidId);
     setPendingBidActions((current) => ({ ...current, [bidId]: action }));
@@ -158,6 +159,19 @@ export function BidsPage({
     refetchInterval: 30000
   });
   const [reviewEligibility, setReviewEligibility] = useState<EligibilityResult | null>(null);
+  const rejectionMutation = useMutation({
+    mutationFn: ({ bidId, rejected }: { bidId: string; rejected: boolean }) =>
+      setBidRejected(session, slug, bidId, rejected),
+    onSuccess: (result, { bidId }) => {
+      updateBidRejectionCache(queryClient, slug, memberId, bidId, result.rejectedAt);
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] })
+      ]);
+    },
+    onSettled: (_data, _error, { bidId }) => finishBidAction(bidId)
+  });
   const appliedMutation = useMutation({
     mutationFn: (bidId: string) => markBidApplied(session, slug, bidId),
     onSuccess: (result, bidId) => {
@@ -542,7 +556,41 @@ export function BidsPage({
                         <td>{bid.bidder?.name ?? "Former member"}</td>
                         <td>
                           {displayDate(bid.bidAt)}
-                          <div>{bid.appliedAt ? "Applied" : "Pending"}</div>
+                          <div>
+                            {bid.rejectedAt ? "Rejected" : bid.appliedAt ? "Applied" : "Pending"}
+                          </div>
+                          {bid.appliedAt &&
+                          (workspaceSession.member.roleKeys.includes("admin") ||
+                            (workspaceSession.member.roleKeys.includes("bidder") &&
+                              bid.createdByMemberId === memberId)) ? (
+                            <button
+                              className="secondary-action small"
+                              type="button"
+                              disabled={Boolean(pendingBidActions[bid.id])}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (
+                                  window.confirm(
+                                    bid.rejectedAt
+                                      ? "Undo rejection? This application will count toward the company cooldown again."
+                                      : "Mark this submitted application rejected by the company? It will stop blocking new applications during cooldown."
+                                  )
+                                ) {
+                                  if (beginBidAction(bid.id, "rejection"))
+                                    rejectionMutation.mutate({
+                                      bidId: bid.id,
+                                      rejected: !bid.rejectedAt
+                                    });
+                                }
+                              }}
+                            >
+                              {pendingBidActions[bid.id] === "rejection"
+                                ? "Saving…"
+                                : bid.rejectedAt
+                                  ? "Undo rejection"
+                                  : "Mark rejected"}
+                            </button>
+                          ) : null}
                           {bid.importedAt &&
                           eligibilityQuery.data?.results.find(
                             (result) => result.bidId === bid.id
@@ -686,6 +734,11 @@ export function BidsPage({
           {errorMessage(exportMutation.error)}
         </p>
       ) : null}
+      {rejectionMutation.error ? (
+        <p className="form-error" role="alert">
+          {errorMessage(rejectionMutation.error)}
+        </p>
+      ) : null}
       {eligibilityQuery.error || appliedMutation.error ? (
         <p className="form-error">
           {errorMessage(eligibilityQuery.error ?? appliedMutation.error)}
@@ -733,7 +786,7 @@ export function BidsPage({
                       </td>
                       <td>
                         {displayDate(match.appliedAt ?? match.importedAt)} /{" "}
-                        {match.appliedAt ? "Applied" : "Pending"}
+                        {match.rejectedAt ? "Rejected" : match.appliedAt ? "Applied" : "Pending"}
                       </td>
                       <td>
                         {match.profileIds

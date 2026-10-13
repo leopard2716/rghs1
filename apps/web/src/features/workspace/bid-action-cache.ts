@@ -36,3 +36,21 @@ export function updateBidActionCache(
       data ? { bid: patch(data.bid) } : data
     );
 }
+
+export function updateBidRejectionCache(
+  client: QueryClient,
+  slug: string,
+  memberId: string,
+  bidId: string,
+  rejectedAt: string | null
+) {
+  const patch = (bid: BidRecord) => (bid.id === bidId ? { ...bid, rejectedAt } : bid);
+  client.setQueriesData<BidsResponse>({ queryKey: ["tracking-bids", slug, memberId] }, (data) =>
+    data
+      ? { ...data, bids: data.bids.map(patch), suggestionBids: data.suggestionBids.map(patch) }
+      : data
+  );
+  client.setQueryData<{ bid: BidRecord }>(["tracking-bid", slug, memberId, bidId], (data) =>
+    data ? { bid: patch(data.bid) } : data
+  );
+}

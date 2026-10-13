@@ -5,6 +5,7 @@ export type ApplicationRow = {
   company: string;
   job_title: string;
   applied_at?: string | null;
+  rejected_at?: string | null;
   imported_at?: string | null;
   import_batch_id?: string | null;
   import_order?: number | null;
@@ -56,6 +57,7 @@ export function applicationEligibility(
     .map((row) => {
       const inCooldown =
         !!row.applied_at &&
+        !row.rejected_at &&
         Date.parse(row.applied_at) <= now.getTime() &&
         now.getTime() - Date.parse(row.applied_at) < rules.cooldownDays * 86400000;
       const pendingEarlier = !row.applied_at;
@@ -64,17 +66,20 @@ export function applicationEligibility(
         company: row.company,
         jobTitle: row.job_title,
         appliedAt: row.applied_at ?? null,
+        rejectedAt: row.rejected_at ?? null,
         importedAt: row.imported_at ?? null,
         profileIds: assignments
           .filter((item) => item.bid_id === row.id && profileIds.has(item.profile_id))
           .map((item) => item.profile_id),
         deleted: !!row.deleted_at,
         blocks: inCooldown || pendingEarlier,
-        reason: pendingEarlier
-          ? "Earlier pending row in this import"
-          : inCooldown
-            ? "Within cooldown"
-            : "Outside cooldown"
+        reason: row.rejected_at
+          ? "Rejected — cooldown released"
+          : pendingEarlier
+            ? "Earlier pending row in this import"
+            : inCooldown
+              ? "Within cooldown"
+              : "Outside cooldown"
       };
     })
     .sort((a, b) =>
