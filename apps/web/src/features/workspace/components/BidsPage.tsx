@@ -1,3 +1,4 @@
+import { downloadPendingBids } from "../pending-bid-export";
 import { updateBidActionCache } from "../bid-action-cache";
 import { ApplicationEligibilityBadge } from "./ApplicationEligibilityBadge";
 import { isRichTextEmpty, type RichTextDocument } from "@rghs1/domain";
@@ -8,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   FileUp,
+  Download,
   LoaderCircle,
   Plus,
   Printer,
@@ -25,6 +27,7 @@ import type { AuthSession } from "../../../services/auth.service";
 import {
   createBid,
   fetchApplicationEligibility,
+  fetchPendingBidExport,
   markBidApplied,
   type EligibilityResult,
   deleteBid as deleteBidRecord,
@@ -80,6 +83,13 @@ export function BidsPage({
   const requestedBidId = searchParams.get("bidId");
   const creating = searchParams.get("modal") === "new";
   const queryClient = useQueryClient();
+  const exportMutation = useMutation({
+    mutationFn: async () => {
+      const { records } = await fetchPendingBidExport(session, slug);
+      if (!records.length) throw new Error("You have no pending applications to export.");
+      await downloadPendingBids(records);
+    }
+  });
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkImporting, setBulkImporting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -396,6 +406,20 @@ export function BidsPage({
                   <Trash2 aria-hidden="true" /> Bulk delete
                 </button>
                 <button
+                  className="secondary-action small"
+                  type="button"
+                  disabled={exportMutation.isPending}
+                  title="Download all your pending applications across every page"
+                  onClick={() => exportMutation.mutate()}
+                >
+                  {exportMutation.isPending ? (
+                    <LoaderCircle className="spin-icon" aria-hidden="true" />
+                  ) : (
+                    <Download aria-hidden="true" />
+                  )}{" "}
+                  Export pending (.xlsx)
+                </button>
+                <button
                   className="primary-action small"
                   type="button"
                   disabled={!bidsQuery.data.profiles.length || !bidsQuery.data.markets.length}
@@ -657,6 +681,11 @@ export function BidsPage({
         ) : null}
       </section>
 
+      {exportMutation.error ? (
+        <p className="form-error" role="alert">
+          {errorMessage(exportMutation.error)}
+        </p>
+      ) : null}
       {eligibilityQuery.error || appliedMutation.error ? (
         <p className="form-error">
           {errorMessage(eligibilityQuery.error ?? appliedMutation.error)}
