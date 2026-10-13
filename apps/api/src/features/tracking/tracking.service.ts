@@ -972,24 +972,16 @@ export class TrackingService {
         "bulk_bid_delete_stale"
       );
     }
-    const now = new Date().toISOString();
-    const deleted = await this.supabase.update<{ id: string }>(
-      "bid_records",
-      {
-        deleted_at: now,
-        updated_at: now
-      },
-      {
-        ...this.bulkDeleteFilters(context, input.filter),
-        ...(input.filter.duplicatedOnly ? { applied_at: "is.null" } : {}),
-        ...(input.filter.company?.trim()
-          ? {
-              company: `in.(${[...new Set(eligible.map((row) => row.company))].map((company) => JSON.stringify(company)).join(",")})`
-            }
-          : {}),
-        id: `in.(${input.bidIds.join(",")})`
-      }
-    );
+    const deleted = await this.supabase.delete<{ id: string }>("bid_records", {
+      ...this.bulkDeleteFilters(context, input.filter),
+      ...(input.filter.duplicatedOnly ? { applied_at: "is.null" } : {}),
+      ...(input.filter.company?.trim()
+        ? {
+            company: `in.(${[...new Set(eligible.map((row) => row.company))].map((company) => JSON.stringify(company)).join(",")})`
+          }
+        : {}),
+      id: `in.(${input.bidIds.join(",")})`
+    });
     if (deleted.length) {
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
@@ -1065,17 +1057,12 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireRole(context, "bidder");
     await this.access.requireOwnedBid(context, bidId, "delete");
-    const now = new Date().toISOString();
-    const [bid] = await this.supabase.update<BidRecordRow>(
-      "bid_records",
-      { deleted_at: now, updated_at: now },
-      {
-        workspace_id: `eq.${context.workspace.id}`,
-        id: `eq.${bidId}`,
-        created_by_member_id: `eq.${context.member.id}`,
-        deleted_at: "is.null"
-      }
-    );
+    const [bid] = await this.supabase.delete<BidRecordRow>("bid_records", {
+      workspace_id: `eq.${context.workspace.id}`,
+      id: `eq.${bidId}`,
+      created_by_member_id: `eq.${context.member.id}`,
+      deleted_at: "is.null"
+    });
     if (!bid) {
       throw apiError(
         404,
