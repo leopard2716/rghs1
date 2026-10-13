@@ -103,6 +103,28 @@ export function registerTrackingRoutes(app: ApiApp): void {
       }
     }
   );
+  app.patch(
+    "/v1/workspaces/:slug/tracking/bids/:bidId/rejection",
+    zValidator("param", bidRecordParams),
+    zValidator("json", z.object({ rejected: z.boolean() })),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new ApplicationRulesService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).setRejected(
+            c.req.param("slug"),
+            user,
+            c.req.valid("param").bidId,
+            c.req.valid("json").rejected
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
   app.post(
     "/v1/workspaces/:slug/tracking/bids/:bidId/applied",
     zValidator("param", bidRecordParams),
