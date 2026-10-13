@@ -75,7 +75,7 @@ export class ApplicationRulesService {
     const selectedIds = new Set(bidIds);
     const rows = await this.db.selectAll<ApplicationRow>(
       "bid_records",
-      "id,company,job_title,applied_at,imported_at,import_batch_id,import_order,deleted_at",
+      "id,company,job_title,applied_at,rejected_at,imported_at,import_batch_id,import_order,deleted_at",
       { workspace_id: `eq.${context.workspace.id}` }
     );
     const assignments = await this.db.selectAll<{ bid_id: string; profile_id: string }>(
@@ -92,6 +92,59 @@ export class ApplicationRulesService {
         .map((row) => applicationEligibility(row, rows, assignments, rules, now))
     };
   }
+  async setRejected(slug: string, user: AuthUser, bidId: string, rejected: boolean) {
+    const context = await this.access.requireContext(slug, user.id);
+    const admin = context.roleKeys.includes("admin");
+    if (!admin) this.access.requireRole(context, "bidder");
+    const filters = {
+      workspace_id: `eq.${context.workspace.id}`,
+      id: `eq.${bidId}`,
+      deleted_at: "is.null",
+      ...(!admin ? { created_by_member_id: `eq.${context.member.id}` } : {})
+    };
+    const [bid] = await this.db.select<{ applied_at: string | null; rejected_at: string | null }>(
+      "bid_records",
+      "applied_at,rejected_at",
+      filters
+    );
+    if (!bid)
+      throw apiError(404, "Application was not found or is not yours.", "bid_record_not_found");
+    if (!bid.applied_at)
+      throw apiError(
+        409,
+        "Only submitted applications can be marked rejected.",
+        "bid_rejection_requires_applied"
+      );
+    const rejectedAt = rejected ? (bid.rejected_at ?? new Date().toISOString()) : null;
+    const rows = await this.db.update(
+      "bid_records",
+      { rejected_at: rejectedAt, updated_at: new Date().toISOString() },
+      {
+        ...filters,
+        applied_at: "not.is.null",
+        rejected_at: bid.rejected_at ? `eq.${bid.rejected_at}` : "is.null"
+      }
+    );
+    if (!rows.length)
+      throw apiError(
+        409,
+        "The application changed. Refresh and try again.",
+        "bid_rejection_conflict"
+      );
+    await this.db.insert("audit_logs", [
+      {
+        workspace_id: context.workspace.id,
+        actor_id: user.id,
+        actor_member_id: context.member.id,
+        action: rejected ? "tracking.bid.rejected" : "tracking.bid.rejection_undone",
+        target_type: "tracking_record",
+        target_id: bidId,
+        metadata: { rejectedAt, previousRejectedAt: bid.rejected_at }
+      }
+    ]);
+    return { rejectedAt };
+  }
+
   async markApplied(slug: string, user: AuthUser, bidId: string) {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireRole(context, "bidder");

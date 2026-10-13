@@ -110,6 +110,7 @@ export type BidRecord = {
   jobDescription: RichTextDocument | string | null;
   applicationMetadata?: Record<string, unknown> | null;
   appliedAt?: string | null;
+  rejectedAt?: string | null;
   importedAt?: string | null;
   jobMarket: TrackingJobMarket;
   profiles: TrackingBidProfile[];
@@ -1049,6 +1050,7 @@ export type EligibilityResult = {
     company: string;
     jobTitle: string;
     appliedAt: string | null;
+    rejectedAt?: string | null;
     importedAt: string | null;
     profileIds: string[];
     deleted: boolean;
@@ -1116,4 +1118,19 @@ export async function fetchPendingBidExport(session: AuthSession, slug: string) 
     { headers: authHeaders() }
   );
   return parseJson<{ records: PendingBidExportRow[] }>(response);
+}
+
+export async function setBidRejected(
+  session: AuthSession,
+  slug: string,
+  bidId: string,
+  rejected: boolean
+) {
+  return parseJson<{ rejectedAt: string | null }>(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids/${bidId}/rejection`,
+      { method: "PATCH", headers: authHeaders(), body: JSON.stringify({ rejected }) }
+    )
+  );
 }

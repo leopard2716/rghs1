@@ -94,3 +94,26 @@ describe("company application cooldown", () => {
     expect(applicationEligibility(prior, [target], assignments, rules, now).showBadge).toBe(false);
   });
 });
+
+it("releases rejected history immediately, retains the explanation, and restores cooldown on undo", () => {
+  const rejected = { ...prior, rejected_at: now.toISOString() };
+  expect(check([rejected])).toMatchObject({
+    duplicated: false,
+    matches: [
+      { blocks: false, reason: "Rejected — cooldown released", rejectedAt: now.toISOString() }
+    ]
+  });
+  expect(check([{ ...rejected, rejected_at: null }]).duplicated).toBe(true);
+});
+it("does not let one rejection override another active application or a pending batch reservation", () => {
+  const rejected = { ...prior, rejected_at: now.toISOString() };
+  const another = { ...prior, id: "another" };
+  const links = [...assignments, { bid_id: "another", profile_id: "profile" }];
+  expect(applicationEligibility(target, [rejected, another], links, rules, now).duplicated).toBe(
+    true
+  );
+  const pending = { ...another, applied_at: null, import_batch_id: "batch", import_order: 0 };
+  expect(applicationEligibility(target, [rejected, pending], links, rules, now).duplicated).toBe(
+    true
+  );
+});
