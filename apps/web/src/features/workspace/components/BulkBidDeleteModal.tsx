@@ -185,7 +185,7 @@ export function BulkBidDeleteModal({
             />
           </label>
         </div>
-        <label className="bulk-delete-choice">
+        <label className="check-row">
           <input
             type="checkbox"
             checked={duplicatedOnly}
@@ -222,7 +222,7 @@ export function BulkBidDeleteModal({
             </p>
             {preview.bids.length ? (
               <>
-                <label className="bulk-delete-choice">
+                <label className="check-row">
                   <input
                     type="checkbox"
                     disabled={busy}
@@ -272,7 +272,7 @@ export function BulkBidDeleteModal({
                     </tbody>
                   </table>
                 </div>
-                <label className="bulk-delete-choice">
+                <label className="check-row">
                   <input
                     type="checkbox"
                     checked={confirmed}

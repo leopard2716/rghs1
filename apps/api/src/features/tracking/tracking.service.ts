@@ -486,6 +486,33 @@ export class TrackingService {
     }
   }
 
+  async exportPendingBids(slug: string, user: AuthUser) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "bidder");
+    const rows = await this.supabase.selectAll<{
+      job_title: string;
+      company: string;
+      job_link: string;
+    }>(
+      "bid_records",
+      "job_title,company,job_link",
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        created_by_member_id: `eq.${context.member.id}`,
+        deleted_at: "is.null",
+        applied_at: "is.null"
+      },
+      { order: "bid_at.desc,id.desc" }
+    );
+    return {
+      records: rows.map((row) => ({
+        jobTitle: row.job_title,
+        company: row.company,
+        link: row.job_link
+      }))
+    };
+  }
+
   async listBids(slug: string, user: AuthUser, query: BidListQuery) {
     const context = await this.access.requireContext(slug, user.id);
     const [allProfiles, allMarkets, members, profileAssignments] = await Promise.all([
