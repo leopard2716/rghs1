@@ -1095,13 +1095,14 @@ export async function saveApplicationRules(
 export async function fetchApplicationEligibility(
   session: AuthSession,
   slug: string,
-  bidIds: string[]
+  bidIds: string[],
+  signal?: AbortSignal
 ): Promise<{ rules: ApplicationRules; results: EligibilityResult[] }> {
   return parseJson(
     await authenticatedApiFetch(
       session,
       `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/application-eligibility`,
-      { method: "POST", headers: authHeaders(), body: JSON.stringify({ bidIds }) }
+      { method: "POST", headers: authHeaders(), body: JSON.stringify({ bidIds }), signal }
     )
   );
 }

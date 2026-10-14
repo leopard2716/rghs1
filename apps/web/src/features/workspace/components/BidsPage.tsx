@@ -1,3 +1,4 @@
+import { loadEligibilityBatches } from "../eligibility-batches";
 import { downloadPendingBids } from "../pending-bid-export";
 import { addBidToCache, updateBidActionCache, updateBidRejectionCache } from "../bid-action-cache";
 import { ApplicationEligibilityBadge } from "./ApplicationEligibilityBadge";
@@ -157,7 +158,14 @@ export function BidsPage({
   const visibleBidIds = bidsQuery.data?.bids.map((bid) => bid.id) ?? [];
   const eligibilityQuery = useQuery({
     queryKey: ["application-eligibility", slug, memberId, visibleBidIds],
-    queryFn: () => fetchApplicationEligibility(session, slug, visibleBidIds),
+    queryFn: ({ signal, queryKey }) =>
+      loadEligibilityBatches(
+        visibleBidIds,
+        (ids) => fetchApplicationEligibility(session, slug, ids, signal),
+        (data) => queryClient.setQueryData(queryKey, data),
+        signal
+      ),
+    retry: false,
     enabled: visibleBidIds.length > 0,
     refetchInterval: 30000
   });
@@ -628,6 +636,12 @@ export function BidsPage({
                                 )
                               }
                             />
+                          ) : bid.importedAt ? (
+                            <span className="record-muted">
+                              {eligibilityQuery.data?.failedIds.includes(bid.id)
+                                ? "Eligibility unavailable"
+                                : "Checking eligibility…"}
+                            </span>
                           ) : null}
                           {!bid.appliedAt && canEditBid(bid, memberId) ? (
                             <button
@@ -754,6 +768,18 @@ export function BidsPage({
       {rejectionMutation.error ? (
         <p className="form-error" role="alert">
           {errorMessage(rejectionMutation.error)}
+        </p>
+      ) : null}
+      {eligibilityQuery.data?.failedIds.length ? (
+        <p className="form-error">
+          Eligibility unavailable for {eligibilityQuery.data.failedIds.length} records.{" "}
+          <button
+            type="button"
+            disabled={eligibilityQuery.isFetching}
+            onClick={() => void eligibilityQuery.refetch()}
+          >
+            Retry eligibility
+          </button>
         </p>
       ) : null}
       {eligibilityQuery.error || appliedMutation.error ? (
