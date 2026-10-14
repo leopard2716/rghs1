@@ -95,3 +95,38 @@ it("does not audit a failed concurrent update", async () => {
   });
   expect(db.insert).not.toHaveBeenCalled();
 });
+
+it("scopes eligibility reads to target IDs and shared profiles and preserves normalized company cooldowns", async () => {
+  const target = { id: "target", company: "Acme LLC", job_title: "Engineer", deleted_at: null };
+  const prior = {
+    id: "prior",
+    company: "Acme Inc",
+    job_title: "Engineer",
+    applied_at: new Date().toISOString(),
+    deleted_at: null
+  };
+  const db = {
+    select: vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
+      if (table === "workspace_application_rules") return [];
+      expect(filters.workspace_id).toBe("eq.workspace");
+      expect(filters.id).toBeDefined();
+      return filters.id === "in.(target)" ? [target] : [target, prior];
+    }),
+    selectAll: vi.fn(async (_table: string, _fields: string, filters: Record<string, string>) => {
+      expect(filters.bid_id || filters.profile_id).toBeDefined();
+      return filters.bid_id
+        ? [{ bid_id: "target", profile_id: "profile" }]
+        : [
+            { bid_id: "target", profile_id: "profile" },
+            { bid_id: "prior", profile_id: "profile" }
+          ];
+    })
+  };
+  const service = new ApplicationRulesService(db as unknown as SupabaseRestClient);
+  const result = await service.eligibilityForContext(
+    { workspace: { id: "workspace" } } as TrackingContext,
+    ["target"]
+  );
+  expect(result.results[0]?.duplicated).toBe(true);
+  expect(result.results[0]?.matches[0]?.id).toBe("prior");
+});
