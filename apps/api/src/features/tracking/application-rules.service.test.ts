@@ -112,14 +112,17 @@ it("scopes eligibility reads to target IDs and shared profiles and preserves nor
       expect(filters.id).toBeDefined();
       return filters.id === "in.(target)" ? [target] : [target, prior];
     }),
-    selectAll: vi.fn(async (_table: string, _fields: string, filters: Record<string, string>) => {
-      expect(filters.bid_id || filters.profile_id).toBeDefined();
-      return filters.bid_id
-        ? [{ bid_id: "target", profile_id: "profile" }]
-        : [
-            { bid_id: "target", profile_id: "profile" },
-            { bid_id: "prior", profile_id: "profile" }
-          ];
+    rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
+      expect(name).toBe("application_eligibility_data");
+      expect(args).toEqual({ p_workspace_id: "workspace", p_bid_ids: ["target"] });
+      return {
+        targets: [target],
+        history: [target, prior],
+        assignments: [
+          { bid_id: "target", profile_id: "profile" },
+          { bid_id: "prior", profile_id: "profile" }
+        ]
+      };
     })
   };
   const service = new ApplicationRulesService(db as unknown as SupabaseRestClient);

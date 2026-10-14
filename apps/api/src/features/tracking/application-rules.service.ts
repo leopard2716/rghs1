@@ -73,58 +73,15 @@ export class ApplicationRulesService {
     const rules = settings
       ? { cooldownDays: settings.cooldown_days, timeZone: settings.time_zone }
       : defaultApplicationRules;
-    const fields =
-      "id,company,job_title,applied_at,rejected_at,imported_at,import_batch_id,import_order,deleted_at";
-    const targets: ApplicationRow[] = [];
-    for (let offset = 0; offset < bidIds.length; offset += 20) {
-      targets.push(
-        ...(await this.db.select<ApplicationRow>("bid_records", fields, {
-          workspace_id: `eq.${context.workspace.id}`,
-          id: `in.(${bidIds.slice(offset, offset + 20).join(",")})`,
-          deleted_at: "is.null"
-        }))
-      );
-    }
-    const targetAssignments: Array<{ bid_id: string; profile_id: string }> = [];
-    for (let offset = 0; offset < targets.length; offset += 20) {
-      targetAssignments.push(
-        ...(await this.db.selectAll<{ bid_id: string; profile_id: string }>(
-          "bid_record_profiles",
-          "bid_id,profile_id",
-          {
-            workspace_id: `eq.${context.workspace.id}`,
-            bid_id: `in.(${targets
-              .slice(offset, offset + 20)
-              .map((row) => row.id)
-              .join(",")})`
-          }
-        ))
-      );
-    }
-    const profiles = [...new Set(targetAssignments.map((row) => row.profile_id))];
-    const assignments: Array<{ bid_id: string; profile_id: string }> = [];
-    for (let offset = 0; offset < profiles.length; offset += 20) {
-      assignments.push(
-        ...(await this.db.selectAll<{ bid_id: string; profile_id: string }>(
-          "bid_record_profiles",
-          "bid_id,profile_id",
-          {
-            workspace_id: `eq.${context.workspace.id}`,
-            profile_id: `in.(${profiles.slice(offset, offset + 20).join(",")})`
-          }
-        ))
-      );
-    }
-    const historyIds = [...new Set(assignments.map((row) => row.bid_id))];
+    const data = await this.db.rpc<{
+      targets: ApplicationRow[];
+      history: ApplicationRow[];
+      assignments: Array<{ bid_id: string; profile_id: string }>;
+    }>("application_eligibility_data", { p_workspace_id: context.workspace.id, p_bid_ids: bidIds });
+    const targets = data.targets;
     const companies = new Set(targets.map((row) => normalizeCompanyName(row.company)));
-    const rows: ApplicationRow[] = [];
-    for (let offset = 0; offset < historyIds.length; offset += 100) {
-      const history = await this.db.select<ApplicationRow>("bid_records", fields, {
-        workspace_id: `eq.${context.workspace.id}`,
-        id: `in.(${historyIds.slice(offset, offset + 100).join(",")})`
-      });
-      rows.push(...history.filter((row) => companies.has(normalizeCompanyName(row.company))));
-    }
+    const rows = data.history.filter((row) => companies.has(normalizeCompanyName(row.company)));
+    const assignments = data.assignments;
     const now = new Date();
     return {
       rules,

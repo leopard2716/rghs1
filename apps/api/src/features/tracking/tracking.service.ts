@@ -1010,45 +1010,33 @@ export class TrackingService {
     filter: BulkBidDeleteFilter,
     selectedIds?: string[]
   ) {
-    const assignments = await this.selectAllPages<{ bid_id: string }>(
-      "bid_record_profiles",
-      "bid_id",
-      {
-        workspace_id: `eq.${context.workspace.id}`,
-        profile_id: `eq.${filter.profileId}`,
-        ...(selectedIds ? { bid_id: `in.(${selectedIds.join(",")})` } : {})
-      }
+    const company = filter.company?.trim() ? normalizeCompanyName(filter.company) : null;
+    const candidates = await this.supabase.rpc<
+      Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">>
+    >("bulk_bid_delete_candidates", {
+      p_workspace_id: context.workspace.id,
+      p_member_id: context.member.id,
+      p_profile_id: filter.profileId,
+      p_date_from: filter.dateFrom,
+      p_date_to: filter.dateTo,
+      p_bid_ids: selectedIds ?? null
+    });
+    const rows = candidates.filter(
+      (row) => company === null || normalizeCompanyName(row.company) === company
     );
-    let ids = [...new Set(assignments.map((row) => row.bid_id))];
-    if (filter.duplicatedOnly && ids.length) {
+    if (filter.duplicatedOnly && rows.length) {
       const eligibility = await new ApplicationRulesService(this.supabase).eligibilityForContext(
         context,
-        ids
+        rows.map((row) => row.id)
       );
       const duplicatedIds = new Set(
         eligibility.results
           .filter((row) => row.showBadge && row.duplicated && row.pending)
           .map((row) => row.bidId)
       );
-      ids = ids.filter((id) => duplicatedIds.has(id));
-    }
-    const rows: Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">> = [];
-    const company = filter.company?.trim() ? normalizeCompanyName(filter.company) : null;
-    for (const batch of chunkValues(ids, 100)) {
-      rows.push(
-        ...(
-          await this.supabase.select<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">>(
-            "bid_records",
-            "id,company,job_title,bid_at",
-            {
-              ...this.bulkDeleteFilters(context, filter),
-              id: `in.(${batch.join(",")})`
-            },
-            { order: "bid_at.desc,id.desc", limit: 201 }
-          )
-        ).filter((row) => company === null || normalizeCompanyName(row.company) === company)
-      );
-      if (!selectedIds && rows.length > 200) break;
+      return rows
+        .filter((row) => duplicatedIds.has(row.id))
+        .sort((a, b) => b.bid_at.localeCompare(a.bid_at) || b.id.localeCompare(a.id));
     }
     return rows.sort((a, b) => b.bid_at.localeCompare(a.bid_at) || b.id.localeCompare(a.id));
   }
