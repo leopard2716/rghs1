@@ -38,3 +38,30 @@ describe("TrackingListQueryBuilder", () => {
     ).toBe("job_title.asc,id.asc");
   });
 });
+
+describe("bid status and calendar-day filters", () => {
+  it.each(["pending", "applied", "rejected"] as const)("filters %s before pagination", (status) => {
+    const filters = builder.bidFilters(
+      "workspace-1",
+      {
+        page: 1,
+        pageSize: 20,
+        sortBy: "datetime",
+        sortDirection: "desc",
+        status,
+        search: "Acme",
+        dateFrom: "2026-10-14T05:00:00.000Z",
+        dateTo: "2026-10-15T05:00:00.000Z"
+      },
+      ["bid-1"]
+    );
+    expect(filters.id).toBe("in.(bid-1)");
+    expect(filters.rejected_at).toBe(status === "rejected" ? "not.is.null" : "is.null");
+    expect(filters.applied_at).toBe(
+      status === "rejected" ? undefined : status === "applied" ? "not.is.null" : "is.null"
+    );
+    expect(filters.and).toBe(
+      "(bid_at.gte.2026-10-14T05:00:00.000Z,bid_at.lt.2026-10-15T05:00:00.000Z,search_text.ilike.*acme*)"
+    );
+  });
+});

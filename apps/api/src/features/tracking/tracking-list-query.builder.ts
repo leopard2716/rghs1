@@ -16,10 +16,18 @@ export class TrackingListQueryBuilder {
     if (profileBidIds) {
       filters.id = `in.(${profileBidIds.join(",")})`;
     }
-    const tokens = searchTokens(query.search);
-    if (tokens.length) {
-      filters.and = `(${tokens.map((token) => `search_text.ilike.*${token}*`).join(",")})`;
+    if (query.status === "rejected") {
+      filters.rejected_at = "not.is.null";
+    } else if (query.status) {
+      filters.rejected_at = "is.null";
+      filters.applied_at = query.status === "applied" ? "not.is.null" : "is.null";
     }
+    const conditions: string[] = [];
+    if (query.dateFrom) conditions.push(`bid_at.gte.${query.dateFrom}`);
+    if (query.dateTo) conditions.push(`bid_at.lt.${query.dateTo}`);
+    const tokens = searchTokens(query.search);
+    conditions.push(...tokens.map((token) => `search_text.ilike.*${token}*`));
+    if (conditions.length) filters.and = `(${conditions.join(",")})`;
     return filters;
   }
 

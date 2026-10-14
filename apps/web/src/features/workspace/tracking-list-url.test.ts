@@ -21,6 +21,8 @@ describe("tracking list URL state", () => {
       search: "Frank",
       profileId: "profile-1",
       jobMarketId: undefined,
+      date: undefined,
+      status: undefined,
       sortBy: "company",
       sortDirection: "asc"
     });
@@ -80,4 +82,20 @@ describe("tracking list URL state", () => {
     expect(params.has("amountMax")).toBe(false);
     expect(params.has("status")).toBe(false);
   });
+});
+
+it("round trips bid date and status and clears them", () => {
+  const params = updateTrackingListParams(new URLSearchParams("page=4"), {
+    date: "2026-10-14",
+    status: "rejected",
+    page: 1
+  });
+  expect(trackingListQueryFromParams(params)).toMatchObject({
+    date: "2026-10-14",
+    status: "rejected",
+    page: 1
+  });
+  const cleared = updateTrackingListParams(params, { date: undefined, status: undefined });
+  expect(cleared.has("date")).toBe(false);
+  expect(cleared.has("status")).toBe(false);
 });
