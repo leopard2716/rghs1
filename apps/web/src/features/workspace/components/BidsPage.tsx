@@ -41,10 +41,10 @@ import {
 } from "../../../services/tracking.service";
 import type { WorkspaceSession } from "../../../services/workspace.service";
 import {
-  displayDate,
+  displayCentralDate as displayDate,
   displayZonedDateTimeRange,
-  localDateTimeToIso,
-  localDateTimeValue
+  centralDateTimeToIso as localDateTimeToIso,
+  centralDateTimeValue as localDateTimeValue
 } from "../../../utils/datetime";
 import { fieldValue } from "../../../utils/form";
 import { matchingCompanyBids } from "../company-name-match";
@@ -563,6 +563,16 @@ export function BidsPage({
                         <td>{bid.bidder?.name ?? "Former member"}</td>
                         <td>
                           {displayDate(bid.bidAt)}
+                          {bid.importedAt ? (
+                            <div className="record-muted">
+                              Imported: {displayDate(bid.importedAt)}
+                            </div>
+                          ) : null}
+                          {bid.appliedAt ? (
+                            <div className="record-muted">
+                              Applied: {displayDate(bid.appliedAt)}
+                            </div>
+                          ) : null}
                           <div>
                             {bid.rejectedAt ? "Rejected" : bid.appliedAt ? "Applied" : "Pending"}
                           </div>
@@ -1034,7 +1044,7 @@ export function BidsPage({
               </label>
             </div>
             <label>
-              Bid date and time
+              Bid date and time (Central Time — America/Chicago)
               <input
                 name="bidAt"
                 type="datetime-local"

@@ -1,3 +1,4 @@
+import { centralDayRange } from "../../utils/datetime";
 import type { QueryClient } from "@tanstack/react-query";
 import type { BidRecord, BidsResponse, TrackingListQuery } from "../../services/tracking.service";
 
@@ -69,11 +70,9 @@ export function matchesBidFilters(bid: BidRecord, query: TrackingListQuery): boo
     return false;
   if (query.jobMarketId && bid.jobMarket.id !== query.jobMarketId) return false;
   if (query.date) {
-    const start = new Date(`${query.date}T00:00:00`);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+    const { dateFrom, dateTo } = centralDayRange(query.date);
     const time = Date.parse(bid.bidAt);
-    if (!(time >= start.getTime() && time < end.getTime())) return false;
+    if (!(time >= Date.parse(dateFrom) && time < Date.parse(dateTo))) return false;
   }
   const text = `${bid.company} ${bid.jobTitle}`.toLocaleLowerCase();
   return (query.search ?? "")

@@ -1,3 +1,8 @@
+import {
+  centralDateTimeValue,
+  centralDateTimeToIso,
+  centralTimeZoneLabel
+} from "../../../utils/datetime";
 import { isUnknownCompanyName } from "@rghs1/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileSpreadsheet, LoaderCircle, Save, Send, Upload, X } from "lucide-react";
@@ -20,7 +25,6 @@ import {
   matchingProfile,
   normalizeProfileName,
   parseBidSpreadsheet,
-  parseCsvBidDate,
   plainTextToRichText,
   splitProfileNames,
   type CsvBidField,
@@ -63,7 +67,7 @@ export function BulkBidImportModal({
   const [fileName, setFileName] = useState("");
   const [mapping, setMapping] = useState<CsvBidMapping | null>(null);
   const [jobMarketId, setJobMarketId] = useState(markets[0]?.id ?? "");
-  const [yearForYearlessDates, setYearForYearlessDates] = useState(new Date().getFullYear());
+  const [batchDateTime, setBatchDateTime] = useState(() => centralDateTimeValue());
   const [ignoredProfileNames, setIgnoredProfileNames] = useState<Record<string, boolean>>({});
   const [resumeColumnMap, setResumeColumnMap] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -163,12 +167,8 @@ export function BulkBidImportModal({
     if (!table || !mapping || !jobMarketId) {
       return "Choose a CSV or Excel (.xlsx) file and job market.";
     }
-    if (
-      !Number.isInteger(yearForYearlessDates) ||
-      yearForYearlessDates < 1900 ||
-      yearForYearlessDates > 2100
-    ) {
-      return "Choose a bid year between 1900 and 2100.";
+    if (!centralDateTimeToIso(batchDateTime)) {
+      return "Choose a valid import date/time in Central Time.";
     }
     const missingMapping = requiredFields.find((field) => !mapping[field]);
     if (missingMapping) {
@@ -189,7 +189,8 @@ export function BulkBidImportModal({
       const parsed = await parseBidSpreadsheet(file);
       setTable(parsed);
       setFileName(file.name);
-      setMapping(inferBidCsvMapping(parsed.headers));
+      setMapping({ ...inferBidCsvMapping(parsed.headers), bidAt: "" });
+      setBatchDateTime(centralDateTimeValue());
       setIgnoredProfileNames({});
       setResumeColumnMap({});
       setFormError(null);
@@ -213,6 +214,7 @@ export function BulkBidImportModal({
     if (!table || !mapping) {
       throw new Error("Choose a CSV or Excel (.xlsx) file.");
     }
+    const bidAt = centralDateTimeToIso(batchDateTime)!;
     const records: Parameters<typeof bulkCreateBids>[2] = [];
     for (let rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
       const row = table.rows[rowIndex] ?? [];
@@ -256,19 +258,11 @@ export function BulkBidImportModal({
         const resume = csvValue(table, row, header).trim();
         return resume ? [{ profileId, resume }] : [];
       });
-      const bidAtValue = mapping.bidAt ? csvValue(table, row, mapping.bidAt) : "";
-      let bidAt: Date;
-      try {
-        bidAt = parseCsvBidDate(bidAtValue, yearForYearlessDates);
-      } catch {
-        throw new Error(`CSV row ${rowIndex + 2} has an invalid bid date.`);
-      }
-
       records.push({
         jobTitle,
         company,
         jobLink,
-        bidAt: bidAt.toISOString(),
+        bidAt,
         jobMarketId,
         jobDescription: mapping.jobDescription
           ? plainTextToRichText(csvValue(table, row, mapping.jobDescription))
@@ -358,17 +352,32 @@ export function BulkBidImportModal({
                 <table className="csv-preview-table">
                   <thead>
                     <tr>
-                      {table.headers.map((header) => (
-                        <th key={header}>{header}</th>
-                      ))}
+                      {table.headers
+                        .filter(
+                          (header) =>
+                            !/^(date|datetime|bid date|bid date.time|applied at|applied date)$/i.test(
+                              header.trim()
+                            )
+                        )
+                        .map((header) => (
+                          <th key={header}>{header}</th>
+                        ))}
                     </tr>
                   </thead>
                   <tbody>
                     {table.rows.slice(0, 5).map((row, rowIndex) => (
                       <tr key={rowIndex}>
-                        {table.headers.map((header, columnIndex) => (
-                          <td key={`${header}-${columnIndex}`}>{row[columnIndex] || "-"}</td>
-                        ))}
+                        {table.headers
+                          .map((header, columnIndex) => ({ header, columnIndex }))
+                          .filter(
+                            ({ header }) =>
+                              !/^(date|datetime|bid date|bid date.time|applied at|applied date)$/i.test(
+                                header.trim()
+                              )
+                          )
+                          .map(({ header, columnIndex }) => (
+                            <td key={`${header}-${columnIndex}`}>{row[columnIndex] || "-"}</td>
+                          ))}
                       </tr>
                     ))}
                   </tbody>
@@ -377,30 +386,35 @@ export function BulkBidImportModal({
             </section>
 
             <section className="bulk-import-section">
-              <h4>Map CSV Headers</h4>
+              <h4>Map spreadsheet headers</h4>
+              <p>
+                Spreadsheet dates are ignored. All records use the batch import date/time below.
+              </p>
               <div className="csv-mapping-grid">
-                {(Object.keys(fieldLabels) as CsvBidField[]).map((field) => (
-                  <label key={field}>
-                    {fieldLabels[field]}
-                    {requiredFields.includes(field) ? <span>Required</span> : null}
-                    <select
-                      value={mapping[field]}
-                      disabled={importBusy}
-                      onChange={(event) =>
-                        setMapping((current) =>
-                          current ? { ...current, [field]: event.target.value } : current
-                        )
-                      }
-                    >
-                      <option value="">Not mapped</option>
-                      {table.headers.map((header) => (
-                        <option value={header} key={header}>
-                          {header}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
+                {(Object.keys(fieldLabels) as CsvBidField[])
+                  .filter((field) => field !== "bidAt")
+                  .map((field) => (
+                    <label key={field}>
+                      {fieldLabels[field]}
+                      {requiredFields.includes(field) ? <span>Required</span> : null}
+                      <select
+                        value={mapping[field]}
+                        disabled={importBusy}
+                        onChange={(event) =>
+                          setMapping((current) =>
+                            current ? { ...current, [field]: event.target.value } : current
+                          )
+                        }
+                      >
+                        <option value="">Not mapped</option>
+                        {table.headers.map((header) => (
+                          <option value={header} key={header}>
+                            {header}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
                 <label>
                   Job market
                   <span>Selected manually</span>
@@ -418,17 +432,28 @@ export function BulkBidImportModal({
                   </select>
                 </label>
                 <label>
-                  Year for dates without year
-                  <span>Used for values like 1/26</span>
+                  Import date/time
+                  <span>{centralTimeZoneLabel(batchDateTime)}</span>
                   <input
-                    type="number"
-                    min={1900}
-                    max={2100}
-                    step={1}
-                    value={yearForYearlessDates}
+                    type="datetime-local"
+                    required
+                    value={batchDateTime}
                     disabled={importBusy}
-                    onChange={(event) => setYearForYearlessDates(Number(event.target.value))}
+                    onChange={(event) => setBatchDateTime(event.target.value)}
                   />
+                  <small>
+                    Your local time:{" "}
+                    {centralDateTimeToIso(batchDateTime)
+                      ? new Intl.DateTimeFormat("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                          timeZoneName: "short"
+                        }).format(new Date(centralDateTimeToIso(batchDateTime)!))
+                      : "Choose a valid date/time"}
+                  </small>
                 </label>
               </div>
             </section>
