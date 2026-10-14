@@ -78,7 +78,10 @@ export function BidsPage({
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsValue = searchParams.toString();
   const listQuery = useMemo(
-    () => trackingListQueryFromParams(new URLSearchParams(searchParamsValue)),
+    () => ({
+      ...trackingListQueryFromParams(new URLSearchParams(searchParamsValue)),
+      jobMarketId: undefined
+    }),
     [searchParamsValue]
   );
   const requestedBidId = searchParams.get("bidId");
@@ -456,6 +459,7 @@ export function BidsPage({
 
         {bidsQuery.data ? (
           <TrackingListControls
+            bidFilters
             query={listQuery}
             profiles={bidsQuery.data.filterProfiles}
             markets={bidsQuery.data.filterMarkets}

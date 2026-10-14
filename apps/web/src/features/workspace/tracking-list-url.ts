@@ -23,6 +23,14 @@ export function trackingListQueryFromParams(params: URLSearchParams): TrackingLi
     search: optionalValue(params.get("search")),
     profileId: optionalValue(params.get("profileId")),
     jobMarketId: optionalValue(params.get("jobMarketId")),
+    date:
+      /^\d{4}-\d{2}-\d{2}$/.test(params.get("date") ?? "") &&
+      !Number.isNaN(Date.parse(`${params.get("date")}T00:00:00`))
+        ? params.get("date")!
+        : undefined,
+    status: ["applied", "rejected", "pending"].includes(params.get("status") ?? "")
+      ? (params.get("status") as TrackingListQuery["status"])
+      : undefined,
     sortBy:
       sortBy === "company" || sortBy === "jobTitle" || sortBy === "datetime"
         ? sortBy
@@ -51,6 +59,8 @@ export function updateTrackingListParams(
   setOptional(next, "search", query.search);
   setOptional(next, "profileId", query.profileId);
   setOptional(next, "jobMarketId", query.jobMarketId);
+  setOptional(next, "date", query.date);
+  setOptional(next, "status", query.status);
   setOptional(next, "memberId", query.memberId);
   setDefaulted(next, "sortBy", query.sortBy, defaultTrackingListQuery.sortBy);
   setDefaulted(next, "sortDirection", query.sortDirection, defaultTrackingListQuery.sortDirection);

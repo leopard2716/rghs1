@@ -67,6 +67,9 @@ describe("BidsPage background refresh", () => {
         </MemoryRouter>
       </QueryClientProvider>
     );
+    expect(markup).toContain('type="date"');
+    expect(markup).toContain("All statuses");
+    expect(markup).not.toContain("All markets");
     expect(markup).toContain("Acme");
     expect(markup).toContain("Other");
     expect(markup).toContain("Mark applied");
