@@ -157,3 +157,52 @@ function sameDateTime(
     left.minute === right.minute
   );
 }
+
+export const bidTimeZone = "America/Chicago";
+
+export function centralDateTimeValue(date = new Date()): string {
+  const parts = zonedParts(date, bidTimeZone);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
+}
+
+export function centralDateTimeToIso(value: string): string | null {
+  const [date, time] = value.split("T");
+  return zonedDateTimeToIso(date ?? "", time ?? "", bidTimeZone);
+}
+
+export function displayCentralDate(value: string | null | undefined): string {
+  if (!value) return "Not set";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: bidTimeZone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
+  }).format(new Date(value));
+}
+
+export function centralTimeZoneLabel(value: string): string {
+  const iso = centralDateTimeToIso(value);
+  if (!iso) return "Central Time (America/Chicago)";
+  const date = new Date(iso);
+  const zone = (style: "short" | "longOffset") =>
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: bidTimeZone,
+      timeZoneName: style
+    })
+      .formatToParts(date)
+      .find((part) => part.type === "timeZoneName")?.value;
+  return `${zone("short")} (${zone("longOffset")?.replace("GMT", "UTC")}) · America/Chicago`;
+}
+
+export function centralDayRange(date: string): { dateFrom: string; dateTo: string } {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  const dateFrom = zonedDateTimeToIso(date, "00:00", bidTimeZone);
+  const dateTo = zonedDateTimeToIso(next.toISOString().slice(0, 10), "00:00", bidTimeZone);
+  if (!dateFrom || !dateTo) throw new Error("Invalid bid filter date.");
+  return { dateFrom, dateTo };
+}
