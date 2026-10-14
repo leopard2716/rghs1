@@ -11,12 +11,14 @@ export function TrackingListControls({
   profiles,
   markets,
   disabled,
+  bidFilters = false,
   onChange
 }: {
   query: TrackingListQuery;
   profiles: TrackingProfile[];
   markets: TrackingJobMarket[];
   disabled: boolean;
+  bidFilters?: boolean;
   onChange: (change: Partial<TrackingListQuery>) => void;
 }) {
   const [search, setSearch] = useState(query.search ?? "");
@@ -35,7 +37,7 @@ export function TrackingListControls({
   }, [onChange, query.search, search]);
 
   return (
-    <div className="tracking-list-controls">
+    <div className={`tracking-list-controls${bidFilters ? " bid-list-controls" : ""}`}>
       <label className="tracking-search">
         <span>Search jobs</span>
         <div className="search-input">
@@ -65,22 +67,56 @@ export function TrackingListControls({
           ))}
         </select>
       </label>
-      <label>
-        Job market
-        <select
-          value={query.jobMarketId ?? ""}
-          disabled={disabled}
-          onChange={(event) => onChange({ jobMarketId: event.target.value || undefined, page: 1 })}
-        >
-          <option value="">All markets</option>
-          {markets.map((market) => (
-            <option value={market.id} key={market.id}>
-              {market.name}
-              {market.deletedAt ? " (deleted)" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
+      {bidFilters ? (
+        <>
+          <label>
+            Date
+            <input
+              type="date"
+              value={query.date ?? ""}
+              disabled={disabled}
+              onChange={(event) => onChange({ date: event.target.value || undefined, page: 1 })}
+            />
+          </label>
+          <label>
+            Status
+            <select
+              value={query.status ?? ""}
+              disabled={disabled}
+              onChange={(event) =>
+                onChange({
+                  status: (event.target.value || undefined) as TrackingListQuery["status"],
+                  page: 1
+                })
+              }
+            >
+              <option value="">All statuses</option>
+              <option value="applied">Applied</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+            </select>
+          </label>
+        </>
+      ) : (
+        <label>
+          Job market
+          <select
+            value={query.jobMarketId ?? ""}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange({ jobMarketId: event.target.value || undefined, page: 1 })
+            }
+          >
+            <option value="">All markets</option>
+            {markets.map((market) => (
+              <option value={market.id} key={market.id}>
+                {market.name}
+                {market.deletedAt ? " (deleted)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         Sort
         <select

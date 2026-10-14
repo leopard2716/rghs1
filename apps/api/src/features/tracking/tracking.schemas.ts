@@ -336,6 +336,9 @@ const listQueryBase = z.object({
 });
 
 export const bidListQuery = listQueryBase.extend({
+  status: z.enum(["applied", "rejected", "pending"]).optional(),
+  dateFrom: z.string().datetime().optional(),
+  dateTo: z.string().datetime().optional(),
   sortBy: z.enum(["company", "jobTitle", "datetime"]).default("datetime")
 });
 

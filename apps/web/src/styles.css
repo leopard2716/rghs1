@@ -2029,6 +2029,10 @@ td span {
   border-radius: 8px;
 }
 
+.bid-list-controls {
+  grid-template-columns: minmax(240px, 1.7fr) repeat(5, minmax(130px, 0.7fr));
+}
+
 .payment-ledger-controls {
   grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.7fr) repeat(2, minmax(150px, 0.55fr));
 }

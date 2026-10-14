@@ -236,6 +236,8 @@ export type Pagination = {
 };
 
 export type TrackingListQuery = {
+  date?: string;
+  status?: "applied" | "rejected" | "pending";
   page?: number;
   pageSize?: number;
   search?: string;
@@ -542,6 +544,15 @@ export async function deleteTrackingJobMarket(
   return parseJson<{ ok: boolean; marketId: string }>(response);
 }
 
+export function bidFilterQuery(query: TrackingListQuery) {
+  const { date, ...filters } = query;
+  if (!date) return filters;
+  const start = new Date(`${date}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { ...filters, dateFrom: start.toISOString(), dateTo: end.toISOString() };
+}
+
 export async function fetchBids(
   session: AuthSession,
   slug: string,
@@ -549,7 +560,7 @@ export async function fetchBids(
 ): Promise<BidsResponse> {
   const response = await authenticatedApiFetch(
     session,
-    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids${queryString(query)}`,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids${queryString(bidFilterQuery(query))}`,
     { headers: authHeaders() }
   );
   return parseJson<BidsResponse>(response);
