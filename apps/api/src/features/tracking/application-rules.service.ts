@@ -152,7 +152,7 @@ export class ApplicationRulesService {
     const appliedAt = new Date().toISOString();
     const rows = await this.db.update(
       "bid_records",
-      { applied_at: appliedAt, bid_at: appliedAt, updated_at: appliedAt },
+      { applied_at: appliedAt, updated_at: appliedAt },
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${bidId}`,
