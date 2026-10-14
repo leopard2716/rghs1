@@ -1433,7 +1433,25 @@ function bulkDeleteFixture(role = "bidder") {
     for (const row of changed) bids.splice(bids.indexOf(row), 1);
     return changed;
   });
-  const db = { ...base, select, selectPage, update, delete: remove };
+  const rpc = vi.fn(async (_name: string, args: Record<string, unknown>) =>
+    bids.filter(
+      (row) =>
+        matches(row, {
+          workspace_id: `eq.${args.p_workspace_id}`,
+          created_by_member_id: `eq.${args.p_member_id}`,
+          deleted_at: "is.null",
+          and: "date-range",
+          ...(args.p_bid_ids ? { id: `in.${"("}${(args.p_bid_ids as string[]).join(",")})` } : {})
+        }) &&
+        assignments.some(
+          (item) =>
+            item.bid_id === row.id &&
+            item.profile_id === args.p_profile_id &&
+            item.workspace_id === args.p_workspace_id
+        )
+    )
+  );
+  const db = { ...base, select, selectPage, update, delete: remove, rpc };
   return {
     db,
     bids,
@@ -1738,6 +1756,18 @@ it("rechecks duplicate selection before deletion and guards against concurrently
         (row) => row.id
       )
     ).toEqual([recordId]);
+    expect(spy).toHaveBeenCalledWith(expect.any(Object), [recordId]);
+    expect(db.rpc).toHaveBeenCalledTimes(1);
+    expect(db.rpc).toHaveBeenCalledWith(
+      "bulk_bid_delete_candidates",
+      expect.objectContaining({
+        p_workspace_id: workspaceId,
+        p_member_id: memberId,
+        p_profile_id: bulkFilter.profileId,
+        p_date_from: bulkFilter.dateFrom,
+        p_date_to: bulkFilter.dateTo
+      })
+    );
     await service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] });
     expect(db.delete).toHaveBeenCalledWith(
       "bid_records",
