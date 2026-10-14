@@ -1600,6 +1600,11 @@ describe("application rule permissions", () => {
         deleted_at: "is.null"
       }
     );
+    expect(db.update).toHaveBeenCalledWith(
+      "bid_records",
+      expect.not.objectContaining({ bid_at: expect.anything() }),
+      expect.any(Object)
+    );
     db.update.mockResolvedValueOnce([]);
     await expect(
       new ApplicationRulesService(db as unknown as SupabaseRestClient).markApplied(

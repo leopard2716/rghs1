@@ -1,5 +1,5 @@
 import { downloadPendingBids } from "../pending-bid-export";
-import { updateBidActionCache, updateBidRejectionCache } from "../bid-action-cache";
+import { addBidToCache, updateBidActionCache, updateBidRejectionCache } from "../bid-action-cache";
 import { ApplicationEligibilityBadge } from "./ApplicationEligibilityBadge";
 import { isRichTextEmpty, type RichTextDocument } from "@rghs1/domain";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -176,11 +176,12 @@ export function BidsPage({
     onSettled: (_data, _error, { bidId }) => finishBidAction(bidId)
   });
   const appliedMutation = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: ["tracking-bids", slug, memberId] }),
     mutationFn: (bidId: string) => markBidApplied(session, slug, bidId),
     onSuccess: (result, bidId) => {
       updateBidActionCache(queryClient, slug, memberId, bidId, result.appliedAt);
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug], refetchType: "none" }),
         queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
@@ -197,14 +198,16 @@ export function BidsPage({
     [searchParamsValue, setSearchParams]
   );
   const createMutation = useMutation({
+    onMutate: () => queryClient.cancelQueries({ queryKey: ["tracking-bids", slug, memberId] }),
     mutationFn: (input: Parameters<typeof createBid>[2]) => createBid(session, slug, input),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      addBidToCache(queryClient, slug, memberId, result.bid);
       setSearchParams(clearTrackingModalParams(new URLSearchParams(searchParamsValue)), {
         replace: true
       });
       setFormError(null);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug], refetchType: "none" }),
         queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-interviews", slug] }),
         queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
