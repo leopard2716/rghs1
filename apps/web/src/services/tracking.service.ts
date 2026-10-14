@@ -1,3 +1,4 @@
+import { centralDayRange } from "../utils/datetime";
 import type { InterviewStep, RichTextDocument } from "@rghs1/domain";
 import type { AuthSession } from "./auth.service";
 import { apiBaseUrl, authenticatedApiFetch, parseJson } from "./http";
@@ -547,10 +548,7 @@ export async function deleteTrackingJobMarket(
 export function bidFilterQuery(query: TrackingListQuery) {
   const { date, ...filters } = query;
   if (!date) return filters;
-  const start = new Date(`${date}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { ...filters, dateFrom: start.toISOString(), dateTo: end.toISOString() };
+  return { ...filters, ...centralDayRange(date) };
 }
 
 export async function fetchBids(

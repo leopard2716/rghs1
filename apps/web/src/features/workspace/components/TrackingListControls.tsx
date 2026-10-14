@@ -70,7 +70,7 @@ export function TrackingListControls({
       {bidFilters ? (
         <>
           <label>
-            Date
+            Date (Central Time)
             <input
               type="date"
               value={query.date ?? ""}
