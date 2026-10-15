@@ -23,12 +23,13 @@ export function trackingListQueryFromParams(params: URLSearchParams): TrackingLi
     search: optionalValue(params.get("search")),
     profileId: optionalValue(params.get("profileId")),
     jobMarketId: optionalValue(params.get("jobMarketId")),
+    memberId: optionalValue(params.get("memberId")),
     date:
       /^\d{4}-\d{2}-\d{2}$/.test(params.get("date") ?? "") &&
       !Number.isNaN(Date.parse(`${params.get("date")}T00:00:00`))
         ? params.get("date")!
         : undefined,
-    status: ["applied", "rejected", "pending"].includes(params.get("status") ?? "")
+    status: ["applied", "rejected", "pending", "expired"].includes(params.get("status") ?? "")
       ? (params.get("status") as TrackingListQuery["status"])
       : undefined,
     sortBy:

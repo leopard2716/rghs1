@@ -21,6 +21,7 @@ describe("tracking list URL state", () => {
       search: "Frank",
       profileId: "profile-1",
       jobMarketId: undefined,
+      memberId: undefined,
       date: undefined,
       status: undefined,
       sortBy: "company",

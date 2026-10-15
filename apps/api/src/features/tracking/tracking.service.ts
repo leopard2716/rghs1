@@ -1,3 +1,4 @@
+import { centralDayStart } from "./application-eligibility";
 import { ApplicationRulesService } from "./application-rules.service";
 import { normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
@@ -500,7 +501,9 @@ export class TrackingService {
         workspace_id: `eq.${context.workspace.id}`,
         created_by_member_id: `eq.${context.member.id}`,
         deleted_at: "is.null",
-        applied_at: "is.null"
+        applied_at: "is.null",
+        expired_at: "is.null",
+        or: `(imported_at.is.null,imported_at.gte.${centralDayStart()})`
       },
       { order: "bid_at.desc,id.desc" }
     );
@@ -592,6 +595,7 @@ export class TrackingService {
       canCreateInterview: context.roleKeys.includes("interviewer"),
       profiles: allProfiles.filter((profile) => !profile.deletedAt),
       filterProfiles: allProfiles,
+      filterMembers: members,
       markets: allMarkets.filter((market) => !market.deletedAt),
       filterMarkets: allMarkets,
       bids: pageRows.map(responseFor),

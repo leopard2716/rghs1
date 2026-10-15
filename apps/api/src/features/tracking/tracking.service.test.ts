@@ -1615,6 +1615,8 @@ describe("application rule permissions", () => {
         id: `eq.${recordId}`,
         created_by_member_id: `eq.${memberId}`,
         applied_at: "is.null",
+        expired_at: "is.null",
+        or: expect.stringContaining("imported_at.gte."),
         deleted_at: "is.null"
       }
     );
@@ -1798,6 +1800,8 @@ it("exports all pending records scoped to the bidder and workspace", async () =>
       workspace_id: `eq.${workspaceId}`,
       created_by_member_id: `eq.${memberId}`,
       applied_at: "is.null",
+      expired_at: "is.null",
+      or: expect.stringContaining("imported_at.gte."),
       deleted_at: "is.null"
     },
     { order: "bid_at.desc,id.desc" }

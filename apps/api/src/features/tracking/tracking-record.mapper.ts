@@ -1,3 +1,4 @@
+import { isExpiredImport } from "./application-eligibility";
 import type { RichTextDocument } from "@rghs1/domain";
 import { apiError } from "../../errors";
 import type {
@@ -96,6 +97,9 @@ export type BidResponse = {
   bidAt: string;
   jobDescription: RichTextDocument | string | null;
   applicationMetadata: Record<string, unknown> | null;
+  expired?: boolean;
+  appliedRecordedAt?: string | null;
+  appliedRecordedBy?: MemberSummary | null;
   appliedAt?: string | null;
   rejectedAt?: string | null;
   importedAt?: string | null;
@@ -301,6 +305,11 @@ export class TrackingRecordMapper {
       bidAt: row.bid_at,
       jobDescription: row.job_description,
       applicationMetadata: row.application_metadata ?? null,
+      expired: isExpiredImport(row),
+      appliedRecordedAt: row.applied_recorded_at ?? null,
+      appliedRecordedBy: row.applied_recorded_by_member_id
+        ? (lookups.membersById.get(row.applied_recorded_by_member_id) ?? null)
+        : null,
       appliedAt: row.applied_at ?? null,
       rejectedAt: row.rejected_at ?? null,
       importedAt: row.imported_at ?? null,
