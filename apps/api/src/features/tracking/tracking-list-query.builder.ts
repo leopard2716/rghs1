@@ -1,3 +1,4 @@
+import { centralDayStart } from "./application-eligibility";
 import type { BidListQuery } from "./tracking.schemas";
 
 export class TrackingListQueryBuilder {
@@ -16,6 +17,7 @@ export class TrackingListQueryBuilder {
     if (profileBidIds) {
       filters.id = `in.(${profileBidIds.join(",")})`;
     }
+    if (query.memberId) filters.created_by_member_id = `eq.${query.memberId}`;
     if (query.status === "rejected") {
       filters.rejected_at = "not.is.null";
     } else if (query.status) {
@@ -23,6 +25,16 @@ export class TrackingListQueryBuilder {
       filters.applied_at = query.status === "applied" ? "not.is.null" : "is.null";
     }
     const conditions: string[] = [];
+    const midnight = centralDayStart();
+    if (query.status === "expired") {
+      filters.applied_at = "is.null";
+      conditions.push(`or(expired_at.not.is.null,imported_at.lt.${midnight})`);
+    } else if (query.status === "pending" || !query.status) {
+      conditions.push(
+        `or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${midnight})))`
+      );
+    }
+
     if (query.dateFrom) conditions.push(`bid_at.gte.${query.dateFrom}`);
     if (query.dateTo) conditions.push(`bid_at.lt.${query.dateTo}`);
     const tokens = searchTokens(query.search);

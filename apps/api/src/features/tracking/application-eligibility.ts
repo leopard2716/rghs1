@@ -4,6 +4,7 @@ export type ApplicationRow = {
   id: string;
   company: string;
   job_title: string;
+  expired_at?: string | null;
   applied_at?: string | null;
   rejected_at?: string | null;
   imported_at?: string | null;
@@ -40,7 +41,6 @@ export function applicationEligibility(
     assignments.filter((item) => profileIds.has(item.profile_id)).map((item) => item.bid_id)
   );
   const company = normalizeCompanyName(target.company);
-  const today = calendarDay(now.toISOString(), rules.timeZone);
   const matches = history
     .filter(
       (row) =>
@@ -50,6 +50,10 @@ export function applicationEligibility(
         normalizeCompanyName(row.company) === company &&
         (row.applied_at ||
           (!row.deleted_at &&
+            !isExpiredImport(row, now) &&
+            !!row.imported_at &&
+            calendarDay(row.imported_at, "America/Chicago") ===
+              calendarDay(now.toISOString(), "America/Chicago") &&
             target.import_batch_id &&
             row.import_batch_id === target.import_batch_id &&
             (row.import_order ?? Infinity) < (target.import_order ?? -1)))
@@ -87,9 +91,48 @@ export function applicationEligibility(
     );
   return {
     bidId: target.id,
-    pending: !target.applied_at,
-    showBadge: !!target.imported_at && calendarDay(target.imported_at, rules.timeZone) === today,
+    pending: !target.applied_at && !isExpiredImport(target, now),
+    showBadge:
+      !!target.imported_at &&
+      calendarDay(target.imported_at, "America/Chicago") ===
+        calendarDay(now.toISOString(), "America/Chicago"),
     duplicated: matches.some((item) => item.blocks),
     matches
   };
+}
+
+export function isExpiredImport(
+  row: { applied_at?: string | null; imported_at?: string | null; expired_at?: string | null },
+  now = new Date()
+): boolean {
+  return (
+    !row.applied_at &&
+    (!!row.expired_at ||
+      (!!row.imported_at &&
+        calendarDay(row.imported_at, "America/Chicago") <
+          calendarDay(now.toISOString(), "America/Chicago")))
+  );
+}
+export function centralDayStart(now = new Date()): string {
+  const day = calendarDay(now.toISOString(), "America/Chicago");
+  const guess = Date.parse(`${day}T00:00:00Z`);
+  let result = guess;
+  for (let i = 0; i < 3; i++) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Chicago",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(new Date(result));
+    const values = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    result +=
+      guess -
+      Date.parse(
+        `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:00Z`
+      );
+  }
+  return new Date(result).toISOString();
 }

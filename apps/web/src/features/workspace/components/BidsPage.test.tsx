@@ -68,7 +68,10 @@ describe("BidsPage background refresh", () => {
       </QueryClientProvider>
     );
     expect(markup).toContain('type="date"');
-    expect(markup).toContain("All statuses");
+    expect(markup).toContain("All active statuses");
+    expect(markup).toContain('value="expired"');
+    expect(markup).toContain("<th>Interviews</th>");
+    expect(markup).not.toContain("<th>Market</th>");
     expect(markup).not.toContain("All markets");
     expect(markup).toContain("Acme");
     expect(markup).toContain("Other");
@@ -76,4 +79,41 @@ describe("BidsPage background refresh", () => {
     expect(markup).not.toContain("Loading bid results");
     expect(markup).not.toMatch(/<button[^>]*disabled[^>]*>Mark applied/);
   });
+});
+
+it("shows the admin recorder below the bidder name in the bidder cell", () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } }
+  });
+  const data = {
+    ...bidData,
+    bids: [
+      {
+        ...bidData.bids[0]!,
+        bidder: { id: "member-1", name: "John" },
+        appliedAt: "2026-10-15T15:30:00Z",
+        appliedRecordedAt: "2026-10-16T14:00:00Z",
+        appliedRecordedBy: { id: "joe", name: "Joe" }
+      }
+    ]
+  };
+  client.setQueryData(
+    ["tracking-bids", "big-ben", "member-1", trackingListQueryFromParams(new URLSearchParams())],
+    data
+  );
+  const markup = renderToStaticMarkup(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <BidsPage
+          session={session}
+          workspaceSession={workspaceSession}
+          onRecoverPassword={() => undefined}
+          onSignOut={() => undefined}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  expect(markup).toContain('<td><span>John</span><span title="Marked applied by Joe');
+  expect(markup).toContain(">Joe</span></td>");
+  expect(markup).not.toContain("Imported:");
 });

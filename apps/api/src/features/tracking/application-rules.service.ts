@@ -5,6 +5,8 @@ import type { SupabaseRestClient } from "../../infrastructure/supabase-rest.clie
 import { TrackingAccessService, type TrackingContext } from "./tracking-access.service";
 import {
   applicationEligibility,
+  isExpiredImport,
+  centralDayStart,
   defaultApplicationRules,
   type ApplicationRow,
   type ApplicationRules
@@ -142,19 +144,47 @@ export class ApplicationRulesService {
     return { rejectedAt };
   }
 
+  async adminMarkApplied(
+    slug: string,
+    user: AuthUser,
+    bidId: string,
+    input: { appliedAt: string; reason: string }
+  ) {
+    const context = await this.access.requireContext(slug, user.id);
+    this.access.requireRole(context, "admin");
+    if (Date.parse(input.appliedAt) > Date.now())
+      throw apiError(400, "Application time cannot be in the future.", "invalid_applied_at");
+    return this.db.rpc<{ appliedAt: string; recordedAt: string }>("admin_record_bid_application", {
+      p_workspace_id: context.workspace.id,
+      p_bid_id: bidId,
+      p_actor_id: user.id,
+      p_actor_member_id: context.member.id,
+      p_applied_at: input.appliedAt,
+      p_reason: input.reason
+    });
+  }
   async markApplied(slug: string, user: AuthUser, bidId: string) {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireRole(context, "bidder");
-    await this.access.requireOwnedBid(context, bidId, "edit");
+    const bid = await this.access.requireOwnedBid(context, bidId, "edit");
+    if (isExpiredImport(bid))
+      throw apiError(409, "Expired applications require admin review.", "bid_expired");
     const appliedAt = new Date().toISOString();
     const rows = await this.db.update(
       "bid_records",
-      { applied_at: appliedAt, updated_at: appliedAt },
+      {
+        applied_at: appliedAt,
+        applied_recorded_at: appliedAt,
+        applied_recorded_by_member_id: context.member.id,
+        updated_at: appliedAt
+      },
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${bidId}`,
         created_by_member_id: `eq.${context.member.id}`,
         applied_at: "is.null",
+        expired_at: "is.null",
+        or: `(imported_at.is.null,imported_at.gte.${centralDayStart()})`,
         deleted_at: "is.null"
       }
     );

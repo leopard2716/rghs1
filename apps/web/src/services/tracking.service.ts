@@ -102,6 +102,9 @@ export type BidInterviewReference = {
 };
 
 export type BidRecord = {
+  expired?: boolean;
+  appliedRecordedAt?: string | null;
+  appliedRecordedBy?: TrackingMemberSummary | null;
   id: string;
   createdByMemberId: string | null;
   jobTitle: string;
@@ -238,7 +241,8 @@ export type Pagination = {
 
 export type TrackingListQuery = {
   date?: string;
-  status?: "applied" | "rejected" | "pending";
+  status?: "applied" | "rejected" | "pending" | "expired";
+  memberId?: string;
   page?: number;
   pageSize?: number;
   search?: string;
@@ -276,6 +280,7 @@ export type ProfilesResponse = {
 };
 
 export type BidsResponse = {
+  filterMembers?: TrackingMemberSummary[];
   canCreate: boolean;
   canCreateInterview: boolean;
   profiles: TrackingProfile[];
@@ -1141,6 +1146,21 @@ export async function setBidRejected(
       session,
       `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids/${bidId}/rejection`,
       { method: "PATCH", headers: authHeaders(), body: JSON.stringify({ rejected }) }
+    )
+  );
+}
+
+export async function adminMarkBidApplied(
+  session: AuthSession,
+  slug: string,
+  bidId: string,
+  input: { appliedAt: string; reason: string }
+) {
+  return parseJson<{ appliedAt: string; recordedAt: string }>(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/bids/${encodeURIComponent(bidId)}/admin-applied`,
+      { method: "POST", headers: authHeaders(), body: JSON.stringify(input) }
     )
   );
 }
