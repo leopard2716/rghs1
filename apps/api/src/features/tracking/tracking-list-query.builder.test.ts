@@ -1,3 +1,4 @@
+import { centralDayStart } from "./application-eligibility";
 import { describe, expect, it } from "vitest";
 import { TrackingListQueryBuilder } from "./tracking-list-query.builder";
 
@@ -23,7 +24,7 @@ describe("TrackingListQueryBuilder", () => {
       deleted_at: "is.null",
       job_market_id: "eq.market-1",
       id: "in.(bid-1,bid-2)",
-      and: "(search_text.ilike.*acme*,search_text.ilike.*platform*)"
+      and: `(or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${centralDayStart()}))),search_text.ilike.*acme*,search_text.ilike.*platform*)`
     });
   });
 
@@ -61,7 +62,21 @@ describe("bid status and calendar-day filters", () => {
       status === "rejected" ? undefined : status === "applied" ? "not.is.null" : "is.null"
     );
     expect(filters.and).toBe(
-      "(bid_at.gte.2026-10-14T05:00:00.000Z,bid_at.lt.2026-10-15T05:00:00.000Z,search_text.ilike.*acme*)"
+      `${status === "pending" ? `(or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${centralDayStart()}))),` : "("}bid_at.gte.2026-10-14T05:00:00.000Z,bid_at.lt.2026-10-15T05:00:00.000Z,search_text.ilike.*acme*)`
     );
   });
+});
+
+it("filters expired imports at Central midnight even when cron has not run", () => {
+  const filters = builder.bidFilters("workspace", {
+    page: 1,
+    pageSize: 20,
+    sortBy: "datetime",
+    sortDirection: "desc",
+    status: "expired",
+    memberId: "john"
+  });
+  expect(filters.created_by_member_id).toBe("eq.john");
+  expect(filters.applied_at).toBe("is.null");
+  expect(filters.and).toContain(`or(expired_at.not.is.null,imported_at.lt.${centralDayStart()})`);
 });

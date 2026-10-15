@@ -3869,3 +3869,27 @@ td span {
   max-height: 360px;
   overflow: auto;
 }
+
+.bid-review-table th:nth-child(2),
+.bid-review-table td:nth-child(2) {
+  width: 1%;
+  min-width: 0;
+}
+.bid-review-table td:nth-child(2) .profile-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.bid-review-table td:nth-child(2) .profile-tags > span {
+  white-space: nowrap;
+}
+
+.bid-review-table {
+  min-width: 1300px;
+}
+.bid-review-table td:nth-child(4) > span {
+  display: block;
+}
+.bid-list-controls:has(select option[value="expired"]) {
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}

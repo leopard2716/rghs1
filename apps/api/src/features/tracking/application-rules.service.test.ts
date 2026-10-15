@@ -133,3 +133,36 @@ it("scopes eligibility reads to target IDs and shared profiles and preserves nor
   expect(result.results[0]?.duplicated).toBe(true);
   expect(result.results[0]?.matches[0]?.id).toBe("prior");
 });
+
+it("requires admin permission for recording another bidder's submission", async () => {
+  const { service, db } = fixture(["bidder"]);
+  await expect(
+    service.adminMarkApplied("team", { id: "user" }, "bid", {
+      appliedAt: "2026-01-01T12:00:00Z",
+      reason: "Screenshot"
+    })
+  ).rejects.toMatchObject({ status: 403 });
+  expect(db.update).not.toHaveBeenCalled();
+});
+it("passes the actual admin identity and workspace to the atomic correction RPC", async () => {
+  fixture(["admin"]);
+  const rpc = vi.fn(async () => ({
+    appliedAt: "2026-01-01T12:00:00Z",
+    recordedAt: new Date().toISOString()
+  }));
+  const service = new ApplicationRulesService({ rpc } as unknown as SupabaseRestClient);
+  await service.adminMarkApplied("team", { id: "joe-user" }, "bid", {
+    appliedAt: "2026-01-01T12:00:00Z",
+    reason: "John screenshot"
+  });
+  expect(rpc).toHaveBeenCalledWith(
+    "admin_record_bid_application",
+    expect.objectContaining({
+      p_workspace_id: "workspace",
+      p_actor_id: "joe-user",
+      p_actor_member_id: "member",
+      p_bid_id: "bid",
+      p_reason: "John screenshot"
+    })
+  );
+});

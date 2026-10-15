@@ -12,6 +12,7 @@ export function TrackingListControls({
   markets,
   disabled,
   bidFilters = false,
+  members,
   onChange
 }: {
   query: TrackingListQuery;
@@ -19,6 +20,7 @@ export function TrackingListControls({
   markets: TrackingJobMarket[];
   disabled: boolean;
   bidFilters?: boolean;
+  members?: Array<{ id: string; name: string }>;
   onChange: (change: Partial<TrackingListQuery>) => void;
 }) {
   const [search, setSearch] = useState(query.search ?? "");
@@ -90,10 +92,11 @@ export function TrackingListControls({
                 })
               }
             >
-              <option value="">All statuses</option>
+              <option value="">All active statuses</option>
               <option value="applied">Applied</option>
               <option value="rejected">Rejected</option>
               <option value="pending">Pending</option>
+              <option value="expired">Expired</option>
             </select>
           </label>
         </>
@@ -117,6 +120,23 @@ export function TrackingListControls({
           </select>
         </label>
       )}
+      {members ? (
+        <label>
+          Bidder
+          <select
+            value={query.memberId ?? ""}
+            disabled={disabled}
+            onChange={(event) => onChange({ memberId: event.target.value || undefined, page: 1 })}
+          >
+            <option value="">All bidders</option>
+            {members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label>
         Sort
         <select

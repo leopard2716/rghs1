@@ -9,7 +9,8 @@ export function updateBidActionCache(
   bidId: string,
   appliedAt?: string
 ) {
-  const patch = (bid: BidRecord) => (bid.id === bidId && appliedAt ? { ...bid, appliedAt } : bid);
+  const patch = (bid: BidRecord) =>
+    bid.id === bidId && appliedAt ? { ...bid, appliedAt, expired: false } : bid;
   for (const [key, data] of client.getQueriesData<BidsResponse>({
     queryKey: ["tracking-bids", slug, memberId]
   })) {
@@ -64,7 +65,15 @@ export function updateBidRejectionCache(
 }
 
 export function matchesBidFilters(bid: BidRecord, query: TrackingListQuery): boolean {
-  const status = bid.rejectedAt ? "rejected" : bid.appliedAt ? "applied" : "pending";
+  const status = bid.rejectedAt
+    ? "rejected"
+    : bid.appliedAt
+      ? "applied"
+      : bid.expired
+        ? "expired"
+        : "pending";
+  if (query.memberId && bid.createdByMemberId !== query.memberId) return false;
+  if (!query.status && status === "expired") return false;
   if (query.status && status !== query.status) return false;
   if (query.profileId && !bid.profiles.some((profile) => profile.id === query.profileId))
     return false;

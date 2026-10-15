@@ -64,7 +64,13 @@ describe("company application cooldown", () => {
     ).toBe(false);
   });
   it("counts only earlier pending rows of the same import", () => {
-    const pending = { ...prior, applied_at: null, import_batch_id: "batch", import_order: 0 };
+    const pending = {
+      ...prior,
+      applied_at: null,
+      imported_at: now.toISOString(),
+      import_batch_id: "batch",
+      import_order: 0
+    };
     expect(check([pending]).duplicated).toBe(true);
     expect(check([{ ...pending, import_order: 2 }]).duplicated).toBe(false);
     expect(check([{ ...pending, import_batch_id: "different" }]).duplicated).toBe(false);
@@ -112,8 +118,43 @@ it("does not let one rejection override another active application or a pending 
   expect(applicationEligibility(target, [rejected, another], links, rules, now).duplicated).toBe(
     true
   );
-  const pending = { ...another, applied_at: null, import_batch_id: "batch", import_order: 0 };
+  const pending = {
+    ...another,
+    applied_at: null,
+    imported_at: now.toISOString(),
+    import_batch_id: "batch",
+    import_order: 0
+  };
   expect(applicationEligibility(target, [rejected, pending], links, rules, now).duplicated).toBe(
     true
   );
+});
+
+it("excludes yesterday's pending reservation at Central midnight before cron runs", () => {
+  const midnight = new Date("2026-10-16T05:00:00Z");
+  const expired = {
+    ...target,
+    id: "old",
+    applied_at: null,
+    imported_at: "2026-10-16T04:59:00Z",
+    import_order: 0
+  };
+  const current = { ...target, id: "new", imported_at: midnight.toISOString(), import_order: 1 };
+  const assignments = [
+    { bid_id: "old", profile_id: "p" },
+    { bid_id: "new", profile_id: "p" }
+  ];
+  expect(applicationEligibility(current, [expired], assignments, rules, midnight).duplicated).toBe(
+    false
+  );
+  expect(applicationEligibility(expired, [], assignments, rules, midnight).pending).toBe(false);
+  expect(
+    applicationEligibility(
+      current,
+      [{ ...expired, applied_at: "2026-10-16T04:59:00Z" }],
+      assignments,
+      rules,
+      midnight
+    ).duplicated
+  ).toBe(true);
 });

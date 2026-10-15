@@ -66,6 +66,9 @@ export type BidRecordRow = {
   job_link: string;
   bid_at: string;
   job_description: RichTextDocument | string | null;
+  expired_at?: string | null;
+  applied_recorded_at?: string | null;
+  applied_recorded_by_member_id?: string | null;
   applied_at?: string | null;
   rejected_at?: string | null;
   imported_at?: string | null;
@@ -168,7 +171,7 @@ export const trackingJobMarketFields =
   "id,workspace_id,market_key,name,system,created_by_member_id,created_at,updated_at,deleted_at";
 
 export const bidRecordFields =
-  "id,workspace_id,job_market_id,job_title,company,job_link,bid_at,job_description,application_metadata,applied_at,rejected_at,imported_at,import_batch_id,import_order,created_by_member_id,created_at,updated_at,deleted_at";
+  "id,workspace_id,job_market_id,job_title,company,job_link,bid_at,job_description,application_metadata,expired_at,applied_recorded_at,applied_recorded_by_member_id,applied_at,rejected_at,imported_at,import_batch_id,import_order,created_by_member_id,created_at,updated_at,deleted_at";
 
 export const bidRecordProfileFields =
   "workspace_id,bid_id,profile_id,resume,resume_html,created_at";

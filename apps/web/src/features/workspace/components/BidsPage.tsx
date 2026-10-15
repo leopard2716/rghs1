@@ -30,6 +30,7 @@ import {
   fetchApplicationEligibility,
   fetchPendingBidExport,
   markBidApplied,
+  adminMarkBidApplied,
   setBidRejected,
   type EligibilityResult,
   deleteBid as deleteBidRecord,
@@ -75,6 +76,9 @@ export function BidsPage({
 }) {
   const slug = workspaceSession.workspace.slug;
   const memberId = workspaceSession.member.id;
+  const isAdmin = workspaceSession.member.roleKeys.includes("admin");
+  const [adminReviewError, setAdminReviewError] = useState<string | null>(null);
+  const [adminReviewBid, setAdminReviewBid] = useState<BidRecord | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsValue = searchParams.toString();
@@ -129,6 +133,7 @@ export function BidsPage({
   const bidsQuery = useQuery({
     queryKey: ["tracking-bids", slug, memberId, listQuery],
     queryFn: () => fetchBids(session, slug, listQuery),
+    refetchInterval: 60000,
     placeholderData: (previousData) => previousData
   });
   const requestedBidQuery = useQuery({
@@ -196,6 +201,28 @@ export function BidsPage({
       ]);
     },
     onSettled: (_data, _error, bidId) => finishBidAction(bidId)
+  });
+  const adminApplyMutation = useMutation({
+    mutationFn: ({
+      bidId,
+      appliedAt,
+      reason
+    }: {
+      bidId: string;
+      appliedAt: string;
+      reason: string;
+    }) => adminMarkBidApplied(session, slug, bidId, { appliedAt, reason }),
+    onMutate: () => queryClient.cancelQueries({ queryKey: ["tracking-bids", slug, memberId] }),
+    onSuccess: async (result, { bidId }) => {
+      updateBidActionCache(queryClient, slug, memberId, bidId, result.appliedAt);
+      setAdminReviewBid(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tracking-bids", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-bid", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["application-eligibility", slug] }),
+        queryClient.invalidateQueries({ queryKey: ["tracking-dashboard", slug] })
+      ]);
+    }
   });
   const updateListQuery = useCallback(
     (change: Partial<TrackingListQuery>) => {
@@ -471,6 +498,7 @@ export function BidsPage({
         {bidsQuery.data ? (
           <TrackingListControls
             bidFilters
+            members={isAdmin ? bidsQuery.data.filterMembers : undefined}
             query={listQuery}
             profiles={bidsQuery.data.filterProfiles}
             markets={bidsQuery.data.filterMarkets}
@@ -486,23 +514,22 @@ export function BidsPage({
         ) : bidsQuery.data ? (
           <>
             <div className="table-wrap">
-              <table className="tracking-table tracking-record-table">
+              <table className="tracking-table tracking-record-table bid-review-table">
                 <thead>
                   <tr>
                     <th>Job</th>
-                    <th>Market</th>
                     <th>Profiles</th>
                     <th>Resumes</th>
                     <th>Bidder</th>
                     <th>Bid date</th>
-                    <th>Reference interviews</th>
+                    <th>Interviews</th>
                     <th>Job link</th>
                     {showActions ? <th>Actions</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {bidsQuery.isPlaceholderData ? (
-                    <TableLoadingRow colSpan={showActions ? 9 : 8} label="Loading bid results" />
+                    <TableLoadingRow colSpan={showActions ? 8 : 7} label="Loading bid results" />
                   ) : bidsQuery.data.bids.length ? (
                     bidsQuery.data.bids.map((bid) => (
                       <tr
@@ -534,12 +561,6 @@ export function BidsPage({
                           ) : null}
                         </td>
                         <td>
-                          <span className="market-pill">
-                            {bid.jobMarket.name}
-                            {bid.jobMarket.deletedAt ? " (deleted)" : ""}
-                          </span>
-                        </td>
-                        <td>
                           <div className="profile-tags">
                             {bid.profiles.map((profile) => (
                               <span
@@ -568,21 +589,27 @@ export function BidsPage({
                             ))}
                           </div>
                         </td>
-                        <td>{bid.bidder?.name ?? "Former member"}</td>
+                        <td>
+                          <span>{bid.bidder?.name ?? "Former member"}</span>
+                          {bid.appliedRecordedBy &&
+                          bid.appliedRecordedBy.id !== bid.createdByMemberId ? (
+                            <span
+                              title={`Marked applied by ${bid.appliedRecordedBy.name}${bid.appliedRecordedAt ? ` at ${displayDate(bid.appliedRecordedAt)}` : ""}`}
+                            >
+                              {bid.appliedRecordedBy.name}
+                            </span>
+                          ) : null}
+                        </td>
                         <td>
                           {displayDate(bid.bidAt)}
-                          {bid.importedAt ? (
-                            <div className="record-muted">
-                              Imported: {displayDate(bid.importedAt)}
-                            </div>
-                          ) : null}
-                          {bid.appliedAt ? (
-                            <div className="record-muted">
-                              Applied: {displayDate(bid.appliedAt)}
-                            </div>
-                          ) : null}
                           <div>
-                            {bid.rejectedAt ? "Rejected" : bid.appliedAt ? "Applied" : "Pending"}
+                            {bid.rejectedAt
+                              ? "Rejected"
+                              : bid.appliedAt
+                                ? "Applied"
+                                : bid.expired
+                                  ? "Expired"
+                                  : "Pending"}
                           </div>
                           {bid.appliedAt &&
                           (workspaceSession.member.roleKeys.includes("admin") ||
@@ -643,7 +670,24 @@ export function BidsPage({
                                 : "Checking eligibility…"}
                             </span>
                           ) : null}
-                          {!bid.appliedAt && canEditBid(bid, memberId) ? (
+                          {!bid.appliedAt && isAdmin ? (
+                            <button
+                              type="button"
+                              className="secondary-action small"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                adminApplyMutation.reset();
+                                setAdminReviewError(null);
+                                setAdminReviewBid(bid);
+                              }}
+                            >
+                              Mark applied
+                            </button>
+                          ) : null}
+                          {!bid.appliedAt &&
+                          !bid.expired &&
+                          !isAdmin &&
+                          canEditBid(bid, memberId) ? (
                             <button
                               className="secondary-action small"
                               type="button"
@@ -735,7 +779,7 @@ export function BidsPage({
                     ))
                   ) : (
                     <tr className="tracking-table-empty-row">
-                      <td colSpan={showActions ? 9 : 8}>No bids match the current view.</td>
+                      <td colSpan={showActions ? 8 : 7}>No bids match the current view.</td>
                     </tr>
                   )}
                 </tbody>
@@ -786,6 +830,76 @@ export function BidsPage({
         <p className="form-error">
           {errorMessage(eligibilityQuery.error ?? appliedMutation.error)}
         </p>
+      ) : null}
+      {adminReviewBid ? (
+        <Modal
+          title="Record application on behalf of bidder"
+          onClose={() => {
+            if (!adminApplyMutation.isPending) setAdminReviewBid(null);
+          }}
+        >
+          <form
+            className="modal-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = new FormData(event.currentTarget);
+              const appliedAt = localDateTimeToIso(String(form.get("appliedAt") ?? ""));
+              if (!appliedAt) {
+                setAdminReviewError(
+                  "Choose a valid Central date/time; that time may not exist during daylight saving."
+                );
+                return;
+              }
+              setAdminReviewError(null);
+              if (appliedAt)
+                adminApplyMutation.mutate({
+                  bidId: adminReviewBid.id,
+                  appliedAt,
+                  reason: String(form.get("reason") ?? "")
+                });
+            }}
+          >
+            <p>
+              {adminReviewBid.bidder?.name ?? "Former member"} — {adminReviewBid.company} —{" "}
+              {adminReviewBid.jobTitle}
+            </p>
+            <label>
+              Actual application time (America/Chicago)
+              <input
+                type="datetime-local"
+                name="appliedAt"
+                required
+                defaultValue={localDateTimeValue()}
+                max={localDateTimeValue()}
+                disabled={adminApplyMutation.isPending}
+              />
+            </label>
+            <label>
+              Reason / screenshot reference
+              <textarea
+                name="reason"
+                required
+                maxLength={2000}
+                disabled={adminApplyMutation.isPending}
+              />
+            </label>
+            <p>
+              The bidder remains the owner. Your name will be recorded as the person marking this
+              application applied.
+            </p>
+            {adminReviewError ? <p className="form-error">{adminReviewError}</p> : null}
+            {adminApplyMutation.error ? (
+              <p className="form-error">{errorMessage(adminApplyMutation.error)}</p>
+            ) : null}
+            <button
+              type="submit"
+              className="primary-action"
+              disabled={adminApplyMutation.isPending}
+            >
+              {adminApplyMutation.isPending ? "Saving…" : "Mark applied"}
+            </button>
+          </form>
+        </Modal>
       ) : null}
       {reviewEligibility ? (
         <Modal
@@ -1081,7 +1195,18 @@ export function BidsPage({
             </label>
             {modalBid ? (
               <section className="bid-reference-section">
-                <h4>Reference interviews</h4>
+                {modalBid.appliedAt ? (
+                  <p>
+                    Applied: {displayDate(modalBid.appliedAt)}
+                    {modalBid.appliedRecordedAt
+                      ? ` · Recorded: ${displayDate(modalBid.appliedRecordedAt)}`
+                      : ""}
+                    {modalBid.appliedRecordedBy
+                      ? ` · Marked by: ${modalBid.appliedRecordedBy.name}`
+                      : ""}
+                  </p>
+                ) : null}
+                <h4>Interviews</h4>
                 <BidReferenceInterviews
                   interviews={modalBid.referenceInterviews}
                   workspaceSlug={slug}

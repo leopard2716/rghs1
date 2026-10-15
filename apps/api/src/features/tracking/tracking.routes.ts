@@ -143,6 +143,31 @@ export function registerTrackingRoutes(app: ApiApp): void {
   );
 
   app.post(
+    "/v1/workspaces/:slug/tracking/bids/:bidId/admin-applied",
+    zValidator("param", bidRecordParams),
+    zValidator(
+      "json",
+      z.object({ appliedAt: z.string().datetime(), reason: z.string().trim().min(1).max(2000) })
+    ),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new ApplicationRulesService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).adminMarkApplied(
+            c.req.param("slug"),
+            user,
+            c.req.valid("param").bidId,
+            c.req.valid("json")
+          )
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+  app.post(
     "/v1/workspaces/:slug/tracking/bids/bulk-delete/preview",
     zValidator("json", bulkBidDeleteFilter),
     async (c) => {
