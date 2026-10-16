@@ -268,7 +268,8 @@ export class TrackingRecordMapper {
     lookups: TrackingLookups,
     currentMemberId?: string,
     canManage = false,
-    referenceInterviews: BidInterviewReferenceResponse[] = []
+    referenceInterviews: BidInterviewReferenceResponse[] = [],
+    isAdmin = false
   ): BidResponse {
     const market = lookups.marketsById.get(row.job_market_id);
     if (!market) {
@@ -294,7 +295,7 @@ export class TrackingRecordMapper {
       };
     });
     const ownedByCurrentMember =
-      Boolean(currentMemberId) && row.created_by_member_id === currentMemberId;
+      isAdmin || (Boolean(currentMemberId) && row.created_by_member_id === currentMemberId);
 
     return {
       id: row.id,
@@ -337,7 +338,8 @@ export class TrackingRecordMapper {
     profiles: ProfileResponse[],
     members: MemberSummary[],
     currentMemberId: string,
-    canManage: boolean
+    canManage: boolean,
+    isAdmin = false
   ): InterviewResponse[] {
     const bidsById = new Map(bids.map((bid) => [bid.id, bid]));
     const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
@@ -353,7 +355,7 @@ export class TrackingRecordMapper {
           "interview_relationship_invalid"
         );
       }
-      const ownedByCurrentMember = row.created_by_member_id === currentMemberId;
+      const ownedByCurrentMember = isAdmin || row.created_by_member_id === currentMemberId;
       return {
         id: row.id,
         createdByMemberId: row.created_by_member_id,
@@ -424,7 +426,7 @@ export class TrackingRecordMapper {
     rows: JobRecordRow[],
     bids: BidResponse[],
     members: MemberSummary[],
-    currentMemberId: string,
+    _currentMemberId: string,
     canManage: boolean
   ): JobRecordResponse[] {
     const bidsById = new Map(bids.map((bid) => [bid.id, bid]));
@@ -435,7 +437,6 @@ export class TrackingRecordMapper {
       if (!bid) {
         throw apiError(500, "Job record bid relationship is incomplete.", "job_bid_invalid");
       }
-      const ownedByCurrentMember = row.created_by_member_id === currentMemberId;
       return {
         id: row.id,
         createdByMemberId: row.created_by_member_id,
@@ -456,7 +457,7 @@ export class TrackingRecordMapper {
         },
         createdAt: row.created_at,
         deletedAt: row.deleted_at,
-        canEdit: canManage && ownedByCurrentMember && !row.deleted_at && !bid.deletedAt,
+        canEdit: canManage && !row.deleted_at && !bid.deletedAt,
         canDelete: canManage && !row.deleted_at
       };
     });
@@ -466,7 +467,7 @@ export class TrackingRecordMapper {
     rows: PaymentRecordRow[],
     jobs: JobRecordResponse[],
     members: MemberSummary[],
-    currentMemberId: string,
+    _currentMemberId: string,
     options: {
       canEdit: boolean;
       canDelete: boolean;
@@ -480,7 +481,6 @@ export class TrackingRecordMapper {
       if (!job) {
         throw apiError(500, "Payment job relationship is incomplete.", "payment_job_invalid");
       }
-      const ownedByCurrentMember = row.created_by_member_id === currentMemberId;
       return {
         id: row.id,
         createdByMemberId: row.created_by_member_id,
@@ -506,7 +506,7 @@ export class TrackingRecordMapper {
         paidBy: row.paid_by_member_id ? (membersById.get(row.paid_by_member_id) ?? null) : null,
         createdAt: row.created_at,
         paidAt: row.paid_at,
-        canEdit: options.canEdit && ownedByCurrentMember && row.status === "pending",
+        canEdit: options.canEdit && row.status === "pending",
         canDelete: options.canDelete && !row.deleted_at
       };
     });

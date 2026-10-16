@@ -156,7 +156,7 @@ export class TrackingAccessService {
     if (!bid) {
       throw apiError(404, "Bid was not found.", "bid_record_not_found");
     }
-    if (bid.created_by_member_id !== context.member.id) {
+    if (!context.roleKeys.includes("admin") && bid.created_by_member_id !== context.member.id) {
       throw apiError(
         403,
         `Only the workspace member who created this bid can ${action} it.`,
@@ -183,7 +183,10 @@ export class TrackingAccessService {
     if (!interview) {
       throw apiError(404, "Interview was not found.", "interview_record_not_found");
     }
-    if (interview.created_by_member_id !== context.member.id) {
+    if (
+      !context.roleKeys.includes("admin") &&
+      interview.created_by_member_id !== context.member.id
+    ) {
       throw apiError(
         403,
         `Only the workspace member who created this interview can ${action} it.`,
@@ -244,7 +247,7 @@ export class TrackingAccessService {
     if (!job) {
       throw apiError(404, "Job record was not found.", "job_record_not_found");
     }
-    if (job.created_by_member_id !== context.member.id) {
+    if (!context.roleKeys.includes("admin") && job.created_by_member_id !== context.member.id) {
       throw apiError(
         403,
         `Only the workspace member who created this job record can ${action} it.`,
@@ -285,7 +288,7 @@ export class TrackingAccessService {
     if (payment.status !== "pending") {
       throw apiError(409, "Only pending payment records can be edited.", "payment_record_paid");
     }
-    if (payment.created_by_member_id !== context.member.id) {
+    if (!context.roleKeys.includes("admin") && payment.created_by_member_id !== context.member.id) {
       throw apiError(
         403,
         "Only the workspace member who created this payment record can edit it.",
