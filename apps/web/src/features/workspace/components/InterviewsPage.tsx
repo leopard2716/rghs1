@@ -87,7 +87,7 @@ export function InterviewsPage({
     requestedInterviewQuery.data?.interview ??
     null;
   const editingInterview =
-    modalInterview && canEditInterview(modalInterview, memberId) ? modalInterview : null;
+    modalInterview && canEditInterview(modalInterview) ? modalInterview : null;
   const selectedInterview = modalInterview && !editingInterview ? modalInterview : null;
   const updateListQuery = useCallback(
     (change: Partial<TrackingListQuery>) => {
@@ -145,7 +145,7 @@ export function InterviewsPage({
       (interviewsQuery.data.canCreate && (creating || requestedBid || editingInterview)))
   );
   const showActions = Boolean(
-    interviewsQuery.data?.interviews.some((interview) => canDeleteInterview(interview, memberId))
+    interviewsQuery.data?.interviews.some((interview) => canDeleteInterview(interview))
   );
   const interviewMutationPending = createMutation.isPending || updateMutation.isPending;
   const interviewFormBids = useMemo(() => {
@@ -333,7 +333,7 @@ export function InterviewsPage({
                         </td>
                         {showActions ? (
                           <td>
-                            {canDeleteInterview(interview, memberId) ? (
+                            {canDeleteInterview(interview) ? (
                               <button
                                 className="secondary-action compact-action danger-action"
                                 type="button"
@@ -950,10 +950,10 @@ function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string })
   );
 }
 
-function canEditInterview(interview: InterviewRecord, memberId: string): boolean {
-  return interview.canEdit && interview.createdByMemberId === memberId;
+function canEditInterview(interview: InterviewRecord): boolean {
+  return interview.canEdit;
 }
 
-function canDeleteInterview(interview: InterviewRecord, memberId: string): boolean {
-  return interview.canDelete && interview.createdByMemberId === memberId;
+function canDeleteInterview(interview: InterviewRecord): boolean {
+  return interview.canDelete;
 }

@@ -145,7 +145,7 @@ export function BidsPage({
     bidsQuery.data?.bids.find((bid) => bid.id === requestedBidId) ??
     requestedBidQuery.data?.bid ??
     null;
-  const editingBid = modalBid && canEditBid(modalBid, memberId) ? modalBid : null;
+  const editingBid = modalBid && canEditBid(modalBid) ? modalBid : null;
   const selectedBid = modalBid && !editingBid ? modalBid : null;
   const showBidForm = creating || Boolean(modalBid);
   const companySearchQuery = useQuery({
@@ -310,7 +310,7 @@ export function BidsPage({
   const showActions = Boolean(
     bidsQuery.data?.bids.some(
       (bid) =>
-        canDeleteBid(bid, memberId) ||
+        canDeleteBid(bid) ||
         (bidsQuery.data?.canCreateInterview && bid.profiles.some((profile) => !profile.deletedAt))
     )
   );
@@ -464,7 +464,11 @@ export function BidsPage({
                   className="secondary-action small"
                   type="button"
                   disabled={exportMutation.isPending}
-                  title="Download all your pending applications across every page"
+                  title={
+                    isAdmin
+                      ? "Download all bidders’ pending applications in this workspace"
+                      : "Download all your pending applications across every page"
+                  }
                   onClick={() => exportMutation.mutate()}
                 >
                   {exportMutation.isPending ? (
@@ -684,10 +688,7 @@ export function BidsPage({
                               Mark applied
                             </button>
                           ) : null}
-                          {!bid.appliedAt &&
-                          !bid.expired &&
-                          !isAdmin &&
-                          canEditBid(bid, memberId) ? (
+                          {!bid.appliedAt && !bid.expired && !isAdmin && canEditBid(bid) ? (
                             <button
                               className="secondary-action small"
                               type="button"
@@ -748,7 +749,7 @@ export function BidsPage({
                                   Interview
                                 </button>
                               ) : null}
-                              {canDeleteBid(bid, memberId) ? (
+                              {canDeleteBid(bid) ? (
                                 <button
                                   className="secondary-action compact-action danger-action"
                                   type="button"
@@ -974,6 +975,7 @@ export function BidsPage({
           slug={slug}
           profiles={bidsQuery.data.filterProfiles}
           initialProfileId={listQuery.profileId}
+          isAdmin={isAdmin}
           onClose={() => setBulkDeleting(false)}
           onDeleted={async () => {
             await Promise.all([
@@ -1594,10 +1596,10 @@ function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string })
   );
 }
 
-function canEditBid(bid: BidRecord, memberId: string): boolean {
-  return bid.canEdit && bid.createdByMemberId === memberId;
+function canEditBid(bid: BidRecord): boolean {
+  return bid.canEdit;
 }
 
-function canDeleteBid(bid: BidRecord, memberId: string): boolean {
-  return bid.canDelete && bid.createdByMemberId === memberId;
+function canDeleteBid(bid: BidRecord): boolean {
+  return bid.canDelete;
 }
