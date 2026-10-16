@@ -18,6 +18,7 @@ export function BulkBidDeleteModal({
   slug,
   profiles,
   initialProfileId,
+  isAdmin = false,
   onClose,
   onDeleted
 }: {
@@ -25,6 +26,7 @@ export function BulkBidDeleteModal({
   slug: string;
   profiles: TrackingProfile[];
   initialProfileId?: string;
+  isAdmin?: boolean;
   onClose: () => void;
   onDeleted: () => Promise<void>;
 }) {
@@ -114,8 +116,8 @@ export function BulkBidDeleteModal({
     >
       <div className="modal-form">
         <p>
-          Find bids you created by profile, bid date, and optionally company name. Both dates are
-          included, using {deviceTimeZone()}.
+          Find {isAdmin ? "any bidder’s records in this workspace" : "bids you created"} by profile,
+          bid date, and optionally company name. Both dates are included, using {deviceTimeZone()}.
         </p>
         <p>
           Deletion permanently removes the bid and its profile assignments and linked interviews.
@@ -296,7 +298,12 @@ export function BulkBidDeleteModal({
                 </button>
               </>
             ) : (
-              <p>No eligible bids match. Only your own active bids can be deleted.</p>
+              <p>
+                No eligible bids match.{" "}
+                {isAdmin
+                  ? "You can delete any bidder’s active records in this workspace."
+                  : "Only your own active bids can be deleted."}
+              </p>
             )}
           </>
         ) : null}

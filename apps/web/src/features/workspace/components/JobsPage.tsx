@@ -85,7 +85,7 @@ export function JobsPage({
     jobsQuery.data?.jobs.find((job) => job.id === requestedJobId) ??
     requestedJobQuery.data?.job ??
     null;
-  const editingJob = modalJob && canEditJob(modalJob, memberId) ? modalJob : null;
+  const editingJob = modalJob && canEditJob(modalJob) ? modalJob : null;
   const selectedJob = modalJob && !editingJob ? modalJob : null;
   const showJobForm = Boolean(
     jobsQuery.data && (selectedJob || editingJob || (creating && jobsQuery.data.canCreate))
@@ -869,8 +869,8 @@ function TableLoadingRow({ colSpan, label }: { colSpan: number; label: string })
   );
 }
 
-function canEditJob(job: JobRecord, memberId: string): boolean {
-  return job.canEdit && job.createdByMemberId === memberId;
+function canEditJob(job: JobRecord): boolean {
+  return job.canEdit;
 }
 
 function canDeleteJob(job: JobRecord): boolean {

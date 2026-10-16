@@ -186,12 +186,12 @@ describe("TrackingService deletion ownership", () => {
     expect(supabase.delete).not.toHaveBeenCalled();
   });
 
-  it("rejects bid deletion when the member no longer has the bidder role", async () => {
-    const supabase = trackingSupabase("admin", "bid_records");
+  it("rejects bid deletion without admin or bidder role", async () => {
+    const supabase = trackingSupabase("interviewer", "bid_records");
     const service = trackingService(supabase);
 
     await expect(service.deleteBid("rg-team", recordId, { id: authUserId })).rejects.toMatchObject({
-      code: "workspace_bidder_required"
+      code: "workspace_role_required"
     });
     expect(supabase.update).not.toHaveBeenCalled();
   });
@@ -1438,7 +1438,7 @@ function bulkDeleteFixture(role = "bidder") {
       (row) =>
         matches(row, {
           workspace_id: `eq.${args.p_workspace_id}`,
-          created_by_member_id: `eq.${args.p_member_id}`,
+          ...(args.p_member_id == null ? {} : { created_by_member_id: `eq.${args.p_member_id}` }),
           deleted_at: "is.null",
           and: "date-range",
           ...(args.p_bid_ids ? { id: `in.${"("}${(args.p_bid_ids as string[]).join(",")})` } : {})
@@ -1818,4 +1818,105 @@ it("rejects pending exports for members without the bidder role", async () => {
     status: 403
   });
   expect(selectAll).not.toHaveBeenCalled();
+});
+
+it("lets an admin without bidder role delete another bidder's record within the workspace", async () => {
+  const db = trackingSupabase("admin", "bid_records", "another-member");
+  await trackingService(db).deleteBid("rg-team", recordId, { id: authUserId });
+  expect(db.delete).toHaveBeenCalledWith("bid_records", {
+    workspace_id: `eq.${workspaceId}`,
+    id: `eq.${recordId}`,
+    deleted_at: "is.null"
+  });
+  expect(db.insert).toHaveBeenCalledWith("audit_logs", [
+    expect.objectContaining({
+      action: "tracking.bid.deleted",
+      actor_member_id: memberId
+    })
+  ]);
+});
+
+it("lets admins preview and bulk delete multiple bidders' records without changing scope", async () => {
+  const { service, db, bids } = bulkDeleteFixture("admin");
+  const ids = [bids[0]!.id, bids[1]!.id];
+  const preview = await service.previewBulkDeleteBids("rg-team", { id: authUserId }, bulkFilter);
+  expect(new Set(preview.bids.map((row) => row.id))).toEqual(new Set(ids));
+  expect(db.rpc).toHaveBeenCalledWith(
+    "bulk_bid_delete_candidates",
+    expect.objectContaining({
+      p_workspace_id: workspaceId,
+      p_member_id: null,
+      p_profile_id: bulkProfileId
+    })
+  );
+  expect(
+    await service.bulkDeleteBids("rg-team", { id: authUserId }, { filter: bulkFilter, bidIds: ids })
+  ).toEqual({ deleted: 2, skipped: 0 });
+  expect(bids.map((row) => row.job_title)).toEqual(["Other"]); // End boundary remains.
+  expect(db.delete).toHaveBeenCalledWith("bid_records", {
+    workspace_id: `eq.${workspaceId}`,
+    deleted_at: "is.null",
+    and: `(bid_at.gte.${bulkFilter.dateFrom},bid_at.lt.${bulkFilter.dateTo})`,
+    id: `in.(${ids.join(",")})`
+  });
+});
+
+it("allows admin metadata corrections without transferring ownership or rewriting application time", async () => {
+  const base = trackingSupabase("admin", "bid_records", "another-member");
+  const profile = { id: bulkProfileId, name: "Frank", deleted_at: null };
+  const market = { id: "market", name: "US", deleted_at: null };
+  const row = {
+    id: recordId,
+    created_by_member_id: "another-member",
+    job_market_id: "market",
+    bid_at: "2026-10-15T14:29:00.000Z",
+    applied_at: "2026-10-15T18:26:00.000Z",
+    job_title: "Wrong title",
+    company: "Scraped company",
+    deleted_at: null
+  };
+  const select = vi.fn(async (table: string) => {
+    if (table === "bid_records") return [row];
+    if (table === "tracking_profiles") return [profile];
+    if (table === "tracking_job_markets") return [market];
+    return base.select(table);
+  });
+  const update = vi.fn(async (_table: string, values: object) => [{ ...row, ...values }]);
+  const db = {
+    ...base,
+    select,
+    update,
+    selectAll: vi.fn(async (table: string) => (table === "tracking_profiles" ? [profile] : []))
+  };
+  const service = new TrackingService(db as unknown as SupabaseRestClient);
+  const result = await service.updateBid(
+    "rg-team",
+    recordId,
+    { id: authUserId },
+    {
+      profileIds: [bulkProfileId],
+      profileResumes: [],
+      jobMarketId: "market",
+      jobTitle: "Senior AI Software Engineer",
+      company: "FullStack",
+      jobLink: "https://example.com/job",
+      bidAt: row.bid_at
+    }
+  );
+  expect(update).toHaveBeenCalledWith(
+    "bid_records",
+    expect.objectContaining({
+      company: "FullStack",
+      applied_at: row.applied_at
+    }),
+    { workspace_id: `eq.${workspaceId}`, id: `eq.${recordId}`, deleted_at: "is.null" }
+  );
+  const values = update.mock.calls.find((call) => call[0] === "bid_records")![1];
+  expect(values).not.toHaveProperty("created_by_member_id");
+  expect(result.bid).toMatchObject({
+    createdByMemberId: "another-member",
+    canEdit: true,
+    canDelete: true,
+    appliedAt: row.applied_at
+  });
 });

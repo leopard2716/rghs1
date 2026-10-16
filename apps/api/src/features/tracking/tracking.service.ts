@@ -239,7 +239,7 @@ export class TrackingService {
 
   async createProfileRequest(slug: string, user: AuthUser, input: TrackingProfileRequestInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     const [profiles, pendingRows] = await Promise.all([
       this.loadProfiles(context.workspace.id),
       this.supabase.select<TrackingProfileRequestRow>(
@@ -489,7 +489,7 @@ export class TrackingService {
 
   async exportPendingBids(slug: string, user: AuthUser) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     const rows = await this.supabase.selectAll<{
       job_title: string;
       company: string;
@@ -499,7 +499,7 @@ export class TrackingService {
       "job_title,company,job_link",
       {
         workspace_id: `eq.${context.workspace.id}`,
-        created_by_member_id: `eq.${context.member.id}`,
+        ...this.ownerFilter(context),
         deleted_at: "is.null",
         applied_at: "is.null",
         expired_at: "is.null",
@@ -577,7 +577,7 @@ export class TrackingService {
       allProfiles,
       members
     );
-    const canManageBids = context.roleKeys.includes("bidder");
+    const canManageBids = context.roleKeys.includes("admin") || context.roleKeys.includes("bidder");
     const lookups = this.records.lookups(allProfiles, allMarkets, members);
     const responseFor = (row: BidRecordRow) =>
       this.records.bid(
@@ -586,13 +586,15 @@ export class TrackingService {
         lookups,
         context.member.id,
         canManageBids,
-        referenceInterviewsByBid.get(row.id) ?? []
+        referenceInterviewsByBid.get(row.id) ?? [],
+        context.roleKeys.includes("admin")
       );
 
     return {
       workspace: workspaceResponse(context.workspace),
-      canCreate: context.roleKeys.includes("bidder"),
-      canCreateInterview: context.roleKeys.includes("interviewer"),
+      canCreate: context.roleKeys.includes("admin") || context.roleKeys.includes("bidder"),
+      canCreateInterview:
+        context.roleKeys.includes("admin") || context.roleKeys.includes("interviewer"),
       profiles: allProfiles.filter((profile) => !profile.deletedAt),
       filterProfiles: allProfiles,
       filterMembers: members,
@@ -606,7 +608,7 @@ export class TrackingService {
 
   async createBid(slug: string, user: AuthUser, input: BidRecordInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     const bid = await this.createBidForContext(context, input);
     await this.audit(context, "tracking.bid.created", bid.id, {
       profileCount: input.profileIds.length,
@@ -648,15 +650,16 @@ export class TrackingService {
         assignments,
         this.records.lookups(profiles, markets, members),
         context.member.id,
-        context.roleKeys.includes("bidder"),
-        referenceInterviewsByBid.get(row.id) ?? []
+        context.roleKeys.includes("admin") || context.roleKeys.includes("bidder"),
+        referenceInterviewsByBid.get(row.id) ?? [],
+        context.roleKeys.includes("admin")
       )
     };
   }
 
   async bulkCreateBids(slug: string, user: AuthUser, input: BulkBidRecordInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     const recordsToImport = input.records.filter((record) => !isUnknownCompanyName(record.company));
     const skippedUnknownCompanies =
       (input.skippedUnknownCompanies ?? 0) + input.records.length - recordsToImport.length;
@@ -742,7 +745,7 @@ export class TrackingService {
 
   async updateBid(slug: string, bidId: string, user: AuthUser, input: BidRecordInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     await Promise.all([
       this.access.requireProfiles(context.workspace.id, input.profileIds),
       this.access.requireMarket(context.workspace.id, input.jobMarketId)
@@ -755,7 +758,10 @@ export class TrackingService {
     if (!existing) {
       throw apiError(404, "Bid was not found.", "bid_record_not_found");
     }
-    if (existing.created_by_member_id !== context.member.id) {
+    if (
+      !context.roleKeys.includes("admin") &&
+      existing.created_by_member_id !== context.member.id
+    ) {
       throw apiError(
         403,
         "Only the workspace member who created this bid can edit it.",
@@ -842,14 +848,17 @@ export class TrackingService {
         company: input.company,
         job_link: input.jobLink,
         bid_at: input.bidAt,
-        applied_at: existing.applied_at ? input.bidAt : null,
+        applied_at:
+          existing.applied_at && input.bidAt !== existing.bid_at
+            ? input.bidAt
+            : (existing.applied_at ?? null),
         job_description: input.jobDescription ?? null,
         updated_at: now
       },
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${bidId}`,
-        created_by_member_id: `eq.${context.member.id}`,
+        ...this.ownerFilter(context),
         deleted_at: "is.null"
       }
     );
@@ -876,7 +885,8 @@ export class TrackingService {
         this.records.lookups(profiles, markets, members),
         context.member.id,
         true,
-        referenceInterviewsByBid.get(bidId) ?? []
+        referenceInterviewsByBid.get(bidId) ?? [],
+        context.roleKeys.includes("admin")
       )
     };
   }
@@ -945,13 +955,15 @@ export class TrackingService {
       })),
       this.records.lookups(profiles, markets, members),
       context.member.id,
-      true
+      true,
+      [],
+      context.roleKeys.includes("admin")
     );
   }
 
   async previewBulkDeleteBids(slug: string, user: AuthUser, filter: BulkBidDeleteFilter) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     const rows = await this.bulkDeleteCandidates(context, filter);
     return {
       bids: rows.slice(0, 200).map((row) => ({
@@ -966,7 +978,7 @@ export class TrackingService {
 
   async bulkDeleteBids(slug: string, user: AuthUser, input: BulkBidDeleteInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     const eligible = await this.bulkDeleteCandidates(context, input.filter, input.bidIds);
     const eligibleIds = new Set(eligible.map((row) => row.id));
     if (input.bidIds.some((id) => !eligibleIds.has(id))) {
@@ -1000,10 +1012,16 @@ export class TrackingService {
     return { deleted: deleted.length, skipped: input.bidIds.length - deleted.length };
   }
 
+  private ownerFilter(context: TrackingContext): Record<string, string> {
+    return context.roleKeys.includes("admin")
+      ? {}
+      : { created_by_member_id: `eq.${context.member.id}` };
+  }
+
   private bulkDeleteFilters(context: TrackingContext, filter: BulkBidDeleteFilter) {
     return {
       workspace_id: `eq.${context.workspace.id}`,
-      created_by_member_id: `eq.${context.member.id}`,
+      ...this.ownerFilter(context),
       deleted_at: "is.null",
       and: `(bid_at.gte.${filter.dateFrom},bid_at.lt.${filter.dateTo})`
     };
@@ -1019,7 +1037,7 @@ export class TrackingService {
       Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">>
     >("bulk_bid_delete_candidates", {
       p_workspace_id: context.workspace.id,
-      p_member_id: context.member.id,
+      p_member_id: context.roleKeys.includes("admin") ? null : context.member.id,
       p_profile_id: filter.profileId,
       p_date_from: filter.dateFrom,
       p_date_to: filter.dateTo,
@@ -1047,12 +1065,12 @@ export class TrackingService {
 
   async deleteBid(slug: string, bidId: string, user: AuthUser) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "bidder");
+    this.access.requireAnyRole(context, ["admin", "bidder"]);
     await this.access.requireOwnedBid(context, bidId, "delete");
     const [bid] = await this.supabase.delete<BidRecordRow>("bid_records", {
       workspace_id: `eq.${context.workspace.id}`,
       id: `eq.${bidId}`,
-      created_by_member_id: `eq.${context.member.id}`,
+      ...this.ownerFilter(context),
       deleted_at: "is.null"
     });
     if (!bid) {
@@ -1084,7 +1102,8 @@ export class TrackingService {
       allProfiles,
       members,
       context.member.id,
-      context.roleKeys.includes("interviewer")
+      context.roleKeys.includes("admin") || context.roleKeys.includes("interviewer"),
+      context.roleKeys.includes("admin")
     );
     const search = normalizeSearch(query.search);
     const filtered = interviews.filter(
@@ -1110,7 +1129,7 @@ export class TrackingService {
 
     return {
       workspace: workspaceResponse(context.workspace),
-      canCreate: context.roleKeys.includes("interviewer"),
+      canCreate: context.roleKeys.includes("admin") || context.roleKeys.includes("interviewer"),
       profiles: allProfiles.filter((profile) => !profile.deletedAt),
       filterProfiles: allProfiles,
       markets: allMarkets.filter((market) => !market.deletedAt),
@@ -1123,7 +1142,7 @@ export class TrackingService {
 
   async createInterview(slug: string, user: AuthUser, input: InterviewRecordInput) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "interviewer");
+    this.access.requireAnyRole(context, ["admin", "interviewer"]);
     await this.access.requireInterviewRelation(context.workspace.id, input);
 
     const id = crypto.randomUUID();
@@ -1193,7 +1212,9 @@ export class TrackingService {
         assignments,
         this.records.lookups(profiles, markets, members),
         context.member.id,
-        context.roleKeys.includes("bidder")
+        context.roleKeys.includes("admin") || context.roleKeys.includes("bidder"),
+        [],
+        context.roleKeys.includes("admin")
       )
     ];
     const [interview] = this.records.interviews(
@@ -1202,7 +1223,8 @@ export class TrackingService {
       profiles,
       members,
       context.member.id,
-      context.roleKeys.includes("interviewer")
+      context.roleKeys.includes("admin") || context.roleKeys.includes("interviewer"),
+      context.roleKeys.includes("admin")
     );
     if (!interview) {
       throw apiError(404, "Interview was not found.", "interview_record_not_found");
@@ -1217,7 +1239,7 @@ export class TrackingService {
     input: InterviewRecordInput
   ) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "interviewer");
+    this.access.requireAnyRole(context, ["admin", "interviewer"]);
     await this.access.requireOwnedInterview(context, interviewId, "edit");
     await this.access.requireInterviewRelation(context.workspace.id, input);
     const [interview] = await this.supabase.update<InterviewRecordRow>(
@@ -1236,7 +1258,7 @@ export class TrackingService {
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${interviewId}`,
-        created_by_member_id: `eq.${context.member.id}`,
+        ...this.ownerFilter(context),
         deleted_at: "is.null"
       }
     );
@@ -1253,7 +1275,7 @@ export class TrackingService {
 
   async deleteInterview(slug: string, interviewId: string, user: AuthUser) {
     const context = await this.access.requireContext(slug, user.id);
-    this.access.requireRole(context, "interviewer");
+    this.access.requireAnyRole(context, ["admin", "interviewer"]);
     await this.access.requireOwnedInterview(context, interviewId, "delete");
     const now = new Date().toISOString();
     const [interview] = await this.supabase.update<InterviewRecordRow>(
@@ -1262,7 +1284,7 @@ export class TrackingService {
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${interviewId}`,
-        created_by_member_id: `eq.${context.member.id}`,
+        ...this.ownerFilter(context),
         deleted_at: "is.null"
       }
     );
@@ -1406,7 +1428,7 @@ export class TrackingService {
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${jobRecordId}`,
-        created_by_member_id: `eq.${context.member.id}`,
+        ...this.ownerFilter(context),
         deleted_at: "is.null"
       }
     );
@@ -1575,7 +1597,7 @@ export class TrackingService {
       {
         workspace_id: `eq.${context.workspace.id}`,
         id: `eq.${paymentRecordId}`,
-        created_by_member_id: `eq.${context.member.id}`,
+        ...this.ownerFilter(context),
         status: "eq.pending",
         deleted_at: "is.null"
       }
@@ -1899,7 +1921,8 @@ export class TrackingService {
       profiles,
       members,
       context.member.id,
-      context.roleKeys.includes("interviewer")
+      context.roleKeys.includes("admin") || context.roleKeys.includes("interviewer"),
+      context.roleKeys.includes("admin")
     );
     const matchesFilters = (record: {
       jobMarket: JobMarketResponse;
