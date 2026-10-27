@@ -81,3 +81,20 @@ export function isUnknownCompanyName(value: string | null | undefined): boolean 
   const name = (value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
   return name === "" || name === "unknown" || name === "unknown company";
 }
+
+// Keep both the trading name and an explicitly named parent. Do not infer
+// relationships from a shared word such as "Group" or a fuzzy spelling match.
+export function companyNameKeys(value: string): string[] {
+  const names = [value];
+  const affiliation = value
+    .normalize("NFKC")
+    .trim()
+    .match(/^(.+?)(?:,\s*|\s+[-–—]\s+|\s+\(|\s+)(?:a|an)\s+(.+?)\s+company\s*\)?\.?$/i);
+  if (affiliation) names.push(affiliation[1]!, affiliation[2]!);
+  return [...new Set(names.map(normalizeCompanyName).filter(Boolean))];
+}
+
+export function companyNamesMatch(left: string, right: string): boolean {
+  const keys = new Set(companyNameKeys(left));
+  return companyNameKeys(right).some((key) => keys.has(key));
+}
