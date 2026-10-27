@@ -1,4 +1,4 @@
-import { normalizeCompanyName } from "@rghs1/domain";
+import { companyNamesMatch } from "@rghs1/domain";
 
 export type ApplicationRow = {
   id: string;
@@ -40,14 +40,12 @@ export function applicationEligibility(
   const sharedIds = new Set(
     assignments.filter((item) => profileIds.has(item.profile_id)).map((item) => item.bid_id)
   );
-  const company = normalizeCompanyName(target.company);
   const matches = history
     .filter(
       (row) =>
         row.id !== target.id &&
         sharedIds.has(row.id) &&
-        company !== "" &&
-        normalizeCompanyName(row.company) === company &&
+        companyNamesMatch(target.company, row.company) &&
         (row.applied_at ||
           (!row.deleted_at &&
             !isExpiredImport(row, now) &&

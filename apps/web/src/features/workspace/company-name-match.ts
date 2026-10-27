@@ -1,6 +1,6 @@
 import type { BidRecord } from "../../services/tracking.service";
 
-import { normalizeCompanyName } from "@rghs1/domain";
+import { companyNamesMatch, normalizeCompanyName } from "@rghs1/domain";
 export { normalizeCompanyName } from "@rghs1/domain";
 
 export function companyNameSimilarity(query: string, candidate: string): number {
@@ -9,6 +9,8 @@ export function companyNameSimilarity(query: string, candidate: string): number 
   if (normalizedQuery.length < 2 || !normalizedCandidate) {
     return 0;
   }
+
+  if (companyNamesMatch(query, candidate)) return 1;
 
   const compactQuery = normalizedQuery.replace(/\s+/g, "");
   const compactCandidate = normalizedCandidate.replace(/\s+/g, "");

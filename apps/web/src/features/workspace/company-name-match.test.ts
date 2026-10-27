@@ -7,6 +7,10 @@ import {
 } from "./company-name-match";
 
 describe("company name matching", () => {
+  it("ranks explicit parent-company labels as exact matches in both directions", () => {
+    expect(companyNameSimilarity("URUS Group", "VAS, a URUS Group company")).toBe(1);
+    expect(companyNameSimilarity("VAS, a URUS Group company", "URUS Group")).toBe(1);
+  });
   it("removes punctuation and common legal suffixes", () => {
     expect(normalizeCompanyName("The Acme Technologies, L.L.C.")).toBe("acme technologies");
     expect(normalizeCompanyName("Acme Technologies Co., Ltd.")).toBe("acme technologies");
