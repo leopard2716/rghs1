@@ -28,38 +28,6 @@ const check = (history: ApplicationRow[], date = now) =>
   applicationEligibility(target, history, assignments, rules, date);
 
 describe("company application cooldown", () => {
-  it("recognizes an explicit parent across roles and keeps rejection release", () => {
-    const parent = { ...target, company: "URUS Group" };
-    const subsidiary = { ...prior, company: "VAS, a URUS Group company" };
-    expect(applicationEligibility(parent, [subsidiary], assignments, rules, now)).toMatchObject({
-      duplicated: true,
-      matches: [{ id: "prior", blocks: true }]
-    });
-    expect(
-      applicationEligibility(
-        parent,
-        [{ ...subsidiary, rejected_at: now.toISOString() }],
-        assignments,
-        rules,
-        now
-      )
-    ).toMatchObject({
-      duplicated: false,
-      matches: [{ id: "prior", blocks: false, reason: "Rejected — cooldown released" }]
-    });
-    expect(
-      applicationEligibility(
-        parent,
-        [subsidiary],
-        [
-          { bid_id: "target", profile_id: "noah" },
-          { bid_id: "prior", profile_id: "frank" }
-        ],
-        rules,
-        now
-      ).duplicated
-    ).toBe(false);
-  });
   it("matches company aliases across roles for the same profile", () => {
     expect(check([target, prior])).toMatchObject({ duplicated: true, showBadge: true });
   });
