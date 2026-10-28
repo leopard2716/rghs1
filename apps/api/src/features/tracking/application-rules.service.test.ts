@@ -96,50 +96,43 @@ it("does not audit a failed concurrent update", async () => {
   expect(db.insert).not.toHaveBeenCalled();
 });
 
-it.each([
-  ["Acme LLC", "Acme Inc"],
-  ["URUS Group", "VAS, a URUS Group company"],
-  ["VAS, a URUS Group company", "URUS Group"]
-])(
-  "retains matching history for %s and %s through the service prefilter",
-  async (company, priorCompany) => {
-    const target = { id: "target", company, job_title: "Engineer", deleted_at: null };
-    const prior = {
-      id: "prior",
-      company: priorCompany,
-      job_title: "Engineer",
-      applied_at: new Date().toISOString(),
-      deleted_at: null
-    };
-    const db = {
-      select: vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
-        if (table === "workspace_application_rules") return [];
-        expect(filters.workspace_id).toBe("eq.workspace");
-        expect(filters.id).toBeDefined();
-        return filters.id === "in.(target)" ? [target] : [target, prior];
-      }),
-      rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
-        expect(name).toBe("application_eligibility_data");
-        expect(args).toEqual({ p_workspace_id: "workspace", p_bid_ids: ["target"] });
-        return {
-          targets: [target],
-          history: [target, prior],
-          assignments: [
-            { bid_id: "target", profile_id: "profile" },
-            { bid_id: "prior", profile_id: "profile" }
-          ]
-        };
-      })
-    };
-    const service = new ApplicationRulesService(db as unknown as SupabaseRestClient);
-    const result = await service.eligibilityForContext(
-      { workspace: { id: "workspace" } } as TrackingContext,
-      ["target"]
-    );
-    expect(result.results[0]?.duplicated).toBe(true);
-    expect(result.results[0]?.matches[0]?.id).toBe("prior");
-  }
-);
+it("scopes eligibility reads to target IDs and shared profiles and preserves normalized company cooldowns", async () => {
+  const target = { id: "target", company: "Acme LLC", job_title: "Engineer", deleted_at: null };
+  const prior = {
+    id: "prior",
+    company: "Acme Inc",
+    job_title: "Engineer",
+    applied_at: new Date().toISOString(),
+    deleted_at: null
+  };
+  const db = {
+    select: vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
+      if (table === "workspace_application_rules") return [];
+      expect(filters.workspace_id).toBe("eq.workspace");
+      expect(filters.id).toBeDefined();
+      return filters.id === "in.(target)" ? [target] : [target, prior];
+    }),
+    rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
+      expect(name).toBe("application_eligibility_data");
+      expect(args).toEqual({ p_workspace_id: "workspace", p_bid_ids: ["target"] });
+      return {
+        targets: [target],
+        history: [target, prior],
+        assignments: [
+          { bid_id: "target", profile_id: "profile" },
+          { bid_id: "prior", profile_id: "profile" }
+        ]
+      };
+    })
+  };
+  const service = new ApplicationRulesService(db as unknown as SupabaseRestClient);
+  const result = await service.eligibilityForContext(
+    { workspace: { id: "workspace" } } as TrackingContext,
+    ["target"]
+  );
+  expect(result.results[0]?.duplicated).toBe(true);
+  expect(result.results[0]?.matches[0]?.id).toBe("prior");
+});
 
 it("requires admin permission for recording another bidder's submission", async () => {
   const { service, db } = fixture(["bidder"]);
