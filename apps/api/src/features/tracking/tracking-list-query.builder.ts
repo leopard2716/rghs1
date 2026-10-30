@@ -54,7 +54,7 @@ function searchTokens(value: string | undefined): string[] {
   return (value ?? "")
     .toLocaleLowerCase()
     .split(/\s+/)
-    .map((token) => token.replace(/[^\p{L}\p{N}+#-]+/gu, ""))
+    .map((token) => token.replace(/[^\p{L}\p{N}+#&-]+/gu, ""))
     .filter(Boolean)
     .slice(0, 12);
 }
