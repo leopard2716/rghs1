@@ -5,6 +5,20 @@ import { TrackingListQueryBuilder } from "./tracking-list-query.builder";
 const builder = new TrackingListQueryBuilder();
 
 describe("TrackingListQueryBuilder", () => {
+  it.each(["F&G", "AT&T", "H&R"])("preserves ampersands in %s searches", (search) => {
+    const filters = builder.bidFilters("workspace-1", {
+      page: 1,
+      pageSize: 20,
+      search,
+      sortBy: "datetime",
+      sortDirection: "desc"
+    });
+    expect(filters.and).toContain(`search_text.ilike.*${search.toLowerCase()}*`);
+    const params = new URLSearchParams(filters);
+    expect(params.toString()).toContain("%26");
+    expect(new URLSearchParams(params.toString()).get("and")).toBe(filters.and);
+  });
+
   it("builds tenant-scoped indexed bid filters", () => {
     expect(
       builder.bidFilters(
