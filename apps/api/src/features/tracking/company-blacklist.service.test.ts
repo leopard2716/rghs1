@@ -121,7 +121,7 @@ describe("company blacklists", () => {
     await expect(
       service.add("team", { id: "user" }, { company: "Unknown", profileId: null, reason: "" })
     ).rejects.toMatchObject({ status: 400 });
-    db.select.mockResolvedValueOnce([{ id: "existing" }] as never);
+    db.selectAll.mockResolvedValueOnce([entry("Acme LLC")]);
     await expect(
       service.add("team", { id: "user" }, { company: "Acme", profileId: null, reason: "" })
     ).rejects.toMatchObject({ status: 409 });
@@ -154,3 +154,14 @@ describe("company blacklists", () => {
     await expect(service.requireAllowed("workspace", "F&G", [])).resolves.toBeUndefined();
   });
 });
+
+it.each([
+  ["AstranaHealth", "Astrana Health, Inc"],
+  ["Fuze", "Fuze Health LLC"]
+])(
+  "matches existing blacklist display names without rewriting stored keys: %s / %s",
+  (name, company) => {
+    expect(blacklistMatches([entry(name, "profile-1")], company, ["profile-1"])).toHaveLength(1);
+    expect(blacklistMatches([entry(name, "profile-1")], company, ["profile-2"])).toHaveLength(0);
+  }
+);

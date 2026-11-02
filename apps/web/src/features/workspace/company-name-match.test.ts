@@ -17,6 +17,11 @@ describe("company name matching", () => {
     expect(companyNameSimilarity("Northwind Ltd", "Northwind Corporation")).toBe(1);
   });
 
+  it("ranks spacing and business descriptor variants as exact identity matches", () => {
+    expect(companyNameSimilarity("AstranaHealth", "Astrana Health, Inc")).toBe(1);
+    expect(companyNameSimilarity("Fuze", "Fuze Health LLC")).toBe(1);
+  });
+
   it("matches partial typing and small spelling differences", () => {
     expect(companyNameSimilarity("micros", "Microsoft Corporation")).toBeGreaterThan(0.9);
     expect(companyNameSimilarity("Microsfot", "Microsoft Corporation")).toBeGreaterThan(0.5);

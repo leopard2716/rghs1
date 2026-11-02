@@ -2034,8 +2034,8 @@ it("excludes current global and assigned-profile blacklists from exports even wi
     makeRow("Allowed", ["p1"])
   ];
   let entries = [
-    { company_key: "f and g", profile_id: null },
-    { company_key: "acme", profile_id: "p1" }
+    { company: "F&G", company_key: "f and g", profile_id: null },
+    { company: "Acme", company_key: "acme", profile_id: "p1" }
   ];
   const selectAll = vi.fn(async (table: string) => (table === "bid_records" ? rows : entries));
   const service = new TrackingService({
