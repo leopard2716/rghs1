@@ -178,6 +178,24 @@ member identity. Interviewers can also start scheduling directly from a specific
 Clicking a bid or interview row opens its details. The creating bidder or interviewer can edit the
 record while retaining the required role; ownership and `workspace_id` are rechecked by the API.
 
+## Company blacklists
+
+Workspace admins manage **Company blacklist** in Administration → Users, alongside application
+rules. Global entries apply to every profile in that workspace; profile entries apply only to the
+selected profile. Entries support an optional reason, scope filtering, company search, and removal.
+Only admins can list and change blacklist entries; changes are audited and tenant-scoped.
+
+Company names use the shared company normalization (case, punctuation, ampersands, legal suffixes).
+Alternative brand names need separate entries. Imports are retained for review. Matching bids show
+**Blacklisted** regardless of import date, with the scope and reason in the eligibility details.
+Blacklist checks take precedence over cooldown expiry and rejection releases. Manual bid creation,
+marking applied (including admin recording), relevant edits to submitted records, and Apply Assistant
+bid saves reject matching companies. Existing history is preserved; removing an entry releases that
+restriction. For bids with multiple profiles, any matching profile blocks the whole record.
+
+Deploy migration `0031_company_blacklists.sql` before the updated API. The normal production
+deployment workflow applies migrations before deploying the API and frontend.
+
 ## Deployment
 
 See [docs/deployment.md](docs/deployment.md).

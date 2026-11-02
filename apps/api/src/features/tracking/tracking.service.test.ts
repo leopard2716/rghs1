@@ -463,6 +463,7 @@ function trackingService(supabase: ReturnType<typeof trackingSupabase>) {
 
 function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemberId = memberId) {
   return {
+    selectAll: vi.fn(async () => []),
     select: vi.fn(async (table: string) => {
       if (table === "workspaces") {
         return [
@@ -517,6 +518,7 @@ function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemb
             id: recordId,
             workspace_id: workspaceId,
             created_by_member_id: recordOwnerMemberId,
+            company: "Acme",
             status: "pending",
             created_at: "2026-06-18T00:00:00.000Z",
             updated_at: "2026-06-18T00:00:00.000Z",
@@ -1746,7 +1748,17 @@ it("rechecks duplicate selection before deletion and guards against concurrently
   const result = {
     rules: { cooldownDays: 45, timeZone: "America/Chicago" },
     checkedAt: new Date().toISOString(),
-    results: [{ bidId: recordId, showBadge: true, duplicated: true, pending: true, matches: [] }]
+    results: [
+      {
+        bidId: recordId,
+        showBadge: true,
+        duplicated: true,
+        pending: true,
+        blacklisted: false,
+        blacklistMatches: [],
+        matches: []
+      }
+    ]
   };
   spy.mockResolvedValue(
     result as Awaited<ReturnType<ApplicationRulesService["eligibilityForContext"]>>

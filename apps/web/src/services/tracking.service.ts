@@ -1059,6 +1059,13 @@ export type EligibilityResult = {
   bidId: string;
   showBadge: boolean;
   duplicated: boolean;
+  blacklisted?: boolean;
+  blacklistMatches?: Array<{
+    id: string;
+    company: string;
+    profileId: string | null;
+    reason: string;
+  }>;
   matches: Array<{
     id: string;
     company: string;
@@ -1161,6 +1168,52 @@ export async function adminMarkBidApplied(
       session,
       `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/bids/${encodeURIComponent(bidId)}/admin-applied`,
       { method: "POST", headers: authHeaders(), body: JSON.stringify(input) }
+    )
+  );
+}
+
+export type CompanyBlacklistEntry = {
+  id: string;
+  company: string;
+  profile_id: string | null;
+  reason: string;
+  created_at: string;
+};
+export async function fetchCompanyBlacklist(
+  session: AuthSession,
+  slug: string
+): Promise<{ entries: CompanyBlacklistEntry[] }> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/company-blacklist`,
+      { headers: authHeaders() }
+    )
+  );
+}
+export async function addCompanyBlacklist(
+  session: AuthSession,
+  slug: string,
+  input: { company: string; profileId: string | null; reason: string }
+): Promise<{ entry: CompanyBlacklistEntry }> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/company-blacklist`,
+      { method: "POST", headers: authHeaders(), body: JSON.stringify(input) }
+    )
+  );
+}
+export async function removeCompanyBlacklist(
+  session: AuthSession,
+  slug: string,
+  id: string
+): Promise<{ removed: boolean }> {
+  return parseJson(
+    await authenticatedApiFetch(
+      session,
+      `${apiBaseUrl}/v1/workspaces/${encodeURIComponent(slug)}/tracking/company-blacklist/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers: authHeaders() }
     )
   );
 }

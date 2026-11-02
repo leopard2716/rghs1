@@ -1,3 +1,4 @@
+import { CompanyBlacklistService } from "./company-blacklist.service";
 import { centralDayStart } from "./application-eligibility";
 import { ApplicationRulesService } from "./application-rules.service";
 import { normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
@@ -797,6 +798,17 @@ export class TrackingService {
       }
     );
     const currentProfileIds = new Set(assignments.map((item) => item.profile_id));
+    if (
+      existing.applied_at &&
+      (existing.company !== input.company ||
+        input.profileIds.some((id) => !currentProfileIds.has(id)))
+    ) {
+      await new CompanyBlacklistService(this.supabase).requireAllowed(
+        context.workspace.id,
+        input.company,
+        input.profileIds
+      );
+    }
     const removeIds = [...currentProfileIds].filter((id) => !selectedProfiles.has(id));
     const addIds = input.profileIds.filter((id) => !currentProfileIds.has(id));
     if (removeIds.length) {
@@ -900,6 +912,11 @@ export class TrackingService {
       this.access.requireMarket(context.workspace.id, input.jobMarketId)
     ]);
 
+    await new CompanyBlacklistService(this.supabase).requireAllowed(
+      context.workspace.id,
+      input.company,
+      input.profileIds
+    );
     const id = crypto.randomUUID();
     const [bid] = await this.supabase.insert<BidRecordRow>("bid_records", [
       {
