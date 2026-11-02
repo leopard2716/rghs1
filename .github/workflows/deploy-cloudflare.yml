@@ -40,7 +40,8 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Keep v2 command/config semantics; v3 requires a separate migration.
+          version: 2.107.0
 
       - name: Link development database
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
@@ -132,7 +133,8 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Keep v2 command/config semantics; v3 requires a separate migration.
+          version: 2.107.0
 
       - name: Link production database
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
