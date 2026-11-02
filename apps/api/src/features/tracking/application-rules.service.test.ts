@@ -98,10 +98,15 @@ it("does not audit a failed concurrent update", async () => {
 });
 
 it("scopes eligibility reads to target IDs and shared profiles and preserves normalized company cooldowns", async () => {
-  const target = { id: "target", company: "Acme LLC", job_title: "Engineer", deleted_at: null };
+  const target = {
+    id: "target",
+    company: "AstranaHealth",
+    job_title: "Engineer",
+    deleted_at: null
+  };
   const prior = {
     id: "prior",
-    company: "Acme Inc",
+    company: "Astrana Health, Inc",
     job_title: "Engineer",
     applied_at: new Date().toISOString(),
     deleted_at: null

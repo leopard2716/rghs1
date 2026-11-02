@@ -50,8 +50,9 @@ export function CompanyBlacklistForm({ session, slug }: { session: AuthSession; 
       <h3>Company blacklist</h3>
       <p>
         Global entries block every profile in this workspace. Profile entries block only that
-        profile. Matching ignores case, punctuation and legal suffixes. Add alternate company names
-        separately.
+        profile. Matching ignores case, punctuation, spacing and legal suffixes. A complete brand
+        also matches trailing Health, Healthcare, Technology, Technologies, Group or Holdings. Add
+        unrelated alternate names separately.
       </p>
       <form
         className="modal-form"

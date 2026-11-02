@@ -185,8 +185,15 @@ rules. Global entries apply to every profile in that workspace; profile entries 
 selected profile. Entries support an optional reason, scope filtering, company search, and removal.
 Only admins can list and change blacklist entries; changes are audited and tenant-scoped.
 
-Company names use the shared company normalization (case, punctuation, ampersands, legal suffixes).
-Alternative brand names need separate entries. Imports are retained for review. Matching bids show
+Company identity matching ignores case, punctuation, ampersands, legal suffixes, and spacing
+(`AstranaHealth` matches `Astrana Health, Inc`). A complete shorter brand of at least four characters
+also matches that brand plus trailing Health, Healthcare, Technology, Technologies, Group, or Holdings
+(including combinations). Thus `Fuze` matches `Fuze Health LLC`. Generic-only brands and arbitrary
+substrings/typos are excluded. Different descriptor-qualified names are not automatically merged
+(`Acme Health` and `Acme Technologies` stay distinct). This is a deterministic name heuristic,
+not proof of corporate identity; unrelated brands and renamed companies still need explicit entries.
+The same identity matcher is used by duplicate eligibility, blacklist checks, exports, and frontend
+company suggestions. Stored blacklist keys are unchanged and existing entries need no migration. Imports are retained for review. Matching bids show
 **Blacklisted** regardless of import date, with the scope and reason in the eligibility details.
 Blacklist checks take precedence over cooldown expiry and rejection releases. Manual bid creation,
 marking applied (including admin recording), relevant edits to submitted records, and Apply Assistant

@@ -1,5 +1,4 @@
 import { CompanyBlacklistService, blacklistMatches } from "./company-blacklist.service";
-import { normalizeCompanyName } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import type { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
@@ -83,8 +82,8 @@ export class ApplicationRulesService {
     }>("application_eligibility_data", { p_workspace_id: context.workspace.id, p_bid_ids: bidIds });
     const blacklist = await new CompanyBlacklistService(this.db).entries(context.workspace.id);
     const targets = data.targets;
-    const companies = new Set(targets.map((row) => normalizeCompanyName(row.company)));
-    const rows = data.history.filter((row) => companies.has(normalizeCompanyName(row.company)));
+    // Let the shared matcher evaluate history; exact-key prefiltering drops spacing/brand variants.
+    const rows = data.history;
     const assignments = data.assignments;
     const now = new Date();
     return {

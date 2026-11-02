@@ -1,4 +1,4 @@
-import { normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
+import { normalizeCompanyName, isUnknownCompanyName, companyNamesMatch } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import type { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
@@ -17,7 +17,7 @@ export function blacklistMatches(entries: BlacklistEntry[], company: string, pro
   return key
     ? entries.filter(
         (entry) =>
-          entry.company_key === key &&
+          companyNamesMatch(entry.company, company) &&
           (entry.profile_id === null || profileIds.includes(entry.profile_id))
       )
     : [];
@@ -51,11 +51,10 @@ export class CompanyBlacklistService {
       throw apiError(400, "Enter a company name.", "invalid_blacklist_company");
     if (input.profileId) await access.requireProfiles(context.workspace.id, [input.profileId]);
     // Database uniqueness also protects concurrent additions.
-    const existing = await this.db.select<BlacklistEntry>("company_blacklist", "id", {
-      workspace_id: `eq.${context.workspace.id}`,
-      company_key: `eq.${key}`,
-      profile_id: input.profileId ? `eq.${input.profileId}` : "is.null"
-    });
+    const existing = (await this.entries(context.workspace.id)).filter(
+      (entry) =>
+        entry.profile_id === input.profileId && companyNamesMatch(entry.company, input.company)
+    );
     if (existing.length)
       throw apiError(
         409,
