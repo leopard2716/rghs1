@@ -146,6 +146,10 @@ class FakeSupabase {
     private readonly sessionResumeVersions: GeneratedResume[] = []
   ) {}
 
+  async selectAll<T>(table: string): Promise<T[]> {
+    return this.select<T>(table);
+  }
+
   async select<T>(table: string): Promise<T[]> {
     if (table === "workspaces") {
       return [

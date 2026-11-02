@@ -1,3 +1,4 @@
+import { CompanyBlacklistForm } from "./CompanyBlacklistForm";
 import { ApplicationRulesForm } from "./ApplicationRulesForm";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
@@ -106,6 +107,7 @@ export function WorkspaceUsersPage({
       onRecoverPassword={onRecoverPassword}
       onSignOut={onSignOut}
     >
+      <CompanyBlacklistForm session={session} slug={slug} />
       <ApplicationRulesForm session={session} slug={workspaceSession.workspace.slug} />
       <section className="panel">
         <div className="panel-header">

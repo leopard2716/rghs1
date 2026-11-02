@@ -1,3 +1,4 @@
+import { CompanyBlacklistService, blacklistMatches } from "./company-blacklist.service";
 import { normalizeCompanyName } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
@@ -80,6 +81,7 @@ export class ApplicationRulesService {
       history: ApplicationRow[];
       assignments: Array<{ bid_id: string; profile_id: string }>;
     }>("application_eligibility_data", { p_workspace_id: context.workspace.id, p_bid_ids: bidIds });
+    const blacklist = await new CompanyBlacklistService(this.db).entries(context.workspace.id);
     const targets = data.targets;
     const companies = new Set(targets.map((row) => normalizeCompanyName(row.company)));
     const rows = data.history.filter((row) => companies.has(normalizeCompanyName(row.company)));
@@ -88,7 +90,23 @@ export class ApplicationRulesService {
     return {
       rules,
       checkedAt: now.toISOString(),
-      results: targets.map((row) => applicationEligibility(row, rows, assignments, rules, now))
+      results: targets.map((row) => {
+        const matches = blacklistMatches(
+          blacklist,
+          row.company,
+          assignments.filter((a) => a.bid_id === row.id).map((a) => a.profile_id)
+        );
+        return {
+          ...applicationEligibility(row, rows, assignments, rules, now),
+          blacklisted: matches.length > 0,
+          blacklistMatches: matches.map((entry) => ({
+            id: entry.id,
+            company: entry.company,
+            profileId: entry.profile_id,
+            reason: entry.reason
+          }))
+        };
+      })
     };
   }
   async setRejected(slug: string, user: AuthUser, bidId: string, rejected: boolean) {
@@ -154,6 +172,7 @@ export class ApplicationRulesService {
     this.access.requireRole(context, "admin");
     if (Date.parse(input.appliedAt) > Date.now())
       throw apiError(400, "Application time cannot be in the future.", "invalid_applied_at");
+    await new CompanyBlacklistService(this.db).requireBidAllowed(context.workspace.id, bidId);
     return this.db.rpc<{ appliedAt: string; recordedAt: string }>("admin_record_bid_application", {
       p_workspace_id: context.workspace.id,
       p_bid_id: bidId,
@@ -169,6 +188,7 @@ export class ApplicationRulesService {
     const bid = await this.access.requireOwnedBid(context, bidId, "edit");
     if (isExpiredImport(bid))
       throw apiError(409, "Expired applications require admin review.", "bid_expired");
+    await new CompanyBlacklistService(this.db).requireBidAllowed(context.workspace.id, bidId);
     const appliedAt = new Date().toISOString();
     const rows = await this.db.update(
       "bid_records",

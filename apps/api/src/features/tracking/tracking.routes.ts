@@ -1,3 +1,4 @@
+import { CompanyBlacklistService } from "./company-blacklist.service";
 import { z } from "zod";
 import { ApplicationRulesService } from "./application-rules.service";
 import { zValidator } from "@hono/zod-validator";
@@ -45,6 +46,58 @@ type ApiApp = Hono<{
 }>;
 
 export function registerTrackingRoutes(app: ApiApp): void {
+  app.get("/v1/workspaces/:slug/tracking/company-blacklist", async (c) => {
+    try {
+      const { user } = await requestContext(c);
+      return c.json(
+        await new CompanyBlacklistService(
+          new SupabaseRestClient(requireSupabaseConfig(c.env))
+        ).list(c.req.param("slug"), user)
+      );
+    } catch (error) {
+      return trackingError(c, error);
+    }
+  });
+  app.post(
+    "/v1/workspaces/:slug/tracking/company-blacklist",
+    zValidator(
+      "json",
+      z.object({
+        company: z.string().trim().min(1).max(250),
+        profileId: z.string().uuid().nullable(),
+        reason: z.string().trim().max(2000).default("")
+      })
+    ),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new CompanyBlacklistService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).add(c.req.param("slug"), user, c.req.valid("json")),
+          201
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
+  app.delete(
+    "/v1/workspaces/:slug/tracking/company-blacklist/:entryId",
+    zValidator("param", z.object({ entryId: z.string().uuid() })),
+    async (c) => {
+      try {
+        const { user } = await requestContext(c);
+        return c.json(
+          await new CompanyBlacklistService(
+            new SupabaseRestClient(requireSupabaseConfig(c.env))
+          ).remove(c.req.param("slug"), user, c.req.valid("param").entryId)
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
+    }
+  );
   const rulesInput = z.object({
     cooldownDays: z.number().int().min(1).max(3650),
     timeZone: z

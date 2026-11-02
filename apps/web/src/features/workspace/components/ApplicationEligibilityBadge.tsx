@@ -8,7 +8,7 @@ export function ApplicationEligibilityBadge({
   onReview
 }: {
   result: EligibilityResult;
-  importedAt: string;
+  importedAt: string | null;
   timeZone: string;
   onReview: () => void;
 }) {
@@ -23,7 +23,11 @@ export function ApplicationEligibilityBadge({
     month: "2-digit",
     day: "2-digit"
   });
-  if (format.format(new Date(importedAt)) !== format.format(new Date(now))) return null;
+  if (
+    !result.blacklisted &&
+    (!importedAt || format.format(new Date(importedAt)) !== format.format(new Date(now)))
+  )
+    return null;
   return (
     <button
       type="button"
@@ -33,7 +37,11 @@ export function ApplicationEligibilityBadge({
         onReview();
       }}
     >
-      {result.duplicated ? "❌ Duplicated" : "✅ Applicable"}
+      {result.blacklisted
+        ? "⛔ Blacklisted"
+        : result.duplicated
+          ? "❌ Duplicated"
+          : "✅ Applicable"}
     </button>
   );
 }
