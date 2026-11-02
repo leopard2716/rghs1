@@ -197,8 +197,11 @@ export function BulkBidDeleteModal({
               clearPreview();
             }}
           />
-          Duplicated pending imports only (today)
+          Duplicated or blacklisted pending imports only (today)
         </label>
+        <p>
+          Blacklisted jobs are always excluded from pending exports, even if you do not delete them.
+        </p>
         <button
           type="button"
           className="secondary-action"
@@ -234,8 +237,8 @@ export function BulkBidDeleteModal({
                       setConfirmed(false);
                     }}
                   />{" "}
-                  Select all {preview.bids.length} {duplicatedOnly ? "duplicated" : "previewed"}{" "}
-                  bids
+                  Select all {preview.bids.length}{" "}
+                  {duplicatedOnly ? "duplicated or blacklisted" : "previewed"} bids
                 </label>
                 <div className="table-wrap bulk-delete-preview">
                   <table className="tracking-table">
@@ -245,6 +248,7 @@ export function BulkBidDeleteModal({
                         <th>Company</th>
                         <th>Job title</th>
                         <th>Bid date</th>
+                        {duplicatedOnly ? <th>Status</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -269,6 +273,13 @@ export function BulkBidDeleteModal({
                           <td>{bid.company}</td>
                           <td>{bid.jobTitle}</td>
                           <td>{displayDate(bid.bidAt)}</td>
+                          {duplicatedOnly ? (
+                            <td>
+                              {bid.blacklisted ? <span>⛔ Blacklisted</span> : null}
+                              {bid.blacklisted && bid.duplicated ? " · " : ""}
+                              {bid.duplicated ? <span>❌ Duplicated</span> : null}
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>

@@ -193,6 +193,12 @@ marking applied (including admin recording), relevant edits to submitted records
 bid saves reject matching companies. Existing history is preserved; removing an entry releases that
 restriction. For bids with multiple profiles, any matching profile blocks the whole record.
 
+The bulk-delete checkbox **Duplicated or blacklisted pending imports only (today)** selects either
+kind of blocked pending import and shows its status in the preview. Existing profile, date, company,
+and ownership filters still apply, and eligibility is checked again before deletion. Pending Excel
+exports independently exclude blacklisted companies for the assigned profiles, even when cleanup
+is skipped or a blacklist entry was added after import.
+
 Deploy migration `0031_company_blacklists.sql` before the updated API. The normal production
 deployment workflow applies migrations before deploying the API and frontend.
 

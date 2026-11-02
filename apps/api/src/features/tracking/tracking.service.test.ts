@@ -1798,16 +1798,25 @@ it("rechecks duplicate selection before deletion and guards against concurrently
 
 it("exports all pending records scoped to the bidder and workspace", async () => {
   const base = trackingSupabase("bidder", "bid_records");
-  const selectAll = vi.fn(async () => [
-    { job_title: "Engineer", company: "Acme", job_link: "https://example.com/job" }
-  ]);
+  const selectAll = vi.fn(async (table: string) =>
+    table === "bid_records"
+      ? [
+          {
+            job_title: "Engineer",
+            company: "Acme",
+            job_link: "https://example.com/job",
+            bid_record_profiles: [{ profile_id: bulkProfileId }]
+          }
+        ]
+      : []
+  );
   const service = new TrackingService({ ...base, selectAll } as unknown as SupabaseRestClient);
   await expect(service.exportPendingBids("rg-team", { id: authUserId })).resolves.toEqual({
     records: [{ jobTitle: "Engineer", company: "Acme", link: "https://example.com/job" }]
   });
   expect(selectAll).toHaveBeenCalledWith(
     "bid_records",
-    "job_title,company,job_link",
+    "job_title,company,job_link,bid_record_profiles(profile_id)",
     {
       workspace_id: `eq.${workspaceId}`,
       created_by_member_id: `eq.${memberId}`,
@@ -1931,4 +1940,127 @@ it("allows admin metadata corrections without transferring ownership or rewritin
     canDelete: true,
     appliedAt: row.applied_at
   });
+});
+
+it.each([
+  { duplicated: false, blacklisted: true, showBadge: true, pending: true, included: true },
+  { duplicated: true, blacklisted: false, showBadge: true, pending: true, included: true },
+  { duplicated: true, blacklisted: true, showBadge: true, pending: true, included: true },
+  { duplicated: false, blacklisted: false, showBadge: true, pending: true, included: false },
+  { duplicated: false, blacklisted: true, showBadge: false, pending: true, included: false },
+  { duplicated: false, blacklisted: true, showBadge: true, pending: false, included: false }
+])(
+  "cleans up only today's pending duplicate or blacklisted imports: %j",
+  async ({ included, ...eligibility }) => {
+    const { service, db } = bulkDeleteFixture();
+    const spy = vi
+      .spyOn(ApplicationRulesService.prototype, "eligibilityForContext")
+      .mockResolvedValue({
+        rules: { cooldownDays: 45, timeZone: "America/Chicago" },
+        checkedAt: new Date().toISOString(),
+        results: [{ bidId: recordId, matches: [], blacklistMatches: [], ...eligibility }]
+      });
+    const filter = { ...bulkFilter, duplicatedOnly: true };
+    try {
+      const preview = await service.previewBulkDeleteBids("rg-team", { id: authUserId }, filter);
+      expect(preview.bids).toHaveLength(included ? 1 : 0);
+      if (included) {
+        expect(preview.bids[0]).toMatchObject({
+          blacklisted: eligibility.blacklisted,
+          duplicated: eligibility.duplicated
+        });
+        await expect(
+          service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] })
+        ).resolves.toEqual({ deleted: 1, skipped: 0 });
+      } else {
+        await expect(
+          service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] })
+        ).rejects.toMatchObject({ status: 409 });
+        expect(db.delete).not.toHaveBeenCalled();
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  }
+);
+
+it("rechecks blacklists before deleting a reviewed selection", async () => {
+  const { service, db } = bulkDeleteFixture();
+  const result = {
+    rules: { cooldownDays: 45, timeZone: "America/Chicago" },
+    checkedAt: new Date().toISOString(),
+    results: [
+      {
+        bidId: recordId,
+        pending: true,
+        showBadge: true,
+        duplicated: false,
+        blacklisted: true,
+        matches: [],
+        blacklistMatches: []
+      }
+    ]
+  };
+  const spy = vi
+    .spyOn(ApplicationRulesService.prototype, "eligibilityForContext")
+    .mockResolvedValue(result);
+  const filter = { ...bulkFilter, duplicatedOnly: true };
+  try {
+    expect(
+      (await service.previewBulkDeleteBids("rg-team", { id: authUserId }, filter)).bids
+    ).toHaveLength(1);
+    spy.mockResolvedValue({ ...result, results: [{ ...result.results[0]!, blacklisted: false }] });
+    await expect(
+      service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] })
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.delete).not.toHaveBeenCalled();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it("excludes current global and assigned-profile blacklists from exports even without cleanup", async () => {
+  const makeRow = (company: string, ids: string[]) => ({
+    job_title: "Engineer",
+    company,
+    job_link: `https://example.com/${encodeURIComponent(company)}`,
+    bid_record_profiles: ids.map((profile_id) => ({ profile_id }))
+  });
+  const rows = [
+    makeRow("F&G Inc.", ["p2"]),
+    makeRow("Acme LLC", ["p1"]),
+    makeRow("Acme Inc.", ["p2"]),
+    makeRow("Acme", ["p2", "p1"]),
+    makeRow("Allowed", ["p1"])
+  ];
+  let entries = [
+    { company_key: "f and g", profile_id: null },
+    { company_key: "acme", profile_id: "p1" }
+  ];
+  const selectAll = vi.fn(async (table: string) => (table === "bid_records" ? rows : entries));
+  const service = new TrackingService({
+    ...trackingSupabase("bidder", "bid_records"),
+    selectAll
+  } as unknown as SupabaseRestClient);
+  expect(
+    (await service.exportPendingBids("rg-team", { id: authUserId })).records.map(
+      (row) => row.company
+    )
+  ).toEqual(["Acme Inc.", "Allowed"]);
+  entries = [];
+  expect((await service.exportPendingBids("rg-team", { id: authUserId })).records).toHaveLength(5);
+});
+
+it("fails export if blacklist validation is unavailable instead of exporting unchecked jobs", async () => {
+  const selectAll = vi.fn(async (table: string) => {
+    if (table === "company_blacklist") throw new Error("Database unavailable");
+    return [{ company: "Acme", bid_record_profiles: [] }];
+  });
+  const service = new TrackingService({
+    ...trackingSupabase("bidder", "bid_records"),
+    selectAll
+  } as unknown as SupabaseRestClient);
+  await expect(service.exportPendingBids("rg-team", { id: authUserId })).rejects.toThrow(
+    "Database unavailable"
+  );
 });

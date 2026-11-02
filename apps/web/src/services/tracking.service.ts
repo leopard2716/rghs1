@@ -1016,7 +1016,14 @@ export type BulkBidDeleteFilter = {
   duplicatedOnly?: boolean;
 };
 export type BulkBidDeletePreview = {
-  bids: Array<{ id: string; company: string; jobTitle: string; bidAt: string }>;
+  bids: Array<{
+    id: string;
+    company: string;
+    jobTitle: string;
+    bidAt: string;
+    blacklisted?: boolean;
+    duplicated?: boolean;
+  }>;
   hasMore: boolean;
 };
 
