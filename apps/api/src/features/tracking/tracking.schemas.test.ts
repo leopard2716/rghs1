@@ -497,7 +497,7 @@ describe("tracking schemas", () => {
 });
 
 describe("bulk bid deletion validation", () => {
-  it("requires an explicit profile, increasing date range, and a bounded unique selection", async () => {
+  it("requires a narrowing filter, ordered date bounds, and a bounded unique selection", async () => {
     const { bulkBidDeleteFilter, bulkBidDeleteInput } = await import("./tracking.schemas");
     const filter = {
       profileId,
@@ -508,7 +508,11 @@ describe("bulk bid deletion validation", () => {
     expect(bulkBidDeleteFilter.safeParse({ ...filter, dateTo: filter.dateFrom }).success).toBe(
       false
     );
-    expect(bulkBidDeleteFilter.safeParse({ ...filter, profileId: undefined }).success).toBe(false);
+    expect(bulkBidDeleteFilter.safeParse({ dateFrom: filter.dateFrom }).success).toBe(true);
+    expect(bulkBidDeleteFilter.safeParse({ search: "engineer", status: "applied" }).success).toBe(
+      true
+    );
+    expect(bulkBidDeleteFilter.safeParse({ search: " ", activeOnly: true }).success).toBe(false);
     expect(bulkBidDeleteInput.safeParse({ filter, bidIds: [] }).success).toBe(false);
     expect(bulkBidDeleteInput.safeParse({ filter, bidIds: [profileId, profileId] }).success).toBe(
       false

@@ -8,16 +8,19 @@ import {
   previewBulkDeleteBids,
   type BulkBidDeleteFilter,
   type BulkBidDeletePreview,
+  type TrackingListQuery,
   type TrackingProfile
 } from "../../../services/tracking.service";
-import { deviceTimeZone, displayDate } from "../../../utils/datetime";
-import { bulkBidDeleteDateFilter } from "../bulk-bid-delete";
+import { displayCentralDate } from "../../../utils/datetime";
+import { bulkBidDeleteFilter } from "../bulk-bid-delete";
+import { TrackingListControls } from "./TrackingListControls";
 
 export function BulkBidDeleteModal({
   session,
   slug,
   profiles,
-  initialProfileId,
+  initialQuery,
+  members,
   isAdmin = false,
   onClose,
   onDeleted
@@ -25,16 +28,16 @@ export function BulkBidDeleteModal({
   session: AuthSession;
   slug: string;
   profiles: TrackingProfile[];
-  initialProfileId?: string;
+  initialQuery: TrackingListQuery;
+  members?: Array<{ id: string; name: string }>;
   isAdmin?: boolean;
   onClose: () => void;
   onDeleted: () => Promise<void>;
 }) {
-  const [profileId, setProfileId] = useState(initialProfileId ?? "");
+  const [query, setQuery] = useState(initialQuery);
   const [duplicatedOnly, setDuplicatedOnly] = useState(false);
   const [company, setCompany] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [to, setTo] = useState(initialQuery.date ?? "");
   const [preview, setPreview] = useState<BulkBidDeletePreview | null>(null);
   const [reviewedFilter, setReviewedFilter] = useState<BulkBidDeleteFilter | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -43,6 +46,8 @@ export function BulkBidDeleteModal({
   const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+
+  const filter = bulkBidDeleteFilter(query, to, company, duplicatedOnly);
 
   function clearPreview() {
     setPreview(null);
@@ -54,9 +59,8 @@ export function BulkBidDeleteModal({
   }
 
   async function loadPreview() {
-    const filter = bulkBidDeleteDateFilter(profileId, from, to, company, duplicatedOnly);
     if (!filter) {
-      setError("Select a profile and a valid start/end date range.");
+      setError("Choose at least one filter and check the date range.");
       return;
     }
     if (lock.current) return;
@@ -116,8 +120,8 @@ export function BulkBidDeleteModal({
     >
       <div className="modal-form">
         <p>
-          Find {isAdmin ? "any bidder’s records in this workspace" : "bids you created"} by profile,
-          bid date, and optionally company name. Both dates are included, using {deviceTimeZone()}.
+          Find {isAdmin ? "any bidder’s records in this workspace" : "bids you created"} using the
+          filters below. Date filters include both endpoints and use Central Time.
         </p>
         <p>
           Deletion permanently removes the bid and its profile assignments and linked interviews.
@@ -127,9 +131,22 @@ export function BulkBidDeleteModal({
           Company matching ignores capitalization, punctuation, and common legal suffixes. Enter the
           full company name; leave blank for all companies.
         </p>
+        <TrackingListControls
+          bidFilters
+          immediateSearch
+          dateLabel="From bid date"
+          query={query}
+          profiles={profiles}
+          members={members}
+          disabled={busy}
+          onChange={(change) => {
+            setQuery((current) => ({ ...current, ...change }));
+            clearPreview();
+          }}
+        />
         <div className="form-grid">
           <label>
-            Company name (optional)
+            Exact company name (optional)
             <input
               type="text"
               value={company}
@@ -143,42 +160,11 @@ export function BulkBidDeleteModal({
             />
           </label>
           <label>
-            Profile
-            <select
-              value={profileId}
-              disabled={busy}
-              onChange={(e) => {
-                setProfileId(e.target.value);
-                clearPreview();
-              }}
-            >
-              <option value="">Select a profile</option>
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                  {profile.deletedAt ? " (deleted profile)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            From bid date
-            <input
-              type="date"
-              value={from}
-              disabled={busy}
-              onChange={(e) => {
-                setFrom(e.target.value);
-                clearPreview();
-              }}
-            />
-          </label>
-          <label>
             Through bid date
             <input
               type="date"
               value={to}
-              min={from || undefined}
+              min={query.date}
               disabled={busy}
               onChange={(e) => {
                 setTo(e.target.value);
@@ -202,10 +188,15 @@ export function BulkBidDeleteModal({
         <p>
           Blacklisted jobs are always excluded from pending exports, even if you do not delete them.
         </p>
+        {query.date && to && to < query.date ? (
+          <p className="form-error" role="alert">
+            Through bid date must be on or after the from date.
+          </p>
+        ) : null}
         <button
           type="button"
           className="secondary-action"
-          disabled={busy || !profileId || !from || !to}
+          disabled={busy || !filter}
           onClick={() => void loadPreview()}
         >
           {busy ? <LoaderCircle className="spin-icon" aria-hidden="true" /> : null} Preview matching
@@ -272,7 +263,7 @@ export function BulkBidDeleteModal({
                           </td>
                           <td>{bid.company}</td>
                           <td>{bid.jobTitle}</td>
-                          <td>{displayDate(bid.bidAt)}</td>
+                          <td>{displayCentralDate(bid.bidAt)}</td>
                           {duplicatedOnly ? (
                             <td>
                               {bid.blacklisted ? <span>⛔ Blacklisted</span> : null}

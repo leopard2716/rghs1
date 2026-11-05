@@ -274,31 +274,6 @@ export const paymentPayInput = z.object({
   paymentRecordIds: z.array(z.string().uuid()).min(1)
 });
 
-export const bulkBidDeleteFilter = z
-  .object({
-    company: z.string().trim().max(180).optional(),
-    duplicatedOnly: z.boolean().optional(),
-    profileId: z.string().uuid(),
-    dateFrom: z.string().datetime(),
-    dateTo: z.string().datetime()
-  })
-  .refine((input) => Date.parse(input.dateTo) > Date.parse(input.dateFrom), {
-    message: "End date must be after the start date.",
-    path: ["dateTo"]
-  });
-
-export const bulkBidDeleteInput = z.object({
-  filter: bulkBidDeleteFilter,
-  bidIds: z
-    .array(z.string().uuid())
-    .min(1)
-    .max(200)
-    .refine((ids) => new Set(ids).size === ids.length, "Select each bid only once.")
-});
-
-export type BulkBidDeleteFilter = z.infer<typeof bulkBidDeleteFilter>;
-export type BulkBidDeleteInput = z.infer<typeof bulkBidDeleteInput>;
-
 export const bulkBidRecordInput = z.preprocess(
   (value) => {
     if (
@@ -342,6 +317,57 @@ export const bidListQuery = listQueryBase.extend({
   dateTo: z.string().datetime().optional(),
   sortBy: z.enum(["company", "jobTitle", "datetime"]).default("datetime")
 });
+
+export const bulkBidDeleteFilter = bidListQuery
+  .pick({
+    search: true,
+    profileId: true,
+    memberId: true,
+    status: true,
+    dateFrom: true,
+    dateTo: true
+  })
+  .extend({
+    company: z.string().trim().max(180).optional(),
+    duplicatedOnly: z.boolean().optional(),
+    activeOnly: z.boolean().optional(),
+    sortBy: bidListQuery.shape.sortBy.optional(),
+    sortDirection: bidListQuery.shape.sortDirection.optional()
+  })
+  .refine(
+    (input) =>
+      !input.dateFrom || !input.dateTo || Date.parse(input.dateTo) > Date.parse(input.dateFrom),
+    {
+      message: "End date must be after the start date.",
+      path: ["dateTo"]
+    }
+  )
+  .refine(
+    (input) =>
+      Boolean(
+        input.profileId ||
+        input.dateFrom ||
+        input.dateTo ||
+        input.company ||
+        input.search ||
+        input.memberId ||
+        input.status ||
+        input.duplicatedOnly
+      ),
+    "Select at least one filter before previewing bids."
+  );
+
+export const bulkBidDeleteInput = z.object({
+  filter: bulkBidDeleteFilter,
+  bidIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(200)
+    .refine((ids) => new Set(ids).size === ids.length, "Select each bid only once.")
+});
+
+export type BulkBidDeleteFilter = z.infer<typeof bulkBidDeleteFilter>;
+export type BulkBidDeleteInput = z.infer<typeof bulkBidDeleteInput>;
 
 export const interviewListQuery = listQueryBase.extend({
   sortBy: z.enum(["company", "jobTitle", "datetime"]).default("datetime")

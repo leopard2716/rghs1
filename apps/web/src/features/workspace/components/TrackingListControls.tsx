@@ -13,13 +13,17 @@ export function TrackingListControls({
   disabled,
   bidFilters = false,
   members,
+  dateLabel = "Date (Central Time)",
+  immediateSearch = false,
   onChange
 }: {
   query: TrackingListQuery;
   profiles: TrackingProfile[];
-  markets: TrackingJobMarket[];
+  markets?: TrackingJobMarket[];
   disabled: boolean;
   bidFilters?: boolean;
+  dateLabel?: string;
+  immediateSearch?: boolean;
   members?: Array<{ id: string; name: string }>;
   onChange: (change: Partial<TrackingListQuery>) => void;
 }) {
@@ -30,13 +34,14 @@ export function TrackingListControls({
   }, [query.search]);
 
   useEffect(() => {
+    if (immediateSearch) return;
     const timer = window.setTimeout(() => {
       if (search !== (query.search ?? "")) {
         onChange({ search, page: 1 });
       }
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [onChange, query.search, search]);
+  }, [immediateSearch, onChange, query.search, search]);
 
   return (
     <div className={`tracking-list-controls${bidFilters ? " bid-list-controls" : ""}`}>
@@ -46,10 +51,14 @@ export function TrackingListControls({
           <Search aria-hidden="true" />
           <input
             type="search"
-            value={search}
+            value={immediateSearch ? (query.search ?? "") : search}
             placeholder="Company or job title"
             disabled={disabled}
-            onChange={(event) => setSearch(event.target.value)}
+            maxLength={200}
+            onChange={(event) => {
+              if (immediateSearch) onChange({ search: event.target.value, page: 1 });
+              else setSearch(event.target.value);
+            }}
           />
         </div>
       </label>
@@ -72,7 +81,7 @@ export function TrackingListControls({
       {bidFilters ? (
         <>
           <label>
-            Date (Central Time)
+            {dateLabel}
             <input
               type="date"
               value={query.date ?? ""}
@@ -111,7 +120,7 @@ export function TrackingListControls({
             }
           >
             <option value="">All markets</option>
-            {markets.map((market) => (
+            {markets?.map((market) => (
               <option value={market.id} key={market.id}>
                 {market.name}
                 {market.deletedAt ? " (deleted)" : ""}

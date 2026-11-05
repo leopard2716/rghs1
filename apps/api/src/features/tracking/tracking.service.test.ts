@@ -1362,13 +1362,24 @@ const bulkFilter = {
 
 function bulkDeleteFixture(role = "bidder") {
   const base = trackingSupabase(role, "bid_records");
-  const bids = [
+  const bids: Array<{
+    id: string;
+    workspace_id: string;
+    created_by_member_id: string;
+    company: string;
+    job_title: string;
+    bid_at: string;
+    deleted_at: string | null;
+    applied_at?: string | null;
+    imported_at?: string | null;
+  }> = [
     {
       id: recordId,
       workspace_id: workspaceId,
       created_by_member_id: memberId,
       company: "Test Company",
       job_title: "Test Job",
+      imported_at: new Date().toISOString(),
       bid_at: bulkFilter.dateFrom,
       deleted_at: null
     },
@@ -1401,9 +1412,27 @@ function bulkDeleteFixture(role = "bidder") {
     return Object.entries(filters).every(([key, value]) => {
       if (key === "and") {
         const date = Date.parse(String(row.bid_at));
-        return date >= Date.parse(bulkFilter.dateFrom) && date < Date.parse(bulkFilter.dateTo);
+        const lower = value.match(/bid_at\.gte\.([^,)]+)/)?.[1];
+        const upper = value.match(/bid_at\.lt\.([^,)]+)/)?.[1];
+        const tokens = [...value.matchAll(/search_text\.ilike\.\*([^*]+)\*/g)];
+        const searchText = `${row.company} ${row.job_title}`.toLowerCase();
+        return (
+          (!lower || date >= Date.parse(lower)) &&
+          (!upper || date < Date.parse(upper)) &&
+          tokens.every(([, token]) => searchText.includes(token!))
+        );
+      }
+      if (key === "bid_record_profiles.profile_id") {
+        return assignments.some(
+          (item) =>
+            item.workspace_id === row.workspace_id &&
+            item.bid_id === row.id &&
+            item.profile_id === value.slice(3)
+        );
       }
       if (value === "is.null") return row[key] == null;
+      if (value === "not.is.null") return row[key] != null;
+      if (value.startsWith("gte.")) return String(row[key] ?? "") >= value.slice(4);
       if (value.startsWith("eq.")) return row[key] === value.slice(3);
       if (value.startsWith("in.(")) {
         const values: string[] =
@@ -1413,14 +1442,24 @@ function bulkDeleteFixture(role = "bidder") {
       return false;
     });
   }
-  const select = vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
-    if (table === "bid_records") return bids.filter((row) => matches(row, filters));
-    return originalSelect(table);
-  });
-  const selectPage = vi.fn(
-    async (_table: string, _fields: string, filters: Record<string, string>) => {
-      const records = assignments.filter((row) => matches(row, filters));
-      return { records, total: records.length };
+  const select = vi.fn(
+    async (
+      table: string,
+      _fields: string,
+      filters: Record<string, string>,
+      options?: { limit: number; offset: number; order: string }
+    ) => {
+      if (table !== "bid_records") return originalSelect(table);
+      const rows = bids.filter((row) => matches(row, filters));
+      const [column, direction] = options?.order.split(".") ?? [];
+      if (column === "company" || column === "job_title" || column === "bid_at") {
+        rows.sort(
+          (a, b) =>
+            (a[column].localeCompare(b[column]) || a.id.localeCompare(b.id)) *
+            (direction === "asc" ? 1 : -1)
+        );
+      }
+      return options ? rows.slice(options.offset, options.offset + options.limit) : rows;
     }
   );
   const update = vi.fn(
@@ -1435,25 +1474,7 @@ function bulkDeleteFixture(role = "bidder") {
     for (const row of changed) bids.splice(bids.indexOf(row), 1);
     return changed;
   });
-  const rpc = vi.fn(async (_name: string, args: Record<string, unknown>) =>
-    bids.filter(
-      (row) =>
-        matches(row, {
-          workspace_id: `eq.${args.p_workspace_id}`,
-          ...(args.p_member_id == null ? {} : { created_by_member_id: `eq.${args.p_member_id}` }),
-          deleted_at: "is.null",
-          and: "date-range",
-          ...(args.p_bid_ids ? { id: `in.${"("}${(args.p_bid_ids as string[]).join(",")})` } : {})
-        }) &&
-        assignments.some(
-          (item) =>
-            item.bid_id === row.id &&
-            item.profile_id === args.p_profile_id &&
-            item.workspace_id === args.p_workspace_id
-        )
-    )
-  );
-  const db = { ...base, select, selectPage, update, delete: remove, rpc };
+  const db = { ...base, select, update, delete: remove };
   return {
     db,
     bids,
@@ -1638,6 +1659,29 @@ describe("application rule permissions", () => {
   });
 });
 
+it("combines table search, bidder, and status without requiring a profile or date range", async () => {
+  const { service, bids } = bulkDeleteFixture("admin");
+  bids[0]!.applied_at = bulkFilter.dateFrom;
+  const filter = { search: "test job", memberId, status: "applied" as const };
+  const preview = await service.previewBulkDeleteBids("rg-team", { id: authUserId }, filter);
+  expect(preview.bids.map((bid) => bid.id)).toEqual([recordId]);
+  bids[0]!.applied_at = null;
+  await expect(
+    service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] })
+  ).rejects.toMatchObject({ status: 409 });
+});
+
+it("keeps bulk deletion within the bidder's ownership scope when a bidder filter is supplied", async () => {
+  const { service, bids } = bulkDeleteFixture();
+  const filter = { memberId: bids[1]!.created_by_member_id };
+  expect((await service.previewBulkDeleteBids("rg-team", { id: authUserId }, filter)).bids).toEqual(
+    []
+  );
+  await expect(
+    service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [bids[1]!.id] })
+  ).rejects.toMatchObject({ status: 409 });
+});
+
 describe("bulk deletion company filter", () => {
   it("previews exact normalized company matches and leaves blank filters unrestricted", async () => {
     const { service, bids } = bulkDeleteFixture();
@@ -1701,7 +1745,7 @@ describe("bulk deletion company filter", () => {
   });
   it("does not stop at nonmatching records before reaching a later matching batch", async () => {
     const { service, bids, assignments } = bulkDeleteFixture();
-    for (let i = 0; i < 205; i++) {
+    for (let i = 0; i < 505; i++) {
       const id = crypto.randomUUID();
       bids.push({ ...bids[0]!, id, company: "Unrelated" });
       assignments.push({ bid_id: id, workspace_id: workspaceId, profile_id: bulkProfileId });
@@ -1714,7 +1758,7 @@ describe("bulk deletion company filter", () => {
         await service.previewBulkDeleteBids(
           "rg-team",
           { id: authUserId },
-          { ...bulkFilter, company: "Last Batch" }
+          { ...bulkFilter, company: "Last Batch", sortBy: "company", sortDirection: "desc" }
         )
       ).bids.map((row) => row.id)
     ).toEqual([id]);
@@ -1771,16 +1815,15 @@ it("rechecks duplicate selection before deletion and guards against concurrently
       )
     ).toEqual([recordId]);
     expect(spy).toHaveBeenCalledWith(expect.any(Object), [recordId]);
-    expect(db.rpc).toHaveBeenCalledTimes(1);
-    expect(db.rpc).toHaveBeenCalledWith(
-      "bulk_bid_delete_candidates",
+    expect(db.select).toHaveBeenCalledWith(
+      "bid_records",
+      expect.stringContaining("bid_record_profiles!inner(profile_id)"),
       expect.objectContaining({
-        p_workspace_id: workspaceId,
-        p_member_id: memberId,
-        p_profile_id: bulkFilter.profileId,
-        p_date_from: bulkFilter.dateFrom,
-        p_date_to: bulkFilter.dateTo
-      })
+        workspace_id: `eq.${workspaceId}`,
+        created_by_member_id: `eq.${memberId}`,
+        "bid_record_profiles.profile_id": `eq.${bulkFilter.profileId}`
+      }),
+      expect.any(Object)
     );
     await service.bulkDeleteBids("rg-team", { id: authUserId }, { filter, bidIds: [recordId] });
     expect(db.delete).toHaveBeenCalledWith(
@@ -1862,14 +1905,6 @@ it("lets admins preview and bulk delete multiple bidders' records without changi
   const ids = [bids[0]!.id, bids[1]!.id];
   const preview = await service.previewBulkDeleteBids("rg-team", { id: authUserId }, bulkFilter);
   expect(new Set(preview.bids.map((row) => row.id))).toEqual(new Set(ids));
-  expect(db.rpc).toHaveBeenCalledWith(
-    "bulk_bid_delete_candidates",
-    expect.objectContaining({
-      p_workspace_id: workspaceId,
-      p_member_id: null,
-      p_profile_id: bulkProfileId
-    })
-  );
   expect(
     await service.bulkDeleteBids("rg-team", { id: authUserId }, { filter: bulkFilter, bidIds: ids })
   ).toEqual({ deleted: 2, skipped: 0 });

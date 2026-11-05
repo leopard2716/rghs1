@@ -1008,10 +1008,13 @@ function queryString(query: object): string {
   return value ? `?${value}` : "";
 }
 
-export type BulkBidDeleteFilter = {
-  profileId: string;
-  dateFrom: string;
-  dateTo: string;
+export type BulkBidDeleteFilter = Pick<
+  TrackingListQuery,
+  "profileId" | "memberId" | "search" | "status" | "sortBy" | "sortDirection"
+> & {
+  dateFrom?: string;
+  dateTo?: string;
+  activeOnly?: boolean;
   company?: string;
   duplicatedOnly?: boolean;
 };
