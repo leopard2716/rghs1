@@ -4,8 +4,9 @@ import type { BidListQuery } from "./tracking.schemas";
 export class TrackingListQueryBuilder {
   bidFilters(
     workspaceId: string,
-    query: BidListQuery,
-    profileBidIds?: string[]
+    query: Partial<BidListQuery>,
+    profileBidIds?: string[],
+    activeOnly = true
   ): Record<string, string> {
     const filters: Record<string, string> = {
       workspace_id: `eq.${workspaceId}`,
@@ -29,7 +30,7 @@ export class TrackingListQueryBuilder {
     if (query.status === "expired") {
       filters.applied_at = "is.null";
       conditions.push(`or(expired_at.not.is.null,imported_at.lt.${midnight})`);
-    } else if (query.status === "pending" || !query.status) {
+    } else if (query.status === "pending" || (!query.status && activeOnly)) {
       conditions.push(
         `or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${midnight})))`
       );
@@ -43,14 +44,15 @@ export class TrackingListQueryBuilder {
     return filters;
   }
 
-  bidOrder(query: BidListQuery): string {
+  bidOrder(query: Partial<BidListQuery>): string {
     const column =
       query.sortBy === "company" ? "company" : query.sortBy === "jobTitle" ? "job_title" : "bid_at";
-    return `${column}.${query.sortDirection},id.${query.sortDirection}`;
+    const direction = query.sortDirection ?? "desc";
+    return `${column}.${direction},id.${direction}`;
   }
 }
 
-function searchTokens(value: string | undefined): string[] {
+export function searchTokens(value: string | undefined): string[] {
   return (value ?? "")
     .toLocaleLowerCase()
     .split(/\s+/)

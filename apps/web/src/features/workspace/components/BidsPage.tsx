@@ -517,6 +517,13 @@ export function BidsPage({
           <RecordLoading label="Loading bids" />
         ) : bidsQuery.data ? (
           <>
+            <PaginationControls
+              label="Bids pagination above table"
+              pagination={bidsQuery.data.pagination}
+              disabled={bidsQuery.isFetching}
+              onPageChange={(page) => updateListQuery({ page })}
+              onPageSizeChange={(pageSize) => updateListQuery({ pageSize, page: 1 })}
+            />
             <div className="table-wrap">
               <table className="tracking-table tracking-record-table bid-review-table">
                 <thead>
@@ -798,6 +805,7 @@ export function BidsPage({
               </table>
             </div>
             <PaginationControls
+              label="Bids pagination below table"
               pagination={bidsQuery.data.pagination}
               disabled={bidsQuery.isFetching}
               onPageChange={(page) => updateListQuery({ page })}
@@ -1001,7 +1009,8 @@ export function BidsPage({
           session={session}
           slug={slug}
           profiles={bidsQuery.data.filterProfiles}
-          initialProfileId={listQuery.profileId}
+          initialQuery={listQuery}
+          members={isAdmin ? bidsQuery.data.filterMembers : undefined}
           isAdmin={isAdmin}
           onClose={() => setBulkDeleting(false)}
           onDeleted={async () => {
