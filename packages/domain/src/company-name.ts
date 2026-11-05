@@ -81,3 +81,43 @@ export function isUnknownCompanyName(value: string | null | undefined): boolean 
   const name = (value ?? "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
   return name === "" || name === "unknown" || name === "unknown company";
 }
+
+// Keep persisted normalization keys stable. Identity comparisons additionally ignore spacing
+// and allow an otherwise identical brand with a trailing business descriptor.
+const BUSINESS_DESCRIPTORS = [
+  "healthcare",
+  "health",
+  "technologies",
+  "technology",
+  "holdings",
+  "group"
+];
+const GENERIC_BRANDS = new Set([
+  ...BUSINESS_DESCRIPTORS,
+  "care",
+  "services",
+  "solutions",
+  "systems",
+  "global",
+  "international"
+]);
+
+export function companyNamesMatch(left: string, right: string): boolean {
+  if (isUnknownCompanyName(left) || isUnknownCompanyName(right)) return false;
+  const a = normalizeCompanyName(left).replace(/\s+/g, "");
+  const b = normalizeCompanyName(right).replace(/\s+/g, "");
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [brand, extended] = a.length < b.length ? [a, b] : [b, a];
+  if (brand.length < 4 || GENERIC_BRANDS.has(brand)) return false;
+  // Compare only against the complete shorter brand, never arbitrary substrings or typos.
+  // Do not reduce both sides: Acme Health and Acme Technologies remain distinct.
+  let candidate = extended;
+  while (candidate.length > brand.length) {
+    const suffix = BUSINESS_DESCRIPTORS.find((value) => candidate.endsWith(value));
+    if (!suffix) return false;
+    candidate = candidate.slice(0, -suffix.length);
+    if (candidate === brand) return true;
+  }
+  return false;
+}

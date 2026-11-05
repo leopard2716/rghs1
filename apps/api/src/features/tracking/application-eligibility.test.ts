@@ -158,3 +158,19 @@ it("excludes yesterday's pending reservation at Central midnight before cron run
     ).duplicated
   ).toBe(true);
 });
+
+it.each([
+  ["AstranaHealth", "Astrana Health, Inc"],
+  ["Fuze", "Fuze Health, LLC"],
+  ["NorthStar", "North Star Technologies, Inc"]
+])("applies duplicate eligibility across brand variants %s / %s", (company, priorCompany) => {
+  const result = applicationEligibility(
+    { ...target, company },
+    [{ ...prior, company: priorCompany }],
+    assignments,
+    rules,
+    now
+  );
+  expect(result.duplicated).toBe(true);
+  expect(result.matches[0]?.blocks).toBe(true);
+});

@@ -1,3 +1,4 @@
+import { CompanyBlacklistService, blacklistMatches } from "./company-blacklist.service";
 import { centralDayStart } from "./application-eligibility";
 import { ApplicationRulesService } from "./application-rules.service";
 import { normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
@@ -40,7 +41,7 @@ import {
   sortJobRecords,
   trendByDate
 } from "./tracking-query";
-import { TrackingListQueryBuilder } from "./tracking-list-query.builder";
+import { searchTokens, TrackingListQueryBuilder } from "./tracking-list-query.builder";
 import { TrackingAccessService, type TrackingContext } from "./tracking-access.service";
 import {
   TrackingRecordMapper,
@@ -494,9 +495,10 @@ export class TrackingService {
       job_title: string;
       company: string;
       job_link: string;
+      bid_record_profiles: Array<{ profile_id: string }>;
     }>(
       "bid_records",
-      "job_title,company,job_link",
+      "job_title,company,job_link,bid_record_profiles(profile_id)",
       {
         workspace_id: `eq.${context.workspace.id}`,
         ...this.ownerFilter(context),
@@ -507,8 +509,19 @@ export class TrackingService {
       },
       { order: "bid_at.desc,id.desc" }
     );
+    const blacklist = await new CompanyBlacklistService(this.supabase).entries(
+      context.workspace.id
+    );
+    const allowed = rows.filter(
+      (row) =>
+        !blacklistMatches(
+          blacklist,
+          row.company,
+          row.bid_record_profiles.map((assignment) => assignment.profile_id)
+        ).length
+    );
     return {
-      records: rows.map((row) => ({
+      records: allowed.map((row) => ({
         jobTitle: row.job_title,
         company: row.company,
         link: row.job_link
@@ -797,6 +810,17 @@ export class TrackingService {
       }
     );
     const currentProfileIds = new Set(assignments.map((item) => item.profile_id));
+    if (
+      existing.applied_at &&
+      (existing.company !== input.company ||
+        input.profileIds.some((id) => !currentProfileIds.has(id)))
+    ) {
+      await new CompanyBlacklistService(this.supabase).requireAllowed(
+        context.workspace.id,
+        input.company,
+        input.profileIds
+      );
+    }
     const removeIds = [...currentProfileIds].filter((id) => !selectedProfiles.has(id));
     const addIds = input.profileIds.filter((id) => !currentProfileIds.has(id));
     if (removeIds.length) {
@@ -900,6 +924,11 @@ export class TrackingService {
       this.access.requireMarket(context.workspace.id, input.jobMarketId)
     ]);
 
+    await new CompanyBlacklistService(this.supabase).requireAllowed(
+      context.workspace.id,
+      input.company,
+      input.profileIds
+    );
     const id = crypto.randomUUID();
     const [bid] = await this.supabase.insert<BidRecordRow>("bid_records", [
       {
@@ -970,7 +999,10 @@ export class TrackingService {
         id: row.id,
         company: row.company,
         jobTitle: row.job_title,
-        bidAt: row.bid_at
+        bidAt: row.bid_at,
+        ...(row.blacklisted !== undefined
+          ? { blacklisted: row.blacklisted, duplicated: row.duplicated }
+          : {})
       })),
       hasMore: rows.length > 200
     };
@@ -1004,6 +1036,10 @@ export class TrackingService {
         count: deleted.length,
         duplicatedOnly: !!input.filter.duplicatedOnly,
         company: input.filter.company?.trim() || null,
+        search: input.filter.search || null,
+        memberId: input.filter.memberId,
+        status: input.filter.status,
+        activeOnly: input.filter.activeOnly,
         profileId: input.filter.profileId,
         dateFrom: input.filter.dateFrom,
         dateTo: input.filter.dateTo
@@ -1020,10 +1056,13 @@ export class TrackingService {
 
   private bulkDeleteFilters(context: TrackingContext, filter: BulkBidDeleteFilter) {
     return {
-      workspace_id: `eq.${context.workspace.id}`,
-      ...this.ownerFilter(context),
-      deleted_at: "is.null",
-      and: `(bid_at.gte.${filter.dateFrom},bid_at.lt.${filter.dateTo})`
+      ...this.listQueries.bidFilters(
+        context.workspace.id,
+        filter,
+        undefined,
+        filter.activeOnly ?? false
+      ),
+      ...this.ownerFilter(context)
     };
   }
 
@@ -1032,35 +1071,61 @@ export class TrackingService {
     filter: BulkBidDeleteFilter,
     selectedIds?: string[]
   ) {
+    const owner = this.ownerFilter(context).created_by_member_id;
+    if (owner && filter.memberId && owner !== `eq.${filter.memberId}`) return [];
+    if (filter.search && !searchTokens(filter.search).length) return [];
+
+    type Candidate = Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at"> & {
+      blacklisted?: boolean;
+      duplicated?: boolean;
+    };
+    const matches: Candidate[] = [];
     const company = filter.company?.trim() ? normalizeCompanyName(filter.company) : null;
-    const candidates = await this.supabase.rpc<
-      Array<Pick<BidRecordRow, "id" | "company" | "job_title" | "bid_at">>
-    >("bulk_bid_delete_candidates", {
-      p_workspace_id: context.workspace.id,
-      p_member_id: context.roleKeys.includes("admin") ? null : context.member.id,
-      p_profile_id: filter.profileId,
-      p_date_from: filter.dateFrom,
-      p_date_to: filter.dateTo,
-      p_bid_ids: selectedIds ?? null
-    });
-    const rows = candidates.filter(
-      (row) => company === null || normalizeCompanyName(row.company) === company
-    );
-    if (filter.duplicatedOnly && rows.length) {
-      const eligibility = await new ApplicationRulesService(this.supabase).eligibilityForContext(
-        context,
-        rows.map((row) => row.id)
-      );
-      const duplicatedIds = new Set(
-        eligibility.results
-          .filter((row) => row.showBadge && row.duplicated && row.pending)
-          .map((row) => row.bidId)
-      );
-      return rows
-        .filter((row) => duplicatedIds.has(row.id))
-        .sort((a, b) => b.bid_at.localeCompare(a.bid_at) || b.id.localeCompare(a.id));
+    const filters = this.bulkDeleteFilters(context, filter);
+    const fields = ["id", "company", "job_title", "bid_at"];
+    if (filter.profileId) {
+      fields.push("bid_record_profiles!inner(profile_id)");
+      filters["bid_record_profiles.profile_id"] = `eq.${filter.profileId}`;
     }
-    return rows.sort((a, b) => b.bid_at.localeCompare(a.bid_at) || b.id.localeCompare(a.id));
+    if (selectedIds) filters.id = `in.(${selectedIds.join(",")})`;
+    if (filter.duplicatedOnly) {
+      filters.applied_at = "is.null";
+      if (filter.status === "applied" || filter.status === "expired") return [];
+      filters.imported_at = `gte.${centralDayStart()}`;
+    }
+
+    const order = this.listQueries.bidOrder(filter);
+    const limit = company !== null || filter.duplicatedOnly ? 500 : 201;
+    for (let offset = 0; matches.length <= 200; offset += limit) {
+      const page = await this.supabase.select<Candidate>("bid_records", fields.join(","), filters, {
+        order,
+        limit,
+        offset
+      });
+      const rows = page.filter(
+        (row) => company === null || normalizeCompanyName(row.company) === company
+      );
+      if (filter.duplicatedOnly && rows.length) {
+        const { results } = await new ApplicationRulesService(this.supabase).eligibilityForContext(
+          context,
+          rows.map((row) => row.id)
+        );
+        const blocked = new Map(
+          results
+            .filter((row) => row.showBadge && row.pending && (row.duplicated || row.blacklisted))
+            .map((row) => [row.bidId, row])
+        );
+        for (const row of rows) {
+          const match = blocked.get(row.id);
+          if (match)
+            matches.push({ ...row, blacklisted: match.blacklisted, duplicated: match.duplicated });
+        }
+      } else {
+        matches.push(...rows);
+      }
+      if (page.length < limit || selectedIds) break;
+    }
+    return matches;
   }
 
   async deleteBid(slug: string, bidId: string, user: AuthUser) {

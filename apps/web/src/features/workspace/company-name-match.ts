@@ -1,9 +1,10 @@
 import type { BidRecord } from "../../services/tracking.service";
 
-import { normalizeCompanyName } from "@rghs1/domain";
+import { normalizeCompanyName, companyNamesMatch } from "@rghs1/domain";
 export { normalizeCompanyName } from "@rghs1/domain";
 
 export function companyNameSimilarity(query: string, candidate: string): number {
+  if (companyNamesMatch(query, candidate)) return 1;
   const normalizedQuery = normalizeCompanyName(query);
   const normalizedCandidate = normalizeCompanyName(candidate);
   if (normalizedQuery.length < 2 || !normalizedCandidate) {

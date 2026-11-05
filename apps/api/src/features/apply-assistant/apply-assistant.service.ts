@@ -1,3 +1,4 @@
+import { CompanyBlacklistService } from "../tracking/company-blacklist.service";
 import type { RichTextDocument, RichTextNode } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
@@ -709,6 +710,11 @@ export class ApplyAssistantService {
     ]);
 
     const extractedJob = requireSessionExtractedJob(session);
+    await new CompanyBlacklistService(this.supabase).requireAllowed(
+      context.workspace.id,
+      extractedJob.company,
+      [profileId]
+    );
     const selectedResume = selectedResumeVersion(session.resume_versions, input.resumeVersionId);
     const reviewedFieldMap = input.fieldMap ?? session.field_map;
     const existingBid = await this.existingBidForSession(context, session);

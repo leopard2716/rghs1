@@ -517,6 +517,13 @@ export function BidsPage({
           <RecordLoading label="Loading bids" />
         ) : bidsQuery.data ? (
           <>
+            <PaginationControls
+              label="Bids pagination above table"
+              pagination={bidsQuery.data.pagination}
+              disabled={bidsQuery.isFetching}
+              onPageChange={(page) => updateListQuery({ page })}
+              onPageSizeChange={(pageSize) => updateListQuery({ pageSize, page: 1 })}
+            />
             <div className="table-wrap">
               <table className="tracking-table tracking-record-table bid-review-table">
                 <thead>
@@ -647,8 +654,7 @@ export function BidsPage({
                                   : "Mark rejected"}
                             </button>
                           ) : null}
-                          {bid.importedAt &&
-                          eligibilityQuery.data?.results.find(
+                          {eligibilityQuery.data?.results.find(
                             (result) => result.bidId === bid.id
                           ) ? (
                             <ApplicationEligibilityBadge
@@ -657,7 +663,7 @@ export function BidsPage({
                                   (result) => result.bidId === bid.id
                                 )!
                               }
-                              importedAt={bid.importedAt}
+                              importedAt={bid.importedAt ?? null}
                               timeZone={eligibilityQuery.data.rules.timeZone}
                               onReview={() =>
                                 setReviewEligibility(
@@ -678,6 +684,11 @@ export function BidsPage({
                             <button
                               type="button"
                               className="secondary-action small"
+                              disabled={Boolean(
+                                eligibilityQuery.data?.results.find(
+                                  (result) => result.bidId === bid.id
+                                )?.blacklisted
+                              )}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 adminApplyMutation.reset();
@@ -692,7 +703,14 @@ export function BidsPage({
                             <button
                               className="secondary-action small"
                               type="button"
-                              disabled={Boolean(pendingBidActions[bid.id])}
+                              disabled={
+                                Boolean(pendingBidActions[bid.id]) ||
+                                Boolean(
+                                  eligibilityQuery.data?.results.find(
+                                    (result) => result.bidId === bid.id
+                                  )?.blacklisted
+                                )
+                              }
                               onClick={(event) => {
                                 event.stopPropagation();
                                 if (
@@ -787,6 +805,7 @@ export function BidsPage({
               </table>
             </div>
             <PaginationControls
+              label="Bids pagination below table"
               pagination={bidsQuery.data.pagination}
               disabled={bidsQuery.isFetching}
               onPageChange={(page) => updateListQuery({ page })}
@@ -911,10 +930,26 @@ export function BidsPage({
           <div className="modal-form">
             <p>
               {eligibilityQuery.data?.rules.cooldownDays}-day cooldown; same-profile company matches
-              across all bidders. Earlier pending import rows also count. This is a warning, not a
-              submission block.
+              across all bidders. Earlier pending import rows also count. Duplicate matches are
+              warnings. Blacklisted companies block marking applied.
             </p>
-            <p>{reviewEligibility.duplicated ? "❌ Duplicated" : "✅ Applicable"}</p>
+            {reviewEligibility.blacklistMatches?.map((entry) => (
+              <p key={entry.id}>
+                ⛔ {entry.company} —{" "}
+                {entry.profileId
+                  ? (bidsQuery.data?.filterProfiles.find((p) => p.id === entry.profileId)?.name ??
+                    "Former profile")
+                  : "Global — all profiles"}
+                {entry.reason ? `: ${entry.reason}` : ""}
+              </p>
+            ))}
+            <p>
+              {reviewEligibility.blacklisted
+                ? "⛔ Blacklisted"
+                : reviewEligibility.duplicated
+                  ? "❌ Duplicated"
+                  : "✅ Applicable"}
+            </p>
             {reviewEligibility.matches.length ? (
               <table className="tracking-table">
                 <thead>
@@ -974,7 +1009,8 @@ export function BidsPage({
           session={session}
           slug={slug}
           profiles={bidsQuery.data.filterProfiles}
-          initialProfileId={listQuery.profileId}
+          initialQuery={listQuery}
+          members={isAdmin ? bidsQuery.data.filterMembers : undefined}
           isAdmin={isAdmin}
           onClose={() => setBulkDeleting(false)}
           onDeleted={async () => {

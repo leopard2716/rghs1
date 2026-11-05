@@ -15,6 +15,7 @@ function fixture(
     roleKeys: roles
   } as TrackingContext);
   const db = {
+    selectAll: vi.fn(async () => []),
     select: vi.fn(async (_table: string, _fields: string, filters: Record<string, string>) =>
       !filters.created_by_member_id || filters.created_by_member_id === `eq.${owner}`
         ? [{ applied_at: applied, rejected_at: rejected }]
@@ -97,15 +98,21 @@ it("does not audit a failed concurrent update", async () => {
 });
 
 it("scopes eligibility reads to target IDs and shared profiles and preserves normalized company cooldowns", async () => {
-  const target = { id: "target", company: "Acme LLC", job_title: "Engineer", deleted_at: null };
+  const target = {
+    id: "target",
+    company: "AstranaHealth",
+    job_title: "Engineer",
+    deleted_at: null
+  };
   const prior = {
     id: "prior",
-    company: "Acme Inc",
+    company: "Astrana Health, Inc",
     job_title: "Engineer",
     applied_at: new Date().toISOString(),
     deleted_at: null
   };
   const db = {
+    selectAll: vi.fn(async () => []),
     select: vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
       if (table === "workspace_application_rules") return [];
       expect(filters.workspace_id).toBe("eq.workspace");
@@ -150,7 +157,11 @@ it("passes the actual admin identity and workspace to the atomic correction RPC"
     appliedAt: "2026-01-01T12:00:00Z",
     recordedAt: new Date().toISOString()
   }));
-  const service = new ApplicationRulesService({ rpc } as unknown as SupabaseRestClient);
+  const service = new ApplicationRulesService({
+    rpc,
+    select: vi.fn(async () => [{ company: "Acme" }]),
+    selectAll: vi.fn(async () => [])
+  } as unknown as SupabaseRestClient);
   await service.adminMarkApplied("team", { id: "joe-user" }, "bid", {
     appliedAt: "2026-01-01T12:00:00Z",
     reason: "John screenshot"

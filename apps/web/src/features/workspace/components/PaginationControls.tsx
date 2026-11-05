@@ -3,11 +3,13 @@ import type { Pagination } from "../../../services/tracking.service";
 
 export function PaginationControls({
   pagination,
+  label,
   disabled,
   onPageChange,
   onPageSizeChange
 }: {
   pagination: Pagination;
+  label?: string;
   disabled: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
@@ -16,7 +18,7 @@ export function PaginationControls({
   const lastRecord = Math.min(pagination.page * pagination.pageSize, pagination.total);
 
   return (
-    <div className="pagination-controls">
+    <div className="pagination-controls" role={label ? "group" : undefined} aria-label={label}>
       <span>
         {firstRecord}-{lastRecord} of {pagination.total}
       </span>

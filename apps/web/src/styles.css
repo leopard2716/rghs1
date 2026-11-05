@@ -2410,6 +2410,10 @@ td span {
   font-weight: 700;
 }
 
+.pagination-controls + .table-wrap {
+  margin-top: 10px;
+}
+
 .pagination-controls > label,
 .pagination-controls > div {
   display: flex;
