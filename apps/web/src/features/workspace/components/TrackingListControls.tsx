@@ -52,7 +52,9 @@ export function TrackingListControls({
           <input
             type="search"
             value={immediateSearch ? (query.search ?? "") : search}
-            placeholder="Company or job title"
+            placeholder={
+              bidFilters ? "Company, job title, or link keyword" : "Company or job title"
+            }
             disabled={disabled}
             maxLength={200}
             onChange={(event) => {

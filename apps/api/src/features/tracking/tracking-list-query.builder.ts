@@ -39,7 +39,9 @@ export class TrackingListQueryBuilder {
     if (query.dateFrom) conditions.push(`bid_at.gte.${query.dateFrom}`);
     if (query.dateTo) conditions.push(`bid_at.lt.${query.dateTo}`);
     const tokens = searchTokens(query.search);
-    conditions.push(...tokens.map((token) => `search_text.ilike.*${token}*`));
+    conditions.push(
+      ...tokens.map((token) => `or(search_text.ilike.*${token}*,job_link.ilike.*${token}*)`)
+    );
     if (conditions.length) filters.and = `(${conditions.join(",")})`;
     return filters;
   }

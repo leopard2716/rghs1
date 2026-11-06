@@ -1368,6 +1368,7 @@ function bulkDeleteFixture(role = "bidder") {
     created_by_member_id: string;
     company: string;
     job_title: string;
+    job_link?: string | null;
     bid_at: string;
     deleted_at: string | null;
     applied_at?: string | null;
@@ -1379,6 +1380,7 @@ function bulkDeleteFixture(role = "bidder") {
       created_by_member_id: memberId,
       company: "Test Company",
       job_title: "Test Job",
+      job_link: "https://jobs.example.com/Acme-Cloud/123",
       imported_at: new Date().toISOString(),
       bid_at: bulkFilter.dateFrom,
       deleted_at: null
@@ -1416,10 +1418,16 @@ function bulkDeleteFixture(role = "bidder") {
         const upper = value.match(/bid_at\.lt\.([^,)]+)/)?.[1];
         const tokens = [...value.matchAll(/search_text\.ilike\.\*([^*]+)\*/g)];
         const searchText = `${row.company} ${row.job_title}`.toLowerCase();
+        const jobLink = String(row.job_link ?? "").toLowerCase();
         return (
           (!lower || date >= Date.parse(lower)) &&
           (!upper || date < Date.parse(upper)) &&
-          tokens.every(([, token]) => searchText.includes(token!))
+          tokens.every(
+            ([clause, token]) =>
+              searchText.includes(token!) ||
+              (value.includes(`or(${clause},job_link.ilike.*${token}*)`) &&
+                jobLink.includes(token!))
+          )
         );
       }
       if (key === "bid_record_profiles.profile_id") {
@@ -1662,7 +1670,7 @@ describe("application rule permissions", () => {
 it("combines table search, bidder, and status without requiring a profile or date range", async () => {
   const { service, bids } = bulkDeleteFixture("admin");
   bids[0]!.applied_at = bulkFilter.dateFrom;
-  const filter = { search: "test job", memberId, status: "applied" as const };
+  const filter = { search: "acme cloud test job", memberId, status: "applied" as const };
   const preview = await service.previewBulkDeleteBids("rg-team", { id: authUserId }, filter);
   expect(preview.bids.map((bid) => bid.id)).toEqual([recordId]);
   bids[0]!.applied_at = null;
