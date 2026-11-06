@@ -13,7 +13,9 @@ describe("TrackingListQueryBuilder", () => {
       sortBy: "datetime",
       sortDirection: "desc"
     });
-    expect(filters.and).toContain(`search_text.ilike.*${search.toLowerCase()}*`);
+    expect(filters.and).toContain(
+      `or(search_text.ilike.*${search.toLowerCase()}*,job_link.ilike.*${search.toLowerCase()}*)`
+    );
     const params = new URLSearchParams(filters);
     expect(params.toString()).toContain("%26");
     expect(new URLSearchParams(params.toString()).get("and")).toBe(filters.and);
@@ -38,7 +40,7 @@ describe("TrackingListQueryBuilder", () => {
       deleted_at: "is.null",
       job_market_id: "eq.market-1",
       id: "in.(bid-1,bid-2)",
-      and: `(or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${centralDayStart()}))),search_text.ilike.*acme*,search_text.ilike.*platform*)`
+      and: `(or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${centralDayStart()}))),or(search_text.ilike.*acme*,job_link.ilike.*acme*),or(search_text.ilike.*platform*,job_link.ilike.*platform*))`
     });
   });
 
@@ -76,7 +78,7 @@ describe("bid status and calendar-day filters", () => {
       status === "rejected" ? undefined : status === "applied" ? "not.is.null" : "is.null"
     );
     expect(filters.and).toBe(
-      `${status === "pending" ? `(or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${centralDayStart()}))),` : "("}bid_at.gte.2026-10-14T05:00:00.000Z,bid_at.lt.2026-10-15T05:00:00.000Z,search_text.ilike.*acme*)`
+      `${status === "pending" ? `(or(applied_at.not.is.null,and(expired_at.is.null,or(imported_at.is.null,imported_at.gte.${centralDayStart()}))),` : "("}bid_at.gte.2026-10-14T05:00:00.000Z,bid_at.lt.2026-10-15T05:00:00.000Z,or(search_text.ilike.*acme*,job_link.ilike.*acme*))`
     );
   });
 });
