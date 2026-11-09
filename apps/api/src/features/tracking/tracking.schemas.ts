@@ -508,3 +508,15 @@ function isTimeZone(value: string): boolean {
     return false;
   }
 }
+
+// Comma-separated UUID lists use OR within a filter and AND across filters.
+const exportIdList = z
+  .string()
+  .transform((value) => value.split(","))
+  .pipe(z.array(z.string().uuid()).min(1).max(100))
+  .optional();
+export const pendingBidExportQuery = z.object({
+  memberIds: exportIdList,
+  profileIds: exportIdList
+});
+export type PendingBidExportQuery = z.infer<typeof pendingBidExportQuery>;

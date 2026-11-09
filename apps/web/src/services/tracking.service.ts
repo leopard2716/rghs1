@@ -1143,10 +1143,18 @@ export async function markBidApplied(
 }
 
 export type PendingBidExportRow = { jobTitle: string; company: string; link: string };
-export async function fetchPendingBidExport(session: AuthSession, slug: string) {
+export type PendingBidExportFilter = { memberIds?: string[]; profileIds?: string[] };
+export async function fetchPendingBidExport(
+  session: AuthSession,
+  slug: string,
+  filter: PendingBidExportFilter = {}
+) {
+  const params = new URLSearchParams();
+  if (filter.memberIds?.length) params.set("memberIds", filter.memberIds.join(","));
+  if (filter.profileIds?.length) params.set("profileIds", filter.profileIds.join(","));
   const response = await authenticatedApiFetch(
     session,
-    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids/export-pending`,
+    `${apiBaseUrl}/v1/workspaces/${slug}/tracking/bids/export-pending?${params}`,
     { headers: authHeaders() }
   );
   return parseJson<{ records: PendingBidExportRow[] }>(response);

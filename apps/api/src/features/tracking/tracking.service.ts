@@ -9,6 +9,7 @@ import { NotificationService } from "../notifications/notification.service";
 import type { WorkspaceMemberRow, WorkspaceRow } from "../workspace/workspace-access.types";
 import type {
   BidListQuery,
+  PendingBidExportQuery,
   BulkBidDeleteFilter,
   BulkBidDeleteInput,
   BulkBidRecordInput,
@@ -488,9 +489,19 @@ export class TrackingService {
     }
   }
 
-  async exportPendingBids(slug: string, user: AuthUser) {
+  async exportPendingBids(slug: string, user: AuthUser, query: PendingBidExportQuery = {}) {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireAnyRole(context, ["admin", "bidder"]);
+    if (
+      !context.roleKeys.includes("admin") &&
+      query.memberIds?.some((id) => id !== context.member.id)
+    ) {
+      throw apiError(
+        403,
+        "You can only export your own pending applications.",
+        "export_bidder_forbidden"
+      );
+    }
     const rows = await this.supabase.selectAll<{
       job_title: string;
       company: string;
@@ -498,10 +509,17 @@ export class TrackingService {
       bid_record_profiles: Array<{ profile_id: string }>;
     }>(
       "bid_records",
-      "job_title,company,job_link,bid_record_profiles(profile_id)",
+      "job_title,company,job_link,bid_record_profiles(profile_id)" +
+        (query.profileIds?.length ? ",export_profiles:bid_record_profiles!inner(profile_id)" : ""),
       {
         workspace_id: `eq.${context.workspace.id}`,
         ...this.ownerFilter(context),
+        ...(context.roleKeys.includes("admin") && query.memberIds?.length
+          ? { created_by_member_id: `in.(${query.memberIds.join(",")})` }
+          : {}),
+        ...(query.profileIds?.length
+          ? { "export_profiles.profile_id": `in.(${query.profileIds.join(",")})` }
+          : {}),
         deleted_at: "is.null",
         applied_at: "is.null",
         expired_at: "is.null",

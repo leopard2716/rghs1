@@ -3897,3 +3897,28 @@ td span {
 .bid-list-controls:has(select option[value="expired"]) {
   grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
 }
+
+.export-selection {
+  border: 1px solid var(--border, #d1d5db);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+.export-selection summary {
+  cursor: pointer;
+}
+.export-selection-options {
+  display: grid;
+  gap: 10px;
+  max-height: 230px;
+  overflow-y: auto;
+  padding-top: 12px;
+}
+.export-selection-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-selection-options input[type="checkbox"] {
+  width: auto;
+}

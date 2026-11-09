@@ -10,6 +10,7 @@ import { ApiError, jsonError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
 import {
   bidListQuery,
+  pendingBidExportQuery,
   bulkBidDeleteFilter,
   bulkBidDeleteInput,
   bulkBidRecordInput,
@@ -485,14 +486,20 @@ export function registerTrackingRoutes(app: ApiApp): void {
     }
   );
 
-  app.get("/v1/workspaces/:slug/tracking/bids/export-pending", async (c) => {
-    try {
-      const { service, user } = await requestContext(c);
-      return c.json(await service.exportPendingBids(c.req.param("slug"), user));
-    } catch (error) {
-      return trackingError(c, error);
+  app.get(
+    "/v1/workspaces/:slug/tracking/bids/export-pending",
+    zValidator("query", pendingBidExportQuery),
+    async (c) => {
+      try {
+        const { service, user } = await requestContext(c);
+        return c.json(
+          await service.exportPendingBids(c.req.param("slug"), user, c.req.valid("query"))
+        );
+      } catch (error) {
+        return trackingError(c, error);
+      }
     }
-  });
+  );
 
   app.get(
     "/v1/workspaces/:slug/tracking/bids/:bidId",

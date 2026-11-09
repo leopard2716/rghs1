@@ -2107,3 +2107,51 @@ it("fails export if blacklist validation is unavailable instead of exporting unc
     "Database unavailable"
   );
 });
+
+it("combines multiple export bidders with multiple profiles in one database query", async () => {
+  const selectAll = vi.fn(
+    async (
+      _table: string,
+      _fields: string,
+      _filters: Record<string, string>,
+      _options: unknown
+    ) => []
+  );
+  const db = { ...trackingSupabase("admin", "bid_records"), selectAll };
+  const service = new TrackingService(db as unknown as SupabaseRestClient);
+  await service.exportPendingBids(
+    "rg-team",
+    { id: authUserId },
+    {
+      memberIds: [memberId, authUserId],
+      profileIds: [bulkProfileId, recordId]
+    }
+  );
+  expect(selectAll).toHaveBeenCalledWith(
+    "bid_records",
+    expect.stringContaining("export_profiles:bid_record_profiles!inner(profile_id)"),
+    expect.objectContaining({
+      workspace_id: `eq.${workspaceId}`,
+      created_by_member_id: `in.(${memberId},${authUserId})`,
+      "export_profiles.profile_id": `in.(${bulkProfileId},${recordId})`,
+      applied_at: "is.null",
+      expired_at: "is.null",
+      deleted_at: "is.null"
+    }),
+    expect.any(Object)
+  );
+  // Keep the full assignment embed for blacklist rules, even if another profile matched.
+  expect(selectAll.mock.calls[0]?.[1]).toContain("bid_record_profiles(profile_id)");
+});
+
+it("does not allow bidder exports to select other bidders", async () => {
+  const selectAll = vi.fn();
+  const service = new TrackingService({
+    ...trackingSupabase("bidder", "bid_records"),
+    selectAll
+  } as unknown as SupabaseRestClient);
+  await expect(
+    service.exportPendingBids("rg-team", { id: authUserId }, { memberIds: [memberId, authUserId] })
+  ).rejects.toMatchObject({ status: 403, code: "export_bidder_forbidden" });
+  expect(selectAll).not.toHaveBeenCalled();
+});
