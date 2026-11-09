@@ -1,3 +1,4 @@
+import { PendingBidExportModal } from "./PendingBidExportModal";
 import { loadEligibilityBatches } from "../eligibility-batches";
 import { downloadPendingBids } from "../pending-bid-export";
 import { addBidToCache, updateBidActionCache, updateBidRejectionCache } from "../bid-action-cache";
@@ -99,6 +100,7 @@ export function BidsPage({
       await downloadPendingBids(records);
     }
   });
+  const [exporting, setExporting] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkImporting, setBulkImporting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -466,10 +468,10 @@ export function BidsPage({
                   disabled={exportMutation.isPending}
                   title={
                     isAdmin
-                      ? "Download all bidders’ pending applications in this workspace"
+                      ? "Choose bidders and profiles to export pending applications"
                       : "Download all your pending applications across every page"
                   }
-                  onClick={() => exportMutation.mutate()}
+                  onClick={() => (isAdmin ? setExporting(true) : exportMutation.mutate())}
                 >
                   {exportMutation.isPending ? (
                     <LoaderCircle className="spin-icon" aria-hidden="true" />
@@ -824,6 +826,17 @@ export function BidsPage({
         ) : null}
       </section>
 
+      {exporting && isAdmin && bidsQuery.data ? (
+        <PendingBidExportModal
+          session={session}
+          slug={slug}
+          members={bidsQuery.data.filterMembers ?? []}
+          profiles={bidsQuery.data.filterProfiles}
+          initialMemberId={listQuery.memberId}
+          initialProfileId={listQuery.profileId}
+          onClose={() => setExporting(false)}
+        />
+      ) : null}
       {exportMutation.error ? (
         <p className="form-error" role="alert">
           {errorMessage(exportMutation.error)}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   bidListQuery,
+  pendingBidExportQuery,
   bulkBidRecordInput,
   bidRecordInput,
   bidRecordParams,
@@ -559,4 +560,17 @@ describe("unknown company import filtering", () => {
     expect(bulkBidRecordInput.safeParse({ records: [] }).success).toBe(false);
     expect(bulkBidRecordInput.safeParse({ records: [{ company: "Acme" }] }).success).toBe(false);
   });
+});
+
+it("parses multiple export selections and rejects malformed or empty ID lists", () => {
+  expect(
+    pendingBidExportQuery.parse({
+      memberIds: `${memberId},${secondMemberId}`,
+      profileIds: `${profileId},${secondProfileId}`
+    })
+  ).toEqual({ memberIds: [memberId, secondMemberId], profileIds: [profileId, secondProfileId] });
+  expect(pendingBidExportQuery.parse({})).toEqual({});
+  for (const value of ["", "not-a-uuid", `${profileId},`, Array(101).fill(profileId).join(",")]) {
+    expect(pendingBidExportQuery.safeParse({ profileIds: value }).success).toBe(false);
+  }
 });
