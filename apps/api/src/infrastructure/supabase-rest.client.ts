@@ -132,6 +132,26 @@ export class SupabaseRestClient {
     return (await response.json()) as T[];
   }
 
+  async upsert<T>(
+    table: string,
+    rows: Record<string, unknown>[],
+    conflictColumns: string[]
+  ): Promise<T[]> {
+    if (!rows.length) return [];
+    const params = new URLSearchParams({ select: "*", on_conflict: conflictColumns.join(",") });
+    const response = await this.request(
+      `${this.config.url}/rest/v1/${table}?${params.toString()}`,
+      {
+        method: "POST",
+        headers: this.headers({ Prefer: "resolution=merge-duplicates,return=representation" }),
+        body: JSON.stringify(rows)
+      },
+      "supabase_upsert_failed"
+    );
+    if (!response.ok) throw await this.responseError(response, "supabase_upsert_failed");
+    return (await response.json()) as T[];
+  }
+
   async update<T>(
     table: string,
     values: Record<string, unknown>,

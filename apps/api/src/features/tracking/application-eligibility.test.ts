@@ -75,8 +75,8 @@ describe("company application cooldown", () => {
     expect(check([{ ...pending, import_order: 2 }]).duplicated).toBe(false);
     expect(check([{ ...pending, import_batch_id: "different" }]).duplicated).toBe(false);
   });
-  it("releases deleted pending rows but preserves deleted applied history", () => {
-    expect(check([{ ...prior, deleted_at: now.toISOString() }]).duplicated).toBe(true);
+  it("releases deleted pending and applied blockers", () => {
+    expect(check([{ ...prior, deleted_at: now.toISOString() }]).duplicated).toBe(false);
     expect(
       check([
         {
@@ -173,4 +173,11 @@ it.each([
   );
   expect(result.duplicated).toBe(true);
   expect(result.matches[0]?.blocks).toBe(true);
+});
+
+it("still blocks when another applied record survives deletion", () => {
+  const other = { ...prior, id: "other" };
+  const links = [...assignments, { bid_id: "other", profile_id: "profile" }];
+  const history = [{ ...prior, deleted_at: now.toISOString() }, other];
+  expect(applicationEligibility(target, history, links, rules, now).duplicated).toBe(true);
 });
