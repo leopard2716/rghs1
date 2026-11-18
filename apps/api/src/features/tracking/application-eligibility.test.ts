@@ -75,8 +75,8 @@ describe("company application cooldown", () => {
     expect(check([{ ...pending, import_order: 2 }]).duplicated).toBe(false);
     expect(check([{ ...pending, import_batch_id: "different" }]).duplicated).toBe(false);
   });
-  it("releases deleted pending rows but preserves deleted applied history", () => {
-    expect(check([{ ...prior, deleted_at: now.toISOString() }]).duplicated).toBe(true);
+  it("releases deleted pending and applied blockers", () => {
+    expect(check([{ ...prior, deleted_at: now.toISOString() }]).duplicated).toBe(false);
     expect(
       check([
         {
