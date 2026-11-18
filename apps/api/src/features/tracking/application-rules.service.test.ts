@@ -111,13 +111,22 @@ it("scopes eligibility reads to target IDs and shared profiles and preserves nor
     applied_at: new Date().toISOString(),
     deleted_at: null
   };
+  let cache: Record<string, unknown>[] = [];
   const db = {
     selectAll: vi.fn(async () => []),
     select: vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
       if (table === "workspace_application_rules") return [];
       expect(filters.workspace_id).toBe("eq.workspace");
-      expect(filters.id).toBeDefined();
-      return filters.id === "in.(target)" ? [target] : [target, prior];
+      if (table === "bid_eligibility_cache") return cache;
+      if (table === "bid_record_profiles") {
+        return [{ bid_id: "target", profile_id: "profile" }];
+      }
+      expect(filters.id).toBe("in.(target)");
+      return [target];
+    }),
+    upsert: vi.fn(async (_table: string, rows: Record<string, unknown>[]) => {
+      cache = rows;
+      return rows;
     }),
     rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
       expect(name).toBe("application_eligibility_data");
@@ -139,6 +148,12 @@ it("scopes eligibility reads to target IDs and shared profiles and preserves nor
   );
   expect(result.results[0]?.duplicated).toBe(true);
   expect(result.results[0]?.matches[0]?.id).toBe("prior");
+  const cachedResult = await service.eligibilityForContext(
+    { workspace: { id: "workspace" } } as TrackingContext,
+    ["target"]
+  );
+  expect(cachedResult.results[0]?.duplicated).toBe(true);
+  expect(db.rpc).toHaveBeenCalledTimes(1);
 });
 
 it("requires admin permission for recording another bidder's submission", async () => {
