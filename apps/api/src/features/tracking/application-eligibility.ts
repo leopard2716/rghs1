@@ -46,8 +46,9 @@ export function applicationEligibility(
         row.id !== target.id &&
         sharedIds.has(row.id) &&
         companyNamesMatch(row.company, target.company) &&
+        !row.deleted_at &&
         (row.applied_at ||
-          (!row.deleted_at &&
+          (
             !isExpiredImport(row, now) &&
             !!row.imported_at &&
             calendarDay(row.imported_at, "America/Chicago") ===
