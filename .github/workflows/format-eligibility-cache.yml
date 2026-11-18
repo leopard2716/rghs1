@@ -1,0 +1,29 @@
+name: Format eligibility cache PR
+on:
+  push:
+    branches:
+      - perf/event-driven-duplicate-eligibility-20261118
+permissions:
+  contents: write
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/event-driven-duplicate-eligibility-20261118
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Format changed files and remove one-time formatter
+        run: |
+          npx prettier --write apps/api/src/features/tracking/application-eligibility.ts apps/api/src/features/tracking/application-rules.service.ts apps/api/src/features/tracking/tracking.service.ts apps/api/src/infrastructure/supabase-rest.client.ts
+          rm .github/workflows/format-eligibility-cache.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/api/src/features/tracking/application-eligibility.ts apps/api/src/features/tracking/application-rules.service.ts apps/api/src/features/tracking/tracking.service.ts apps/api/src/infrastructure/supabase-rest.client.ts .github/workflows/format-eligibility-cache.yml
+          git commit -m "style: format eligibility cache changes" || true
+          git push origin HEAD:perf/event-driven-duplicate-eligibility-20261118
