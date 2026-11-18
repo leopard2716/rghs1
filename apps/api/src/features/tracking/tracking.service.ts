@@ -771,15 +771,6 @@ export class TrackingService {
       }
       throw error;
     }
-    // New imports may become blockers for other imports sharing a company/profile.
-    const eligibility = new ApplicationRulesService(this.supabase);
-    const changed = new Set<string>();
-    for (const record of recordsToImport) {
-      const key = `${normalizeCompanyName(record.company)}:${[...record.profileIds].sort().join(",")}`;
-      if (changed.has(key)) continue;
-      changed.add(key);
-      await eligibility.invalidateAffected(context.workspace.id, record.company, record.profileIds);
-    }
     await this.audit(context, "tracking.bid.bulk_created", createdIds[0] ?? crypto.randomUUID(), {
       count: createdIds.length
     });
@@ -1053,6 +1044,12 @@ export class TrackingService {
         "bulk_bid_delete_stale"
       );
     }
+    const beforeDeleteAssignments = await this.supabase.selectAll<{
+      bid_id: string; profile_id: string
+    }>("bid_record_profiles", "bid_id,profile_id", {
+      workspace_id: `eq.${context.workspace.id}`,
+      bid_id: `in.(${input.bidIds.join(",")})`
+    });
     const deleted = await this.supabase.delete<{ id: string }>("bid_records", {
       ...this.bulkDeleteFilters(context, input.filter),
       ...(input.filter.duplicatedOnly ? { applied_at: "is.null" } : {}),
@@ -1065,15 +1062,9 @@ export class TrackingService {
     });
     if (deleted.length) {
       const eligibility = new ApplicationRulesService(this.supabase);
-      const affected = await this.supabase.selectAll<{ bid_id: string; profile_id: string }>(
-        "bid_record_profiles", "bid_id,profile_id", {
-          workspace_id: `eq.${context.workspace.id}`,
-          bid_id: `in.(${deleted.map((row) => row.id).join(",")})`
-        }
-      );
       for (const row of deleted) {
         await eligibility.invalidateAffected(context.workspace.id, row.company,
-          affected.filter((assignment) => assignment.bid_id === row.id).map((a) => a.profile_id));
+          beforeDeleteAssignments.filter((assignment) => assignment.bid_id === row.id).map((a) => a.profile_id));
       }
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
@@ -1176,6 +1167,11 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireAnyRole(context, ["admin", "bidder"]);
     await this.access.requireOwnedBid(context, bidId, "delete");
+    const beforeDeleteProfiles = await this.supabase.select<{ profile_id: string }>(
+      "bid_record_profiles", "profile_id", {
+        workspace_id: `eq.${context.workspace.id}`, bid_id: `eq.${bidId}`
+      }
+    );
     const [bid] = await this.supabase.delete<BidRecordRow>("bid_records", {
       workspace_id: `eq.${context.workspace.id}`,
       id: `eq.${bidId}`,
@@ -1190,13 +1186,8 @@ export class TrackingService {
       );
     }
 
-    const deletedAssignments = await this.supabase.select<{ profile_id: string }>(
-      "bid_record_profiles", "profile_id", {
-        workspace_id: `eq.${context.workspace.id}`, bid_id: `eq.${bidId}`
-      }
-    );
     await new ApplicationRulesService(this.supabase).invalidateAffected(
-      context.workspace.id, bid.company, deletedAssignments.map((p) => p.profile_id)
+      context.workspace.id, bid.company, beforeDeleteProfiles.map((p) => p.profile_id)
     );
     await this.audit(context, "tracking.bid.deleted", bid.id, {});
     return { ok: true, bidId: bid.id };
