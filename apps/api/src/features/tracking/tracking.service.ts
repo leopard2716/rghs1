@@ -641,6 +641,9 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireAnyRole(context, ["admin", "bidder"]);
     const bid = await this.createBidForContext(context, input);
+    await new ApplicationRulesService(this.supabase).invalidateAffected(
+      context.workspace.id, input.company, input.profileIds
+    );
     await this.audit(context, "tracking.bid.created", bid.id, {
       profileCount: input.profileIds.length,
       jobMarketId: input.jobMarketId
@@ -767,6 +770,15 @@ export class TrackingService {
           .catch(() => undefined);
       }
       throw error;
+    }
+    // New imports may become blockers for other imports sharing a company/profile.
+    const eligibility = new ApplicationRulesService(this.supabase);
+    const changed = new Set<string>();
+    for (const record of recordsToImport) {
+      const key = `${normalizeCompanyName(record.company)}:${[...record.profileIds].sort().join(",")}`;
+      if (changed.has(key)) continue;
+      changed.add(key);
+      await eligibility.invalidateAffected(context.workspace.id, record.company, record.profileIds);
     }
     await this.audit(context, "tracking.bid.bulk_created", createdIds[0] ?? crypto.randomUUID(), {
       count: createdIds.length
@@ -907,6 +919,9 @@ export class TrackingService {
     if (!updated) {
       throw apiError(502, "Bid update did not return a row.", "bid_record_update_failed");
     }
+    const eligibility = new ApplicationRulesService(this.supabase);
+    await eligibility.invalidateAffected(context.workspace.id, existing.company, [...currentProfileIds]);
+    await eligibility.invalidateAffected(context.workspace.id, input.company, input.profileIds);
     await this.audit(context, "tracking.bid.updated", bidId, {});
     const [profiles, markets, members] = await Promise.all([
       this.loadProfiles(context.workspace.id, true),
@@ -1049,6 +1064,17 @@ export class TrackingService {
       id: `in.(${input.bidIds.join(",")})`
     });
     if (deleted.length) {
+      const eligibility = new ApplicationRulesService(this.supabase);
+      const affected = await this.supabase.selectAll<{ bid_id: string; profile_id: string }>(
+        "bid_record_profiles", "bid_id,profile_id", {
+          workspace_id: `eq.${context.workspace.id}`,
+          bid_id: `in.(${deleted.map((row) => row.id).join(",")})`
+        }
+      );
+      for (const row of deleted) {
+        await eligibility.invalidateAffected(context.workspace.id, row.company,
+          affected.filter((assignment) => assignment.bid_id === row.id).map((a) => a.profile_id));
+      }
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
         count: deleted.length,
@@ -1164,6 +1190,14 @@ export class TrackingService {
       );
     }
 
+    const deletedAssignments = await this.supabase.select<{ profile_id: string }>(
+      "bid_record_profiles", "profile_id", {
+        workspace_id: `eq.${context.workspace.id}`, bid_id: `eq.${bidId}`
+      }
+    );
+    await new ApplicationRulesService(this.supabase).invalidateAffected(
+      context.workspace.id, bid.company, deletedAssignments.map((p) => p.profile_id)
+    );
     await this.audit(context, "tracking.bid.deleted", bid.id, {});
     return { ok: true, bidId: bid.id };
   }
