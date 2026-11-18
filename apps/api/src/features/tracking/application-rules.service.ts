@@ -76,7 +76,9 @@ export class ApplicationRulesService {
     const workspaceId = context.workspace.id;
     const [settings, targets, assignments, cached, blacklist] = await Promise.all([
       this.db.select<{ cooldown_days: number; time_zone: string }>(
-        "workspace_application_rules", "cooldown_days,time_zone", { workspace_id: `eq.${workspaceId}` }
+        "workspace_application_rules",
+        "cooldown_days,time_zone",
+        { workspace_id: `eq.${workspaceId}` }
       ),
       this.db.select<ApplicationRow>(
         "bid_records",
@@ -84,16 +86,19 @@ export class ApplicationRulesService {
         { workspace_id: `eq.${workspaceId}`, id: `in.(${bidIds.join(",")})` }
       ),
       this.db.select<{ bid_id: string; profile_id: string }>(
-        "bid_record_profiles", "bid_id,profile_id",
+        "bid_record_profiles",
+        "bid_id,profile_id",
         { workspace_id: `eq.${workspaceId}`, bid_id: `in.(${bidIds.join(",")})` }
       ),
       this.db.select<{
-        bid_id: string; duplicated: boolean; matches: ReturnType<typeof applicationEligibility>["matches"];
+        bid_id: string;
+        duplicated: boolean;
+        matches: ReturnType<typeof applicationEligibility>["matches"];
         refresh_after: string | null;
-      }>(
-        "bid_eligibility_cache", "bid_id,duplicated,matches,refresh_after",
-        { workspace_id: `eq.${workspaceId}`, bid_id: `in.(${bidIds.join(",")})` }
-      ),
+      }>("bid_eligibility_cache", "bid_id,duplicated,matches,refresh_after", {
+        workspace_id: `eq.${workspaceId}`,
+        bid_id: `in.(${bidIds.join(",")})`
+      }),
       new CompanyBlacklistService(this.db).entries(workspaceId)
     ]);
     const rules = settings.length
@@ -111,20 +116,26 @@ export class ApplicationRulesService {
         history: ApplicationRow[];
         assignments: Array<{ bid_id: string; profile_id: string }>;
       }>("application_eligibility_data", {
-        p_workspace_id: workspaceId, p_bid_ids: misses.map((row) => row.id)
+        p_workspace_id: workspaceId,
+        p_bid_ids: misses.map((row) => row.id)
       });
       const snapshots = data.targets.map((row) => {
         const result = applicationEligibility(row, data.history, data.assignments, rules, now);
         computed.set(row.id, result);
         // A future cooldown boundary can change the answer even without a write.
-        const expirations = result.matches.filter((match) => match.blocks && match.appliedAt)
+        const expirations = result.matches
+          .filter((match) => match.blocks && match.appliedAt)
           .map((match) => Date.parse(match.appliedAt!) + rules.cooldownDays * 86400000)
           .filter((time) => time > now.getTime());
         return {
-          workspace_id: workspaceId, bid_id: row.id,
-          duplicated: result.duplicated, matches: result.matches,
+          workspace_id: workspaceId,
+          bid_id: row.id,
+          duplicated: result.duplicated,
+          matches: result.matches,
           checked_at: now.toISOString(),
-          refresh_after: expirations.length ? new Date(Math.min(...expirations)).toISOString() : null
+          refresh_after: expirations.length
+            ? new Date(Math.min(...expirations)).toISOString()
+            : null
         };
       });
       if (snapshots.length) {
@@ -132,24 +143,30 @@ export class ApplicationRulesService {
       }
     }
     return {
-      rules, checkedAt: now.toISOString(),
+      rules,
+      checkedAt: now.toISOString(),
       results: targets.map((row) => {
         const result = computed.get(row.id);
         const entry = byCache.get(row.id);
-        const profileIds = assignments.filter((item) => item.bid_id === row.id)
+        const profileIds = assignments
+          .filter((item) => item.bid_id === row.id)
           .map((item) => item.profile_id);
         const matches = blacklistMatches(blacklist, row.company, profileIds);
         return {
           bidId: row.id,
           pending: !row.applied_at && !isExpiredImport(row, now),
-          showBadge: !!row.imported_at &&
+          showBadge:
+            !!row.imported_at &&
             calendarDay(row.imported_at, "America/Chicago") ===
               calendarDay(now.toISOString(), "America/Chicago"),
           duplicated: result?.duplicated ?? entry?.duplicated ?? false,
           matches: result?.matches ?? entry?.matches ?? [],
           blacklisted: matches.length > 0,
           blacklistMatches: matches.map((item) => ({
-            id: item.id, company: item.company, profileId: item.profile_id, reason: item.reason
+            id: item.id,
+            company: item.company,
+            profileId: item.profile_id,
+            reason: item.reason
           }))
         };
       })
@@ -161,7 +178,9 @@ export class ApplicationRulesService {
   async invalidateAffected(workspaceId: string, company: string, profileIds: string[]) {
     if (!profileIds.length) return;
     const assignments = await this.db.selectAll<{ bid_id: string }>(
-      "bid_record_profiles", "bid_id", {
+      "bid_record_profiles",
+      "bid_id",
+      {
         workspace_id: `eq.${workspaceId}`,
         profile_id: `in.(${profileIds.join(",")})`
       }
@@ -170,14 +189,18 @@ export class ApplicationRulesService {
     for (let offset = 0; offset < ids.length; offset += 100) {
       const batch = ids.slice(offset, offset + 100);
       const rows = await this.db.select<{ id: string; company: string }>(
-        "bid_records", "id,company",
+        "bid_records",
+        "id,company",
         { workspace_id: `eq.${workspaceId}`, id: `in.(${batch.join(",")})` }
       );
-      const matching = rows.filter((row) => companyNamesMatch(company, row.company))
+      const matching = rows
+        .filter((row) => companyNamesMatch(company, row.company))
         .map((row) => row.id);
-      if (matching.length) await this.db.delete("bid_eligibility_cache", {
-        workspace_id: `eq.${workspaceId}`, bid_id: `in.(${matching.join(",")})`
-      });
+      if (matching.length)
+        await this.db.delete("bid_eligibility_cache", {
+          workspace_id: `eq.${workspaceId}`,
+          bid_id: `in.(${matching.join(",")})`
+        });
     }
   }
 
@@ -188,15 +211,20 @@ export class ApplicationRulesService {
   private async invalidateBid(workspaceId: string, bidId: string) {
     const [rows, profiles] = await Promise.all([
       this.db.select<{ company: string }>("bid_records", "company", {
-        workspace_id: `eq.${workspaceId}`, id: `eq.${bidId}`
+        workspace_id: `eq.${workspaceId}`,
+        id: `eq.${bidId}`
       }),
       this.db.select<{ profile_id: string }>("bid_record_profiles", "profile_id", {
-        workspace_id: `eq.${workspaceId}`, bid_id: `eq.${bidId}`
+        workspace_id: `eq.${workspaceId}`,
+        bid_id: `eq.${bidId}`
       })
     ]);
-    if (rows[0]) await this.invalidateAffected(
-      workspaceId, rows[0].company, profiles.map((profile) => profile.profile_id)
-    );
+    if (rows[0])
+      await this.invalidateAffected(
+        workspaceId,
+        rows[0].company,
+        profiles.map((profile) => profile.profile_id)
+      );
   }
 
   async setRejected(slug: string, user: AuthUser, bidId: string, rejected: boolean) {
@@ -264,14 +292,17 @@ export class ApplicationRulesService {
     if (Date.parse(input.appliedAt) > Date.now())
       throw apiError(400, "Application time cannot be in the future.", "invalid_applied_at");
     await new CompanyBlacklistService(this.db).requireBidAllowed(context.workspace.id, bidId);
-    const result = await this.db.rpc<{ appliedAt: string; recordedAt: string }>("admin_record_bid_application", {
-      p_workspace_id: context.workspace.id,
-      p_bid_id: bidId,
-      p_actor_id: user.id,
-      p_actor_member_id: context.member.id,
-      p_applied_at: input.appliedAt,
-      p_reason: input.reason
-    });
+    const result = await this.db.rpc<{ appliedAt: string; recordedAt: string }>(
+      "admin_record_bid_application",
+      {
+        p_workspace_id: context.workspace.id,
+        p_bid_id: bidId,
+        p_actor_id: user.id,
+        p_actor_member_id: context.member.id,
+        p_applied_at: input.appliedAt,
+        p_reason: input.reason
+      }
+    );
     await this.invalidateBid(context.workspace.id, bidId);
     return result;
   }

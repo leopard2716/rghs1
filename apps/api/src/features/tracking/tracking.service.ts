@@ -642,7 +642,9 @@ export class TrackingService {
     this.access.requireAnyRole(context, ["admin", "bidder"]);
     const bid = await this.createBidForContext(context, input);
     await new ApplicationRulesService(this.supabase).invalidateAffected(
-      context.workspace.id, input.company, input.profileIds
+      context.workspace.id,
+      input.company,
+      input.profileIds
     );
     await this.audit(context, "tracking.bid.created", bid.id, {
       profileCount: input.profileIds.length,
@@ -911,7 +913,9 @@ export class TrackingService {
       throw apiError(502, "Bid update did not return a row.", "bid_record_update_failed");
     }
     const eligibility = new ApplicationRulesService(this.supabase);
-    await eligibility.invalidateAffected(context.workspace.id, existing.company, [...currentProfileIds]);
+    await eligibility.invalidateAffected(context.workspace.id, existing.company, [
+      ...currentProfileIds
+    ]);
     await eligibility.invalidateAffected(context.workspace.id, input.company, input.profileIds);
     await this.audit(context, "tracking.bid.updated", bidId, {});
     const [profiles, markets, members] = await Promise.all([
@@ -1045,7 +1049,8 @@ export class TrackingService {
       );
     }
     const beforeDeleteAssignments = await this.supabase.selectAll<{
-      bid_id: string; profile_id: string
+      bid_id: string;
+      profile_id: string;
     }>("bid_record_profiles", "bid_id,profile_id", {
       workspace_id: `eq.${context.workspace.id}`,
       bid_id: `in.(${input.bidIds.join(",")})`
@@ -1073,9 +1078,9 @@ export class TrackingService {
         groups.set(key, group);
       }
       for (const group of groups.values()) {
-        await eligibility.invalidateAffected(
-          context.workspace.id, group.company, [...group.profileIds]
-        );
+        await eligibility.invalidateAffected(context.workspace.id, group.company, [
+          ...group.profileIds
+        ]);
       }
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
@@ -1179,8 +1184,11 @@ export class TrackingService {
     this.access.requireAnyRole(context, ["admin", "bidder"]);
     await this.access.requireOwnedBid(context, bidId, "delete");
     const beforeDeleteProfiles = await this.supabase.select<{ profile_id: string }>(
-      "bid_record_profiles", "profile_id", {
-        workspace_id: `eq.${context.workspace.id}`, bid_id: `eq.${bidId}`
+      "bid_record_profiles",
+      "profile_id",
+      {
+        workspace_id: `eq.${context.workspace.id}`,
+        bid_id: `eq.${bidId}`
       }
     );
     const [bid] = await this.supabase.delete<BidRecordRow>("bid_records", {
@@ -1198,7 +1206,9 @@ export class TrackingService {
     }
 
     await new ApplicationRulesService(this.supabase).invalidateAffected(
-      context.workspace.id, bid.company, beforeDeleteProfiles.map((p) => p.profile_id)
+      context.workspace.id,
+      bid.company,
+      beforeDeleteProfiles.map((p) => p.profile_id)
     );
     await this.audit(context, "tracking.bid.deleted", bid.id, {});
     return { ok: true, bidId: bid.id };

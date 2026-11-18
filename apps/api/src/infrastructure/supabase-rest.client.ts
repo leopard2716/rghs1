@@ -132,7 +132,11 @@ export class SupabaseRestClient {
     return (await response.json()) as T[];
   }
 
-  async upsert<T>(table: string, rows: Record<string, unknown>[], conflictColumns: string[]): Promise<T[]> {
+  async upsert<T>(
+    table: string,
+    rows: Record<string, unknown>[],
+    conflictColumns: string[]
+  ): Promise<T[]> {
     if (!rows.length) return [];
     const params = new URLSearchParams({ select: "*", on_conflict: conflictColumns.join(",") });
     const response = await this.request(

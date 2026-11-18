@@ -48,8 +48,7 @@ export function applicationEligibility(
         companyNamesMatch(row.company, target.company) &&
         !row.deleted_at &&
         (row.applied_at ||
-          (
-            !isExpiredImport(row, now) &&
+          (!isExpiredImport(row, now) &&
             !!row.imported_at &&
             calendarDay(row.imported_at, "America/Chicago") ===
               calendarDay(now.toISOString(), "America/Chicago") &&
