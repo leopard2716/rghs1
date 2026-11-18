@@ -1062,7 +1062,7 @@ export class TrackingService {
     });
     if (deleted.length) {
       const eligibility = new ApplicationRulesService(this.supabase);
-      for (const row of deleted) {
+      for (const row of eligible.filter((item) => deleted.some((entry) => entry.id === item.id))) {
         await eligibility.invalidateAffected(context.workspace.id, row.company,
           beforeDeleteAssignments.filter((assignment) => assignment.bid_id === row.id).map((a) => a.profile_id));
       }
