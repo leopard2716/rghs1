@@ -1062,9 +1062,20 @@ export class TrackingService {
     });
     if (deleted.length) {
       const eligibility = new ApplicationRulesService(this.supabase);
-      for (const row of eligible.filter((item) => deleted.some((entry) => entry.id === item.id))) {
-        await eligibility.invalidateAffected(context.workspace.id, row.company,
-          beforeDeleteAssignments.filter((assignment) => assignment.bid_id === row.id).map((a) => a.profile_id));
+      const deletedIds = new Set(deleted.map((row) => row.id));
+      const groups = new Map<string, { company: string; profileIds: Set<string> }>();
+      for (const row of eligible.filter((item) => deletedIds.has(item.id))) {
+        const key = normalizeCompanyName(row.company);
+        const group = groups.get(key) ?? { company: row.company, profileIds: new Set<string>() };
+        for (const assignment of beforeDeleteAssignments) {
+          if (assignment.bid_id === row.id) group.profileIds.add(assignment.profile_id);
+        }
+        groups.set(key, group);
+      }
+      for (const group of groups.values()) {
+        await eligibility.invalidateAffected(
+          context.workspace.id, group.company, [...group.profileIds]
+        );
       }
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
