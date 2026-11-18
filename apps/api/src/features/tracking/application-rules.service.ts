@@ -51,6 +51,7 @@ export class ApplicationRulesService {
       await this.db.insert("workspace_application_rules", [
         { workspace_id: context.workspace.id, ...values }
       ]);
+    await this.invalidateAll(context.workspace.id);
     await this.db.insert("audit_logs", [
       {
         workspace_id: context.workspace.id,
@@ -184,6 +185,20 @@ export class ApplicationRulesService {
     await this.db.delete("bid_eligibility_cache", { workspace_id: `eq.${workspaceId}` });
   }
 
+  private async invalidateBid(workspaceId: string, bidId: string) {
+    const [rows, profiles] = await Promise.all([
+      this.db.select<{ company: string }>("bid_records", "company", {
+        workspace_id: `eq.${workspaceId}`, id: `eq.${bidId}`
+      }),
+      this.db.select<{ profile_id: string }>("bid_record_profiles", "profile_id", {
+        workspace_id: `eq.${workspaceId}`, bid_id: `eq.${bidId}`
+      })
+    ]);
+    if (rows[0]) await this.invalidateAffected(
+      workspaceId, rows[0].company, profiles.map((profile) => profile.profile_id)
+    );
+  }
+
   async setRejected(slug: string, user: AuthUser, bidId: string, rejected: boolean) {
     const context = await this.access.requireContext(slug, user.id);
     const admin = context.roleKeys.includes("admin");
@@ -223,6 +238,7 @@ export class ApplicationRulesService {
         "The application changed. Refresh and try again.",
         "bid_rejection_conflict"
       );
+    await this.invalidateBid(context.workspace.id, bidId);
     await this.db.insert("audit_logs", [
       {
         workspace_id: context.workspace.id,
@@ -248,7 +264,7 @@ export class ApplicationRulesService {
     if (Date.parse(input.appliedAt) > Date.now())
       throw apiError(400, "Application time cannot be in the future.", "invalid_applied_at");
     await new CompanyBlacklistService(this.db).requireBidAllowed(context.workspace.id, bidId);
-    return this.db.rpc<{ appliedAt: string; recordedAt: string }>("admin_record_bid_application", {
+    const result = await this.db.rpc<{ appliedAt: string; recordedAt: string }>("admin_record_bid_application", {
       p_workspace_id: context.workspace.id,
       p_bid_id: bidId,
       p_actor_id: user.id,
@@ -256,6 +272,8 @@ export class ApplicationRulesService {
       p_applied_at: input.appliedAt,
       p_reason: input.reason
     });
+    await this.invalidateBid(context.workspace.id, bidId);
+    return result;
   }
   async markApplied(slug: string, user: AuthUser, bidId: string) {
     const context = await this.access.requireContext(slug, user.id);
@@ -289,6 +307,7 @@ export class ApplicationRulesService {
         "This bid was already applied or is no longer available.",
         "bid_apply_conflict"
       );
+    await this.invalidateBid(context.workspace.id, bidId);
     await this.db.insert("audit_logs", [
       {
         workspace_id: context.workspace.id,
