@@ -174,3 +174,10 @@ it.each([
   expect(result.duplicated).toBe(true);
   expect(result.matches[0]?.blocks).toBe(true);
 });
+
+it("still blocks when another applied record survives deletion", () => {
+  const other = { ...prior, id: "other" };
+  const links = [...assignments, { bid_id: "other", profile_id: "profile" }];
+  const history = [{ ...prior, deleted_at: now.toISOString() }, other];
+  expect(applicationEligibility(target, history, links, rules, now).duplicated).toBe(true);
+});
