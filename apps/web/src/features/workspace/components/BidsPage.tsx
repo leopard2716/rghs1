@@ -991,7 +991,7 @@ export function BidsPage({
                         )}
                       </td>
                       <td>
-                        {displayDate(match.appliedAt ?? match.importedAt)} /{" "}
+                        {displayDate(match.appliedAt ?? match.importedAt, "second")} /{" "}
                         {match.rejectedAt ? "Rejected" : match.appliedAt ? "Applied" : "Pending"}
                       </td>
                       <td>
@@ -1248,9 +1248,9 @@ export function BidsPage({
               <section className="bid-reference-section">
                 {modalBid.appliedAt ? (
                   <p>
-                    Applied: {displayDate(modalBid.appliedAt)}
+                    Applied: {displayDate(modalBid.appliedAt, "second")}
                     {modalBid.appliedRecordedAt
-                      ? ` · Recorded: ${displayDate(modalBid.appliedRecordedAt)}`
+                      ? ` · Recorded: ${displayDate(modalBid.appliedRecordedAt, "second")}`
                       : ""}
                     {modalBid.appliedRecordedBy
                       ? ` · Marked by: ${modalBid.appliedRecordedBy.name}`

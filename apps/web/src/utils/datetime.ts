@@ -171,17 +171,27 @@ export function centralDateTimeToIso(value: string): string | null {
   return zonedDateTimeToIso(date ?? "", time ?? "", bidTimeZone);
 }
 
-export function displayCentralDate(value: string | null | undefined): string {
+const centralDateOptions: Intl.DateTimeFormatOptions = {
+  timeZone: bidTimeZone,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short"
+};
+
+const centralDateFormats = {
+  minute: new Intl.DateTimeFormat("en-US", centralDateOptions),
+  second: new Intl.DateTimeFormat("en-US", { ...centralDateOptions, second: "2-digit" })
+};
+
+export function displayCentralDate(
+  value: string | null | undefined,
+  precision: "minute" | "second" = "minute"
+): string {
   if (!value) return "Not set";
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: bidTimeZone,
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short"
-  }).format(new Date(value));
+  return centralDateFormats[precision].format(new Date(value));
 }
 
 export function centralTimeZoneLabel(value: string): string {

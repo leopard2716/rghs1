@@ -8,6 +8,7 @@ import {
   fetchTrackingProfiles
 } from "../../../services/tracking.service";
 import { errorMessage } from "../../../errors";
+import { displayCentralDate } from "../../../utils/datetime";
 
 export function CompanyBlacklistForm({ session, slug }: { session: AuthSession; slug: string }) {
   const client = useQueryClient();
@@ -135,6 +136,7 @@ export function CompanyBlacklistForm({ session, slug }: { session: AuthSession; 
               <tr>
                 <th>Company</th>
                 <th>Scope</th>
+                <th>Added at</th>
                 <th>Reason</th>
                 <th>Action</th>
               </tr>
@@ -148,6 +150,11 @@ export function CompanyBlacklistForm({ session, slug }: { session: AuthSession; 
                       ? (profiles.data?.profiles.find((p) => p.id === entry.profile_id)?.name ??
                         "Former profile")
                       : "Global — all profiles"}
+                  </td>
+                  <td>
+                    <time dateTime={entry.created_at} title={entry.created_at}>
+                      {displayCentralDate(entry.created_at, "second")}
+                    </time>
                   </td>
                   <td>{entry.reason || "—"}</td>
                   <td>
