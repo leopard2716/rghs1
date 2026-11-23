@@ -260,6 +260,8 @@ export class SupabaseRestClient {
 
   private async responseError(response: Response, code: string) {
     const message = await upstreamErrorMessage(response);
+    if (response.status === 409 && message.includes("Company reset period"))
+      return apiError(409, message, "company_reset_active");
     if (
       message.includes("avatar_storage_key") ||
       message.includes("avatar_mime_type") ||

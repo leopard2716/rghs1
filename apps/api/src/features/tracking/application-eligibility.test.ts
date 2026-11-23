@@ -181,3 +181,17 @@ it("still blocks when another applied record survives deletion", () => {
   const history = [{ ...prior, deleted_at: now.toISOString() }, other];
   expect(applicationEligibility(target, history, links, rules, now).duplicated).toBe(true);
 });
+
+it("releases a profile at its company reset boundary even when the global period is longer", () => {
+  const policy = { ...rules, companyResets: [{ company: "Acme", days: 30 }] };
+  const history = [
+    { ...prior, applied_at: "2026-01-01T16:00:00Z", rejected_at: "2026-01-15T16:00:00Z" }
+  ];
+  const at = (date: string, links = assignments) =>
+    applicationEligibility(target, history, links, policy, new Date(date)).duplicated;
+  expect(at("2026-01-31T15:59:59Z")).toBe(true);
+  expect(at("2026-01-31T16:00:00Z")).toBe(false);
+  expect(
+    at("2026-01-20T16:00:00Z", [assignments[0]!, { bid_id: "prior", profile_id: "other" }])
+  ).toBe(false);
+});

@@ -736,7 +736,16 @@ export class ApplyAssistantService {
           selectedResume,
           reviewedFieldMap
         );
-    await this.upsertCommittedBidProfile(context, bid.id, profileId, selectedResume);
+    try {
+      await this.upsertCommittedBidProfile(context, bid.id, profileId, selectedResume);
+    } catch (error) {
+      if (!existingBid)
+        await this.supabase.delete("bid_records", {
+          workspace_id: `eq.${context.workspace.id}`,
+          id: `eq.${bid.id}`
+        });
+      throw error;
+    }
 
     const now = new Date().toISOString();
     await this.supabase.update<ApplyAssistantSessionRow>(

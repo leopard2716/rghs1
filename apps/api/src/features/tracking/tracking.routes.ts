@@ -1,4 +1,5 @@
 import { CompanyBlacklistService } from "./company-blacklist.service";
+import { companyResetKey, isUnknownCompanyName } from "@rghs1/domain";
 import { z } from "zod";
 import { ApplicationRulesService } from "./application-rules.service";
 import { zValidator } from "@hono/zod-validator";
@@ -100,6 +101,26 @@ export function registerTrackingRoutes(app: ApiApp): void {
     }
   );
   const rulesInput = z.object({
+    companyResets: z
+      .array(
+        z.object({
+          company: z
+            .string()
+            .trim()
+            .min(1)
+            .max(250)
+            .refine(
+              (name) => !!companyResetKey(name) && !isUnknownCompanyName(name),
+              "Enter a company name"
+            ),
+          days: z.number().int().min(1).max(3650)
+        })
+      )
+      .refine(
+        (rows) => new Set(rows.map((row) => companyResetKey(row.company))).size === rows.length,
+        "Each company must appear once"
+      )
+      .optional(),
     cooldownDays: z.number().int().min(1).max(3650),
     timeZone: z
       .string()
