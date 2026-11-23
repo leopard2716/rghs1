@@ -463,6 +463,7 @@ function trackingService(supabase: ReturnType<typeof trackingSupabase>) {
 
 function trackingSupabase(roleKey: string, updatedTable: string, recordOwnerMemberId = memberId) {
   return {
+    rpc: vi.fn(async () => []),
     selectAll: vi.fn(async () => []),
     select: vi.fn(async (table: string) => {
       if (table === "workspaces") {
@@ -1867,7 +1868,7 @@ it("exports all pending records scoped to the bidder and workspace", async () =>
   });
   expect(selectAll).toHaveBeenCalledWith(
     "bid_records",
-    "job_title,company,job_link,bid_record_profiles(profile_id)",
+    "id,job_title,company,job_link,bid_record_profiles(profile_id)",
     {
       workspace_id: `eq.${workspaceId}`,
       created_by_member_id: `eq.${memberId}`,

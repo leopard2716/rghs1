@@ -121,3 +121,14 @@ export function companyNamesMatch(left: string, right: string): boolean {
   }
   return false;
 }
+
+export function companyResetKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/( (inc|incorporated|llc|corp|corporation|co|company|limited|ltd))+$/, "")
+    .replace(/ /g, "");
+}
+export type CompanyReset = { company: string; days: number };

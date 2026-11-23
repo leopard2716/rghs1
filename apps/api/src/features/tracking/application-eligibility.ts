@@ -1,4 +1,4 @@
-import { companyNamesMatch } from "@rghs1/domain";
+import { companyResetKey, type CompanyReset, companyNamesMatch } from "@rghs1/domain";
 
 export type ApplicationRow = {
   id: string;
@@ -12,7 +12,11 @@ export type ApplicationRow = {
   import_order?: number | null;
   deleted_at: string | null;
 };
-export type ApplicationRules = { cooldownDays: number; timeZone: string };
+export type ApplicationRules = {
+  cooldownDays: number;
+  timeZone: string;
+  companyResets?: CompanyReset[];
+};
 export const defaultApplicationRules: ApplicationRules = {
   cooldownDays: 45,
   timeZone: "America/Chicago"
@@ -40,12 +44,17 @@ export function applicationEligibility(
   const sharedIds = new Set(
     assignments.filter((item) => profileIds.has(item.profile_id)).map((item) => item.bid_id)
   );
+  const reset = rules.companyResets?.find(
+    (rule) => companyResetKey(rule.company) === companyResetKey(target.company)
+  );
   const matches = history
     .filter(
       (row) =>
         row.id !== target.id &&
         sharedIds.has(row.id) &&
-        companyNamesMatch(row.company, target.company) &&
+        (reset
+          ? companyResetKey(row.company) === companyResetKey(target.company)
+          : companyNamesMatch(row.company, target.company)) &&
         !row.deleted_at &&
         (row.applied_at ||
           (!isExpiredImport(row, now) &&
@@ -59,9 +68,9 @@ export function applicationEligibility(
     .map((row) => {
       const inCooldown =
         !!row.applied_at &&
-        !row.rejected_at &&
+        (reset || !row.rejected_at) &&
         Date.parse(row.applied_at) <= now.getTime() &&
-        now.getTime() - Date.parse(row.applied_at) < rules.cooldownDays * 86400000;
+        now.getTime() - Date.parse(row.applied_at) < (reset?.days ?? rules.cooldownDays) * 86400000;
       const pendingEarlier = !row.applied_at;
       return {
         id: row.id,
@@ -75,13 +84,23 @@ export function applicationEligibility(
           .map((item) => item.profile_id),
         deleted: !!row.deleted_at,
         blocks: inCooldown || pendingEarlier,
-        reason: row.rejected_at
-          ? "Rejected — cooldown released"
-          : pendingEarlier
-            ? "Earlier pending row in this import"
-            : inCooldown
-              ? "Within cooldown"
-              : "Outside cooldown"
+        ...(reset && row.applied_at && inCooldown
+          ? {
+              resetUntil: new Date(Date.parse(row.applied_at) + reset.days * 86400000).toISOString()
+            }
+          : {}),
+        reason:
+          reset && row.applied_at
+            ? inCooldown
+              ? `Company reset: ${reset.days} days from application`
+              : "Company reset period ended"
+            : row.rejected_at
+              ? "Rejected — cooldown released"
+              : pendingEarlier
+                ? "Earlier pending row in this import"
+                : inCooldown
+                  ? "Within cooldown"
+                  : "Outside cooldown"
       };
     })
     .sort((a, b) =>

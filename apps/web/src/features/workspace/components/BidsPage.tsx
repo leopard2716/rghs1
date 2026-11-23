@@ -638,7 +638,7 @@ export function BidsPage({
                                   window.confirm(
                                     bid.rejectedAt
                                       ? "Undo rejection? This application will count toward the company cooldown again."
-                                      : "Mark this submitted application rejected by the company? It will stop blocking new applications during cooldown."
+                                      : "Mark this submitted application rejected by the company? Any company-specific reset period will still apply."
                                   )
                                 ) {
                                   if (beginBidAction(bid.id, "rejection"))
@@ -942,9 +942,10 @@ export function BidsPage({
         >
           <div className="modal-form">
             <p>
-              {eligibilityQuery.data?.rules.cooldownDays}-day cooldown; same-profile company matches
+              {eligibilityQuery.data?.rules.cooldownDays}-day default cooldown. Company-specific
+              reset periods run from application even after rejection. Same-profile company matches
               across all bidders. Earlier pending import rows also count. Duplicate matches are
-              warnings. Blacklisted companies block marking applied.
+              warnings. Company reset periods and blacklisted companies block marking applied.
             </p>
             {reviewEligibility.blacklistMatches?.map((entry) => (
               <p key={entry.id}>
@@ -1003,7 +1004,12 @@ export function BidsPage({
                           )
                           .join(", ")}
                       </td>
-                      <td>{match.reason}</td>
+                      <td>
+                        {match.reason}
+                        {match.resetUntil && (
+                          <div>Eligible again {displayDate(match.resetUntil, "second")}</div>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

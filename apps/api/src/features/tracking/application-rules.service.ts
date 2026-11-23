@@ -1,4 +1,4 @@
-import { companyNamesMatch } from "@rghs1/domain";
+import { companyResetKey, type CompanyReset, companyNamesMatch } from "@rghs1/domain";
 import { CompanyBlacklistService, blacklistMatches } from "./company-blacklist.service";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
@@ -21,26 +21,33 @@ export class ApplicationRulesService {
   }
   async rules(slug: string, user: AuthUser) {
     const context = await this.access.requireContext(slug, user.id);
-    const [row] = await this.db.select<{ cooldown_days: number; time_zone: string }>(
-      "workspace_application_rules",
-      "cooldown_days,time_zone",
-      { workspace_id: `eq.${context.workspace.id}` }
-    );
+    const [row] = await this.db.select<{
+      cooldown_days: number;
+      time_zone: string;
+      company_resets?: CompanyReset[];
+    }>("workspace_application_rules", "cooldown_days,time_zone,company_resets", {
+      workspace_id: `eq.${context.workspace.id}`
+    });
     return row
-      ? { cooldownDays: row.cooldown_days, timeZone: row.time_zone }
+      ? {
+          cooldownDays: row.cooldown_days,
+          timeZone: row.time_zone,
+          companyResets: row.company_resets ?? []
+        }
       : defaultApplicationRules;
   }
   async saveRules(slug: string, user: AuthUser, rules: ApplicationRules) {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireRole(context, "admin");
-    const [existing] = await this.db.select<{ workspace_id: string }>(
+    const [existing] = await this.db.select<{ cooldown_days: number; time_zone: string }>(
       "workspace_application_rules",
-      "workspace_id",
+      "cooldown_days,time_zone",
       { workspace_id: `eq.${context.workspace.id}` }
     );
     const values = {
       cooldown_days: rules.cooldownDays,
       time_zone: rules.timeZone,
+      ...(rules.companyResets && { company_resets: rules.companyResets }),
       updated_at: new Date().toISOString()
     };
     if (existing)
@@ -51,7 +58,11 @@ export class ApplicationRulesService {
       await this.db.insert("workspace_application_rules", [
         { workspace_id: context.workspace.id, ...values }
       ]);
-    await this.invalidateAll(context.workspace.id);
+    if (
+      (existing?.cooldown_days ?? defaultApplicationRules.cooldownDays) !== rules.cooldownDays ||
+      (existing?.time_zone ?? defaultApplicationRules.timeZone) !== rules.timeZone
+    )
+      await this.invalidateAll(context.workspace.id);
     await this.db.insert("audit_logs", [
       {
         workspace_id: context.workspace.id,
@@ -75,9 +86,9 @@ export class ApplicationRulesService {
     const now = new Date();
     const workspaceId = context.workspace.id;
     const [settings, targets, assignments, cached, blacklist] = await Promise.all([
-      this.db.select<{ cooldown_days: number; time_zone: string }>(
+      this.db.select<{ cooldown_days: number; time_zone: string; company_resets?: CompanyReset[] }>(
         "workspace_application_rules",
-        "cooldown_days,time_zone",
+        "cooldown_days,time_zone,company_resets",
         { workspace_id: `eq.${workspaceId}` }
       ),
       this.db.select<ApplicationRow>(
@@ -94,20 +105,32 @@ export class ApplicationRulesService {
         bid_id: string;
         duplicated: boolean;
         matches: ReturnType<typeof applicationEligibility>["matches"];
+        company_reset_days?: number | null;
         refresh_after: string | null;
-      }>("bid_eligibility_cache", "bid_id,duplicated,matches,refresh_after", {
+      }>("bid_eligibility_cache", "bid_id,duplicated,matches,refresh_after,company_reset_days", {
         workspace_id: `eq.${workspaceId}`,
         bid_id: `in.(${bidIds.join(",")})`
       }),
       new CompanyBlacklistService(this.db).entries(workspaceId)
     ]);
     const rules = settings.length
-      ? { cooldownDays: settings[0]!.cooldown_days, timeZone: settings[0]!.time_zone }
+      ? {
+          cooldownDays: settings[0]!.cooldown_days,
+          timeZone: settings[0]!.time_zone,
+          companyResets: settings[0]!.company_resets ?? []
+        }
       : defaultApplicationRules;
+    const resets = new Map(
+      rules.companyResets?.map((rule) => [companyResetKey(rule.company), rule.days])
+    );
     const byCache = new Map(cached.map((row) => [row.bid_id, row]));
     const misses = targets.filter((row) => {
       const entry = byCache.get(row.id);
-      return !entry || (!!entry.refresh_after && Date.parse(entry.refresh_after) <= now.getTime());
+      return (
+        !entry ||
+        (entry.company_reset_days ?? null) !== (resets.get(companyResetKey(row.company)) ?? null) ||
+        (!!entry.refresh_after && Date.parse(entry.refresh_after) <= now.getTime())
+      );
     });
     const computed = new Map<string, ReturnType<typeof applicationEligibility>>();
     if (misses.length) {
@@ -125,13 +148,18 @@ export class ApplicationRulesService {
         // A future cooldown boundary can change the answer even without a write.
         const expirations = result.matches
           .filter((match) => match.blocks && match.appliedAt)
-          .map((match) => Date.parse(match.appliedAt!) + rules.cooldownDays * 86400000)
+          .map(
+            (match) =>
+              Date.parse(match.appliedAt!) +
+              (resets.get(companyResetKey(row.company)) ?? rules.cooldownDays) * 86400000
+          )
           .filter((time) => time > now.getTime());
         return {
           workspace_id: workspaceId,
           bid_id: row.id,
           duplicated: result.duplicated,
           matches: result.matches,
+          company_reset_days: resets.get(companyResetKey(row.company)) ?? null,
           checked_at: now.toISOString(),
           refresh_after: expirations.length
             ? new Date(Math.min(...expirations)).toISOString()
@@ -194,7 +222,11 @@ export class ApplicationRulesService {
         { workspace_id: `eq.${workspaceId}`, id: `in.(${batch.join(",")})` }
       );
       const matching = rows
-        .filter((row) => companyNamesMatch(company, row.company))
+        .filter(
+          (row) =>
+            companyNamesMatch(company, row.company) ||
+            companyResetKey(company) === companyResetKey(row.company)
+        )
         .map((row) => row.id);
       if (matching.length)
         await this.db.delete("bid_eligibility_cache", {

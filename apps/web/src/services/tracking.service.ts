@@ -1064,7 +1064,12 @@ export async function bulkDeleteBids(
   return parseJson<{ deleted: number; skipped: number }>(response);
 }
 
-export type ApplicationRules = { cooldownDays: number; timeZone: string };
+import type { CompanyReset } from "@rghs1/domain";
+export type ApplicationRules = {
+  cooldownDays: number;
+  timeZone: string;
+  companyResets?: CompanyReset[];
+};
 export type EligibilityResult = {
   bidId: string;
   showBadge: boolean;
@@ -1086,6 +1091,7 @@ export type EligibilityResult = {
     profileIds: string[];
     deleted: boolean;
     blocks: boolean;
+    resetUntil?: string;
     reason: string;
   }>;
 };

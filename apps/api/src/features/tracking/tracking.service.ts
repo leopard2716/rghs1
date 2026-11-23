@@ -503,13 +503,14 @@ export class TrackingService {
       );
     }
     const rows = await this.supabase.selectAll<{
+      id: string;
       job_title: string;
       company: string;
       job_link: string;
       bid_record_profiles: Array<{ profile_id: string }>;
     }>(
       "bid_records",
-      "job_title,company,job_link,bid_record_profiles(profile_id)" +
+      "id,job_title,company,job_link,bid_record_profiles(profile_id)" +
         (query.profileIds?.length ? ",export_profiles:bid_record_profiles!inner(profile_id)" : ""),
       {
         workspace_id: `eq.${context.workspace.id}`,
@@ -538,12 +539,23 @@ export class TrackingService {
           row.bid_record_profiles.map((assignment) => assignment.profile_id)
         ).length
     );
+    const blocked = new Set<string>();
+    for (let start = 0; start < allowed.length; start += 500) {
+      const ids = allowed.slice(start, start + 500).map((row) => row.id);
+      const matches = await this.supabase.rpc<{ id: string }[]>("blocked_company_reset_exports", {
+        p_workspace_id: context.workspace.id,
+        p_bid_ids: ids
+      });
+      for (const row of matches) blocked.add(row.id);
+    }
     return {
-      records: allowed.map((row) => ({
-        jobTitle: row.job_title,
-        company: row.company,
-        link: row.job_link
-      }))
+      records: allowed
+        .filter((row) => !blocked.has(row.id))
+        .map((row) => ({
+          jobTitle: row.job_title,
+          company: row.company,
+          link: row.job_link
+        }))
     };
   }
 
