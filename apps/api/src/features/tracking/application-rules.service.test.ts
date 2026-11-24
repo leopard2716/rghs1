@@ -113,6 +113,7 @@ it("rechecks a new bidder’s import against the prior bidder’s applications o
     applied_at: new Date().toISOString(),
     deleted_at: null
   };
+  let exact: Array<{ bid_id: string; prior_id: string; applied_at: string }> = [];
   let links: Array<{ profile_id: string }> = [];
   let cache: Record<string, unknown>[] = [
     { bid_id: target.id, profile_ids: null, duplicated: false, matches: [], refresh_after: null }
@@ -133,6 +134,7 @@ it("rechecks a new bidder’s import against the prior bidder’s applications o
       return rows;
     }),
     rpc: vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === "applied_opening_matches") return exact;
       expect(name).toBe("application_eligibility_data");
       expect(args).toEqual({ p_workspace_id: "workspace", p_bid_ids: ["target"] });
       return {
@@ -161,11 +163,40 @@ it("rechecks a new bidder’s import against the prior bidder’s applications o
     matches: [{ id: prior.id, blocks: true }]
   });
   expect((await check()).results[0]?.duplicated).toBe(true);
-  expect(db.rpc).toHaveBeenCalledTimes(1);
+  expect(
+    db.rpc.mock.calls.filter(([name]) => name === "application_eligibility_data")
+  ).toHaveLength(1);
+  // Rejection releases the ordinary company cooldown. A title alone warns,
+  // and an exact opening blocks even when the cached company answer is Applicable.
+  const released = { ...prior, rejected_at: prior.applied_at };
+  cache = [
+    {
+      ...cache[0],
+      duplicated: false,
+      matches: [
+        {
+          id: prior.id,
+          jobTitle: prior.job_title,
+          appliedAt: prior.applied_at,
+          rejectedAt: released.rejected_at,
+          blocks: false
+        }
+      ]
+    }
+  ];
+  expect((await check()).results[0]).toMatchObject({ duplicated: false, possibleRepeat: true });
+  exact = [{ bid_id: target.id, prior_id: prior.id, applied_at: prior.applied_at }];
+  expect((await check()).results[0]).toMatchObject({
+    duplicated: true,
+    previousOpening: { bidId: prior.id, appliedAt: prior.applied_at }
+  });
+  exact = [];
 
   links = [{ profile_id: "unrelated-profile" }];
   expect((await check()).results[0]).toMatchObject({ duplicated: false, matches: [] });
-  expect(db.rpc).toHaveBeenCalledTimes(2);
+  expect(
+    db.rpc.mock.calls.filter(([name]) => name === "application_eligibility_data")
+  ).toHaveLength(2);
 });
 
 it("requires admin permission for recording another bidder's submission", async () => {

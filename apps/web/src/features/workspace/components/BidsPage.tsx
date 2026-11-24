@@ -176,6 +176,13 @@ export function BidsPage({
     enabled: visibleBidIds.length > 0,
     refetchInterval: 30000
   });
+  const eligibilityById = new Map(
+    eligibilityQuery.data?.results.map((result) => [result.bidId, result])
+  );
+  function applicationBlocked(id: string) {
+    const result = eligibilityById.get(id);
+    return !!(result?.blacklisted || result?.previousOpening);
+  }
   const [reviewEligibility, setReviewEligibility] = useState<EligibilityResult | null>(null);
   const rejectionMutation = useMutation({
     mutationFn: ({ bidId, rejected }: { bidId: string; rejected: boolean }) =>
@@ -656,24 +663,12 @@ export function BidsPage({
                                   : "Mark rejected"}
                             </button>
                           ) : null}
-                          {eligibilityQuery.data?.results.find(
-                            (result) => result.bidId === bid.id
-                          ) ? (
+                          {eligibilityById.has(bid.id) ? (
                             <ApplicationEligibilityBadge
-                              result={
-                                eligibilityQuery.data.results.find(
-                                  (result) => result.bidId === bid.id
-                                )!
-                              }
+                              result={eligibilityById.get(bid.id)!}
                               importedAt={bid.importedAt ?? null}
-                              timeZone={eligibilityQuery.data.rules.timeZone}
-                              onReview={() =>
-                                setReviewEligibility(
-                                  eligibilityQuery.data!.results.find(
-                                    (result) => result.bidId === bid.id
-                                  )!
-                                )
-                              }
+                              timeZone={eligibilityQuery.data!.rules.timeZone}
+                              onReview={() => setReviewEligibility(eligibilityById.get(bid.id)!)}
                             />
                           ) : bid.importedAt ? (
                             <span className="record-muted">
@@ -686,11 +681,7 @@ export function BidsPage({
                             <button
                               type="button"
                               className="secondary-action small"
-                              disabled={Boolean(
-                                eligibilityQuery.data?.results.find(
-                                  (result) => result.bidId === bid.id
-                                )?.blacklisted
-                              )}
+                              disabled={applicationBlocked(bid.id)}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 adminApplyMutation.reset();
@@ -706,12 +697,7 @@ export function BidsPage({
                               className="secondary-action small"
                               type="button"
                               disabled={
-                                Boolean(pendingBidActions[bid.id]) ||
-                                Boolean(
-                                  eligibilityQuery.data?.results.find(
-                                    (result) => result.bidId === bid.id
-                                  )?.blacklisted
-                                )
+                                Boolean(pendingBidActions[bid.id]) || applicationBlocked(bid.id)
                               }
                               onClick={(event) => {
                                 event.stopPropagation();
@@ -927,7 +913,7 @@ export function BidsPage({
             <button
               type="submit"
               className="primary-action"
-              disabled={adminApplyMutation.isPending}
+              disabled={adminApplyMutation.isPending || applicationBlocked(adminReviewBid.id)}
             >
               {adminApplyMutation.isPending ? "Saving…" : "Mark applied"}
             </button>
@@ -944,8 +930,10 @@ export function BidsPage({
             <p>
               {eligibilityQuery.data?.rules.cooldownDays}-day default cooldown. Company-specific
               reset periods run from application even after rejection. Same-profile company matches
-              across all bidders. Earlier pending import rows also count. Duplicate matches are
-              warnings. Company reset periods and blacklisted companies block marking applied.
+              across all bidders. Earlier pending import rows also count. An earlier application to
+              the same opening blocks another submission, including after rejection. A matching
+              company and title alone prompts a review. Company reset periods and blacklists still
+              apply.
             </p>
             {reviewEligibility.blacklistMatches?.map((entry) => (
               <p key={entry.id}>
@@ -962,8 +950,28 @@ export function BidsPage({
                 ? "⛔ Blacklisted"
                 : reviewEligibility.duplicated
                   ? "❌ Duplicated"
-                  : "✅ Applicable"}
+                  : reviewEligibility.possibleRepeat
+                    ? "⚠ Possible repeat"
+                    : "✅ Applicable"}
             </p>
+            {reviewEligibility.previousOpening && (
+              <p>
+                This profile already applied to this opening on{" "}
+                {displayDate(reviewEligibility.previousOpening.appliedAt, "second")}.{" "}
+                <Link
+                  to={paths.workspaceBid(slug, reviewEligibility.previousOpening.bidId)}
+                  onClick={() => setReviewEligibility(null)}
+                >
+                  View prior application
+                </Link>
+              </p>
+            )}
+            {reviewEligibility.possibleRepeat && (
+              <p>
+                Possible repeat. This profile previously applied to a role with the same company and
+                title. Compare the postings before applying.
+              </p>
+            )}
             {reviewEligibility.matches.length ? (
               <table className="tracking-table">
                 <thead>
@@ -1014,9 +1022,9 @@ export function BidsPage({
                   ))}
                 </tbody>
               </table>
-            ) : (
+            ) : !reviewEligibility.previousOpening ? (
               <p>No earlier matching applications or pending import rows.</p>
-            )}
+            ) : null}
             <p>To skip this role, close this dialog and delete its pending bid from the table.</p>
           </div>
         </Modal>

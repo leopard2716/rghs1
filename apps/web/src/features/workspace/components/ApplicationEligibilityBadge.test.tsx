@@ -34,3 +34,25 @@ it("retains the existing import-day limit on duplicate badges", () => {
   );
   expect(markup).toBe("");
 });
+
+it.each([
+  [
+    { duplicated: true, previousOpening: { bidId: "prior", appliedAt: "2026-11-18T12:00:00Z" } },
+    "Duplicated · Already applied"
+  ],
+  [{ duplicated: false, possibleRepeat: true }, "Possible repeat"]
+] as const)(
+  "explains earlier applications independently of the company cooldown",
+  (flags, label) => {
+    const markup = renderToStaticMarkup(
+      <ApplicationEligibilityBadge
+        result={{ bidId: "target", showBadge: true, matches: [], ...flags }}
+        importedAt={new Date().toISOString()}
+        timeZone="America/Chicago"
+        onReview={() => undefined}
+      />
+    );
+    expect(markup).toContain(label);
+    expect(markup).not.toContain("Applicable");
+  }
+);

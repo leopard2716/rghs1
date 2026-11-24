@@ -1946,11 +1946,14 @@ it("allows admin metadata corrections without transferring ownership or rewritin
     if (table === "tracking_job_markets") return [market];
     return base.select(table);
   });
-  const update = vi.fn(async (_table: string, values: object) => [{ ...row, ...values }]);
+  const rpc = vi.fn(async (_name: string, args: { p_patch: object }) => ({
+    ...row,
+    ...args.p_patch
+  }));
   const db = {
     ...base,
     select,
-    update,
+    rpc,
     selectAll: vi.fn(async (table: string) => (table === "tracking_profiles" ? [profile] : []))
   };
   const service = new TrackingService(db as unknown as SupabaseRestClient);
@@ -1968,16 +1971,18 @@ it("allows admin metadata corrections without transferring ownership or rewritin
       bidAt: row.bid_at
     }
   );
-  expect(update).toHaveBeenCalledWith(
-    "bid_records",
+  expect(rpc).toHaveBeenCalledWith(
+    "update_bid_with_profiles",
     expect.objectContaining({
-      company: "FullStack",
-      applied_at: row.applied_at
-    }),
-    { workspace_id: `eq.${workspaceId}`, id: `eq.${recordId}`, deleted_at: "is.null" }
+      p_workspace_id: workspaceId,
+      p_bid_id: recordId,
+      p_owner_id: null,
+      p_patch: expect.objectContaining({ company: "FullStack", bid_at: row.bid_at })
+    })
   );
-  const values = update.mock.calls.find((call) => call[0] === "bid_records")![1];
+  const values = rpc.mock.calls[0]![1].p_patch;
   expect(values).not.toHaveProperty("created_by_member_id");
+  expect(values).not.toHaveProperty("applied_at");
   expect(result.bid).toMatchObject({
     createdByMemberId: "another-member",
     canEdit: true,
