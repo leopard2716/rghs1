@@ -190,22 +190,24 @@ export function WorkspaceShell({
             <p className="eyebrow">{workspaceViewCopy(view).eyebrow}</p>
             <h2>{workspaceViewCopy(view).title(workspaceSession.workspace.name)}</h2>
           </div>
-          <div className="header-actions">
-            {isAdmin ? <WorkspaceModeSwitcher slug={slug} /> : null}
-            <NotificationCenter
-              session={session}
-              scope={{
-                workspaceSlug: slug,
-                workspaceId: workspaceSession.workspace.id
-              }}
-            />
-            <AccountMenu
-              email={session.user.email}
-              onOpenProfile={() => navigate(paths.workspaceAccount(slug))}
-              onRecoverPassword={onRecoverPassword}
-              onSignOut={onSignOut}
-            />
-          </div>
+          {!session.impersonationId && (
+            <div className="header-actions">
+              {isAdmin ? <WorkspaceModeSwitcher slug={slug} /> : null}
+              <NotificationCenter
+                session={session}
+                scope={{
+                  workspaceSlug: slug,
+                  workspaceId: workspaceSession.workspace.id
+                }}
+              />
+              <AccountMenu
+                email={session.user.email}
+                onOpenProfile={() => navigate(paths.workspaceAccount(slug))}
+                onRecoverPassword={onRecoverPassword}
+                onSignOut={onSignOut}
+              />
+            </div>
+          )}
         </header>
 
         {children}

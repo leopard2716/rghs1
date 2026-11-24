@@ -3922,3 +3922,17 @@ td span {
 .export-selection-options input[type="checkbox"] {
   width: auto;
 }
+
+.impersonation-banner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: #fef3c7;
+  color: #713f12;
+}

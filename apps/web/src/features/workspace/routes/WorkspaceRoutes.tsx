@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { AccessErrorPanel } from "../../../components/shared/AccessErrorPanel";
 import { LoadingSurface } from "../../../components/shared/LoadingSurface";
@@ -16,6 +16,7 @@ import {
   fetchWorkspaceMembership,
   fetchWorkspaceSession
 } from "../../../services/workspace.service";
+import { currentImpersonation, endImpersonation } from "../../../services/impersonation.service";
 import { useAuthStore } from "../../../stores/auth.store";
 import { MfaGate } from "../../setup/MfaGate";
 import { FirstPasswordChange } from "../components/FirstPasswordChange";
@@ -278,20 +279,64 @@ function WorkspaceProtectedRoute({ view }: { view: WorkspaceView }) {
   );
 }
 
-function WorkspaceMfaContent({
-  session,
-  workspaceSlug,
-  view,
-  onSignOut
-}: {
+type WorkspaceContentProps = {
   session: AuthSession;
   workspaceSlug: string;
   view: WorkspaceView;
   onSignOut: () => void;
-}) {
+};
+
+function WorkspaceMfaContent(props: WorkspaceContentProps) {
+  const { session, workspaceSlug, view } = props;
+  const support = currentImpersonation(session, workspaceSlug);
+  const expires = support ? Date.parse(support.expiresAt) : 0;
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!expires) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.max(0, expires - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [expires]);
+  const exit = useMutation({
+    mutationFn: (id: string) => endImpersonation(session, workspaceSlug, id)
+  });
+  if (!support) return <WorkspaceContent {...props} />;
+  const expired = now >= expires;
+  return (
+    <>
+      <aside className="impersonation-banner" aria-label="Admin impersonation">
+        <strong>
+          {expired ? "Impersonation expired" : "Impersonating"} · {support.displayName}
+        </strong>
+        <button
+          type="button"
+          className="secondary-action compact-action"
+          disabled={exit.isPending}
+          onClick={() => exit.mutate(support.id)}
+        >
+          Return to admin
+        </button>
+        {exit.error ? <span role="alert">{errorMessage(exit.error)}</span> : null}
+      </aside>
+      {!expired &&
+        (view === "account" || view === "users" || view === "payment-ledger" ? (
+          <Navigate to={paths.workspaceBids(workspaceSlug)} replace />
+        ) : (
+          <WorkspaceContent {...props} session={{ ...session, impersonationId: support.id }} />
+        ))}
+    </>
+  );
+}
+
+function WorkspaceContent({ session, workspaceSlug, view, onSignOut }: WorkspaceContentProps) {
   const navigate = useNavigate();
   const workspaceSessionQuery = useQuery({
-    queryKey: ["workspace-session", workspaceSlug, session.user.id, session.accessToken.slice(-12)],
+    queryKey: [
+      "workspace-session",
+      workspaceSlug,
+      session.user.id,
+      session.accessToken.slice(-12),
+      session.impersonationId
+    ],
     queryFn: () => fetchWorkspaceSession(session, workspaceSlug)
   });
 
@@ -321,6 +366,8 @@ function WorkspaceMfaContent({
   }
 
   if (workspaceSessionQuery.data.requiresPasswordChange) {
+    if (session.impersonationId)
+      return <p>This bidder needs to complete their first password change.</p>;
     return <FirstPasswordChange session={session} workspaceSlug={workspaceSlug} />;
   }
 
