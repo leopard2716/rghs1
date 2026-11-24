@@ -542,7 +542,7 @@ export class TrackingService {
     const blocked = new Set<string>();
     for (let start = 0; start < allowed.length; start += 500) {
       const ids = allowed.slice(start, start + 500).map((row) => row.id);
-      const matches = await this.supabase.rpc<{ id: string }[]>("blocked_company_reset_exports", {
+      const matches = await this.supabase.rpc<{ id: string }[]>("blocked_application_exports", {
         p_workspace_id: context.workspace.id,
         p_bid_ids: ids
       });
@@ -856,71 +856,27 @@ export class TrackingService {
         input.profileIds
       );
     }
-    const removeIds = [...currentProfileIds].filter((id) => !selectedProfiles.has(id));
-    const addIds = input.profileIds.filter((id) => !currentProfileIds.has(id));
-    if (removeIds.length) {
-      await this.supabase.delete("bid_record_profiles", {
-        workspace_id: `eq.${context.workspace.id}`,
-        bid_id: `eq.${bidId}`,
-        profile_id: `in.(${removeIds.join(",")})`
-      });
-    }
-    if (addIds.length) {
-      await this.supabase.insert(
-        "bid_record_profiles",
-        addIds.map((profileId) => {
-          const resume =
-            input.profileResumes.find((item) => item.profileId === profileId)?.resume ?? null;
-          return {
-            workspace_id: context.workspace.id,
-            bid_id: bidId,
-            profile_id: profileId,
-            resume
-          };
-        })
-      );
-    }
     const resumeByProfileId = new Map(
       input.profileResumes.map((item) => [item.profileId, item.resume])
     );
-    await Promise.all(
-      input.profileIds
-        .filter((profileId) => currentProfileIds.has(profileId))
-        .map((profileId) =>
-          this.supabase.update(
-            "bid_record_profiles",
-            { resume: resumeByProfileId.get(profileId) ?? null },
-            {
-              workspace_id: `eq.${context.workspace.id}`,
-              bid_id: `eq.${bidId}`,
-              profile_id: `eq.${profileId}`
-            }
-          )
-        )
-    );
-    const now = new Date().toISOString();
-    const [updated] = await this.supabase.update<BidRecordRow>(
-      "bid_records",
-      {
+    const updated = await this.supabase.rpc<BidRecordRow | null>("update_bid_with_profiles", {
+      p_workspace_id: context.workspace.id,
+      p_bid_id: bidId,
+      p_owner_id: context.roleKeys.includes("admin") ? null : context.member.id,
+      p_expected_updated_at: existing.updated_at,
+      p_patch: {
         job_market_id: input.jobMarketId,
         job_title: input.jobTitle,
         company: input.company,
         job_link: input.jobLink,
         bid_at: input.bidAt,
-        applied_at:
-          existing.applied_at && input.bidAt !== existing.bid_at
-            ? input.bidAt
-            : (existing.applied_at ?? null),
-        job_description: input.jobDescription ?? null,
-        updated_at: now
+        job_description: input.jobDescription ?? null
       },
-      {
-        workspace_id: `eq.${context.workspace.id}`,
-        id: `eq.${bidId}`,
-        ...this.ownerFilter(context),
-        deleted_at: "is.null"
-      }
-    );
+      p_profiles: input.profileIds.map((id) => ({
+        profile_id: id,
+        resume: resumeByProfileId.get(id) ?? null
+      }))
+    });
     if (!updated) {
       throw apiError(502, "Bid update did not return a row.", "bid_record_update_failed");
     }
@@ -944,7 +900,7 @@ export class TrackingService {
           bid_id: bidId,
           profile_id: profileId,
           resume: resumeByProfileId.get(profileId) ?? null,
-          created_at: now
+          created_at: updated.updated_at
         })),
         this.records.lookups(profiles, markets, members),
         context.member.id,

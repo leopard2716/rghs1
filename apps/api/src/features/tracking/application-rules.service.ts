@@ -14,6 +14,10 @@ import {
   type ApplicationRules
 } from "./application-eligibility";
 
+function titleKey(title: string) {
+  return title.normalize("NFKC").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
 export class ApplicationRulesService {
   private access: TrackingAccessService;
   constructor(private db: SupabaseRestClient) {
@@ -85,7 +89,7 @@ export class ApplicationRulesService {
   async eligibilityForContext(context: TrackingContext, bidIds: string[]) {
     const now = new Date();
     const workspaceId = context.workspace.id;
-    const [settings, targets, cached, blacklist] = await Promise.all([
+    const [settings, targets, cached, blacklist, priorOpenings] = await Promise.all([
       this.db.select<{ cooldown_days: number; time_zone: string; company_resets?: CompanyReset[] }>(
         "workspace_application_rules",
         "cooldown_days,time_zone,company_resets",
@@ -108,7 +112,11 @@ export class ApplicationRulesService {
         "bid_id,profile_ids,duplicated,matches,refresh_after,company_reset_days",
         { workspace_id: `eq.${workspaceId}`, bid_id: `in.(${bidIds.join(",")})` }
       ),
-      new CompanyBlacklistService(this.db).entries(workspaceId)
+      new CompanyBlacklistService(this.db).entries(workspaceId),
+      this.db.rpc<Array<{ bid_id: string; prior_id: string; applied_at: string }>>(
+        "applied_opening_matches",
+        { p_workspace_id: workspaceId, p_bid_ids: bidIds }
+      )
     ]);
     const rules = settings.length
       ? {
@@ -120,6 +128,7 @@ export class ApplicationRulesService {
     const resets = new Map(
       rules.companyResets?.map((rule) => [companyResetKey(rule.company), rule.days])
     );
+    const openings = new Map(priorOpenings.map((row) => [row.bid_id, row]));
     const byCache = new Map(cached.map((row) => [row.bid_id, row]));
     const resolved = new Map<
       string,
@@ -196,6 +205,13 @@ export class ApplicationRulesService {
         const result = resolved.get(row.id);
         if (!result) return [];
         const profileIds = profilesByBid.get(row.id)!;
+        const opening = openings.get(row.id);
+        const possibleRepeat =
+          !row.applied_at &&
+          !opening &&
+          result.matches.some(
+            (match) => match.appliedAt && titleKey(match.jobTitle) === titleKey(row.job_title)
+          );
         const matches = blacklistMatches(blacklist, row.company, profileIds);
         return {
           bidId: row.id,
@@ -204,7 +220,11 @@ export class ApplicationRulesService {
             !!row.imported_at &&
             calendarDay(row.imported_at, "America/Chicago") ===
               calendarDay(now.toISOString(), "America/Chicago"),
-          duplicated: result.duplicated,
+          duplicated: !!opening || result.duplicated,
+          ...(opening && {
+            previousOpening: { bidId: opening.prior_id, appliedAt: opening.applied_at }
+          }),
+          ...(possibleRepeat && { possibleRepeat: true }),
           matches: result.matches,
           blacklisted: matches.length > 0,
           blacklistMatches: matches.map((item) => ({

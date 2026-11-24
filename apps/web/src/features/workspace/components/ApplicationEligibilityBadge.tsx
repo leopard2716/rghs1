@@ -25,6 +25,8 @@ export function ApplicationEligibilityBadge({
   });
   if (
     !result.blacklisted &&
+    !result.previousOpening &&
+    !result.possibleRepeat &&
     (!importedAt || format.format(new Date(importedAt)) !== format.format(new Date(now)))
   )
     return null;
@@ -39,9 +41,13 @@ export function ApplicationEligibilityBadge({
     >
       {result.blacklisted
         ? "⛔ Blacklisted"
-        : result.duplicated
-          ? "❌ Duplicated"
-          : "✅ Applicable"}
+        : result.previousOpening
+          ? "❌ Duplicated · Already applied"
+          : result.duplicated
+            ? "❌ Duplicated"
+            : result.possibleRepeat
+              ? "⚠ Possible repeat"
+              : "✅ Applicable"}
     </button>
   );
 }

@@ -260,6 +260,10 @@ export class SupabaseRestClient {
 
   private async responseError(response: Response, code: string) {
     const message = await upstreamErrorMessage(response);
+    if (response.status === 409 && message.includes("The bid changed"))
+      return apiError(409, message, "bid_edit_conflict");
+    if (response.status === 409 && message.includes("already applied to this opening"))
+      return apiError(409, message, "opening_already_applied");
     if (response.status === 409 && message.includes("Company reset period"))
       return apiError(409, message, "company_reset_active");
     if (

@@ -1071,6 +1071,8 @@ export type ApplicationRules = {
   companyResets?: CompanyReset[];
 };
 export type EligibilityResult = {
+  previousOpening?: { bidId: string; appliedAt: string };
+  possibleRepeat?: boolean;
   bidId: string;
   showBadge: boolean;
   duplicated: boolean;
