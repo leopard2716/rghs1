@@ -85,32 +85,29 @@ export class ApplicationRulesService {
   async eligibilityForContext(context: TrackingContext, bidIds: string[]) {
     const now = new Date();
     const workspaceId = context.workspace.id;
-    const [settings, targets, assignments, cached, blacklist] = await Promise.all([
+    const [settings, targets, cached, blacklist] = await Promise.all([
       this.db.select<{ cooldown_days: number; time_zone: string; company_resets?: CompanyReset[] }>(
         "workspace_application_rules",
         "cooldown_days,time_zone,company_resets",
         { workspace_id: `eq.${workspaceId}` }
       ),
-      this.db.select<ApplicationRow>(
+      this.db.select<ApplicationRow & { bid_record_profiles: Array<{ profile_id: string }> }>(
         "bid_records",
-        "id,company,job_title,applied_at,rejected_at,imported_at,expired_at,deleted_at,import_batch_id,import_order",
-        { workspace_id: `eq.${workspaceId}`, id: `in.(${bidIds.join(",")})` }
-      ),
-      this.db.select<{ bid_id: string; profile_id: string }>(
-        "bid_record_profiles",
-        "bid_id,profile_id",
-        { workspace_id: `eq.${workspaceId}`, bid_id: `in.(${bidIds.join(",")})` }
+        "id,company,job_title,applied_at,rejected_at,imported_at,expired_at,deleted_at,import_batch_id,import_order,bid_record_profiles(profile_id)",
+        { workspace_id: `eq.${workspaceId}`, id: `in.(${bidIds.join(",")})`, deleted_at: "is.null" }
       ),
       this.db.select<{
         bid_id: string;
+        profile_ids: string[] | null;
         duplicated: boolean;
         matches: ReturnType<typeof applicationEligibility>["matches"];
         company_reset_days?: number | null;
         refresh_after: string | null;
-      }>("bid_eligibility_cache", "bid_id,duplicated,matches,refresh_after,company_reset_days", {
-        workspace_id: `eq.${workspaceId}`,
-        bid_id: `in.(${bidIds.join(",")})`
-      }),
+      }>(
+        "bid_eligibility_cache",
+        "bid_id,profile_ids,duplicated,matches,refresh_after,company_reset_days",
+        { workspace_id: `eq.${workspaceId}`, bid_id: `in.(${bidIds.join(",")})` }
+      ),
       new CompanyBlacklistService(this.db).entries(workspaceId)
     ]);
     const rules = settings.length
@@ -124,15 +121,29 @@ export class ApplicationRulesService {
       rules.companyResets?.map((rule) => [companyResetKey(rule.company), rule.days])
     );
     const byCache = new Map(cached.map((row) => [row.bid_id, row]));
+    const resolved = new Map<
+      string,
+      Pick<ReturnType<typeof applicationEligibility>, "duplicated" | "matches">
+    >();
+    const profilesByBid = new Map(
+      targets.map((row) => [row.id, row.bid_record_profiles.map((link) => link.profile_id).sort()])
+    );
     const misses = targets.filter((row) => {
+      const profiles = profilesByBid.get(row.id)!;
+      // Bulk imports write the bid before its profile links. Leave it unresolved until linked.
+      if (!profiles.length) return false;
       const entry = byCache.get(row.id);
-      return (
-        !entry ||
+      if (
+        !entry?.profile_ids ||
+        entry.profile_ids.length !== profiles.length ||
+        !entry.profile_ids.every((id, index) => id === profiles[index]) ||
         (entry.company_reset_days ?? null) !== (resets.get(companyResetKey(row.company)) ?? null) ||
         (!!entry.refresh_after && Date.parse(entry.refresh_after) <= now.getTime())
-      );
+      )
+        return true;
+      resolved.set(row.id, entry);
+      return false;
     });
-    const computed = new Map<string, ReturnType<typeof applicationEligibility>>();
     if (misses.length) {
       const data = await this.db.rpc<{
         targets: ApplicationRow[];
@@ -142,9 +153,16 @@ export class ApplicationRulesService {
         p_workspace_id: workspaceId,
         p_bid_ids: misses.map((row) => row.id)
       });
-      const snapshots = data.targets.map((row) => {
+      const snapshots = data.targets.flatMap((row) => {
+        const profileIds = data.assignments
+          .filter((link) => link.bid_id === row.id)
+          .map((link) => link.profile_id)
+          .sort();
+        // Use the profile set from the same database snapshot as the history.
+        if (!profileIds.length) return [];
+        profilesByBid.set(row.id, profileIds);
         const result = applicationEligibility(row, data.history, data.assignments, rules, now);
-        computed.set(row.id, result);
+        resolved.set(row.id, result);
         // A future cooldown boundary can change the answer even without a write.
         const expirations = result.matches
           .filter((match) => match.blocks && match.appliedAt)
@@ -157,6 +175,7 @@ export class ApplicationRulesService {
         return {
           workspace_id: workspaceId,
           bid_id: row.id,
+          profile_ids: profileIds,
           duplicated: result.duplicated,
           matches: result.matches,
           company_reset_days: resets.get(companyResetKey(row.company)) ?? null,
@@ -173,12 +192,10 @@ export class ApplicationRulesService {
     return {
       rules,
       checkedAt: now.toISOString(),
-      results: targets.map((row) => {
-        const result = computed.get(row.id);
-        const entry = byCache.get(row.id);
-        const profileIds = assignments
-          .filter((item) => item.bid_id === row.id)
-          .map((item) => item.profile_id);
+      results: targets.flatMap((row) => {
+        const result = resolved.get(row.id);
+        if (!result) return [];
+        const profileIds = profilesByBid.get(row.id)!;
         const matches = blacklistMatches(blacklist, row.company, profileIds);
         return {
           bidId: row.id,
@@ -187,8 +204,8 @@ export class ApplicationRulesService {
             !!row.imported_at &&
             calendarDay(row.imported_at, "America/Chicago") ===
               calendarDay(now.toISOString(), "America/Chicago"),
-          duplicated: result?.duplicated ?? entry?.duplicated ?? false,
-          matches: result?.matches ?? entry?.matches ?? [],
+          duplicated: result.duplicated,
+          matches: result.matches,
           blacklisted: matches.length > 0,
           blacklistMatches: matches.map((item) => ({
             id: item.id,

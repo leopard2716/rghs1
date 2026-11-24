@@ -20,7 +20,12 @@ export async function loadEligibilityBatches(
     const batch = ids.slice(offset, offset + 20);
     try {
       const response = await load(batch);
-      data = { ...data, rules: response.rules, results: [...data.results, ...response.results] };
+      const returnedIds = new Set(response.results.map((result) => result.bidId));
+      data = {
+        rules: response.rules,
+        results: [...data.results, ...response.results],
+        failedIds: [...data.failedIds, ...batch.filter((id) => !returnedIds.has(id))]
+      };
     } catch (error) {
       if (signal.aborted) throw error;
       data = { ...data, failedIds: [...data.failedIds, ...batch] };
