@@ -97,32 +97,36 @@ it("does not audit a failed concurrent update", async () => {
   expect(db.insert).not.toHaveBeenCalled();
 });
 
-it("scopes eligibility reads to target IDs and shared profiles and preserves normalized company cooldowns", async () => {
+it("rechecks a new bidder’s import against the prior bidder’s applications once linked", async () => {
   const target = {
     id: "target",
+    created_by_member_id: "bidder-b",
     company: "AstranaHealth",
     job_title: "Engineer",
     deleted_at: null
   };
   const prior = {
     id: "prior",
+    created_by_member_id: "bidder-a",
     company: "Astrana Health, Inc",
     job_title: "Engineer",
     applied_at: new Date().toISOString(),
     deleted_at: null
   };
-  let cache: Record<string, unknown>[] = [];
+  let links: Array<{ profile_id: string }> = [];
+  let cache: Record<string, unknown>[] = [
+    { bid_id: target.id, profile_ids: null, duplicated: false, matches: [], refresh_after: null }
+  ];
   const db = {
     selectAll: vi.fn(async () => []),
     select: vi.fn(async (table: string, _fields: string, filters: Record<string, string>) => {
       if (table === "workspace_application_rules") return [];
       expect(filters.workspace_id).toBe("eq.workspace");
       if (table === "bid_eligibility_cache") return cache;
-      if (table === "bid_record_profiles") {
-        return [{ bid_id: "target", profile_id: "profile" }];
-      }
+      expect(table).toBe("bid_records");
+      expect(filters).not.toHaveProperty("created_by_member_id");
       expect(filters.id).toBe("in.(target)");
-      return [target];
+      return [{ ...target, bid_record_profiles: links }];
     }),
     upsert: vi.fn(async (_table: string, rows: Record<string, unknown>[]) => {
       cache = rows;
@@ -135,25 +139,33 @@ it("scopes eligibility reads to target IDs and shared profiles and preserves nor
         targets: [target],
         history: [target, prior],
         assignments: [
-          { bid_id: "target", profile_id: "profile" },
+          ...links.map((link) => ({ bid_id: target.id, ...link })),
           { bid_id: "prior", profile_id: "profile" }
         ]
       };
     })
   };
   const service = new ApplicationRulesService(db as unknown as SupabaseRestClient);
-  const result = await service.eligibilityForContext(
-    { workspace: { id: "workspace" } } as TrackingContext,
-    ["target"]
-  );
-  expect(result.results[0]?.duplicated).toBe(true);
-  expect(result.results[0]?.matches[0]?.id).toBe("prior");
-  const cachedResult = await service.eligibilityForContext(
-    { workspace: { id: "workspace" } } as TrackingContext,
-    ["target"]
-  );
-  expect(cachedResult.results[0]?.duplicated).toBe(true);
+  const context = {
+    workspace: { id: "workspace" },
+    member: { id: "bidder-b" }
+  } as TrackingContext;
+  const check = () => service.eligibilityForContext(context, [target.id]);
+
+  expect((await check()).results).toEqual([]);
+  expect(db.upsert).not.toHaveBeenCalled();
+
+  links = [{ profile_id: "profile" }];
+  expect((await check()).results[0]).toMatchObject({
+    duplicated: true,
+    matches: [{ id: prior.id, blocks: true }]
+  });
+  expect((await check()).results[0]?.duplicated).toBe(true);
   expect(db.rpc).toHaveBeenCalledTimes(1);
+
+  links = [{ profile_id: "unrelated-profile" }];
+  expect((await check()).results[0]).toMatchObject({ duplicated: false, matches: [] });
+  expect(db.rpc).toHaveBeenCalledTimes(2);
 });
 
 it("requires admin permission for recording another bidder's submission", async () => {
