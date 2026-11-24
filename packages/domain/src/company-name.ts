@@ -102,24 +102,41 @@ const GENERIC_BRANDS = new Set([
   "international"
 ]);
 
+function shorterCompanyBrands(compact: string): string[] {
+  const brands: string[] = [];
+  let candidate = compact;
+  for (;;) {
+    const suffix = BUSINESS_DESCRIPTORS.find((value) => candidate.endsWith(value));
+    if (!suffix) return brands;
+    candidate = candidate.slice(0, -suffix.length);
+    if (candidate.length < 4) return brands;
+    if (!GENERIC_BRANDS.has(candidate)) brands.push(candidate);
+  }
+}
+
 export function companyNamesMatch(left: string, right: string): boolean {
   if (isUnknownCompanyName(left) || isUnknownCompanyName(right)) return false;
   const a = normalizeCompanyName(left).replace(/\s+/g, "");
   const b = normalizeCompanyName(right).replace(/\s+/g, "");
   if (!a || !b) return false;
   if (a === b) return true;
-  const [brand, extended] = a.length < b.length ? [a, b] : [b, a];
-  if (brand.length < 4 || GENERIC_BRANDS.has(brand)) return false;
-  // Compare only against the complete shorter brand, never arbitrary substrings or typos.
-  // Do not reduce both sides: Acme Health and Acme Technologies remain distinct.
-  let candidate = extended;
-  while (candidate.length > brand.length) {
-    const suffix = BUSINESS_DESCRIPTORS.find((value) => candidate.endsWith(value));
-    if (!suffix) return false;
-    candidate = candidate.slice(0, -suffix.length);
-    if (candidate === brand) return true;
+  return a.length < b.length
+    ? shorterCompanyBrands(b).includes(a)
+    : shorterCompanyBrands(a).includes(b);
+}
+
+// Use directional keys so "Acme Health" and "Acme Group" both match "Acme",
+// without matching each other. Reset keys also cover custom company cooldowns.
+export function companyEligibilityKeys(company: string, side: "cached" | "changed"): string[] {
+  const keys = ["reset:" + companyResetKey(company)];
+  const name = normalizeCompanyName(company).replace(/\s+/g, "");
+  if (!name || isUnknownCompanyName(company)) return keys;
+  keys.push("name:" + name);
+  if (side === "changed") keys.push("longer:" + name);
+  for (const brand of shorterCompanyBrands(name)) {
+    keys.push((side === "cached" ? "longer:" : "name:") + brand);
   }
-  return false;
+  return keys;
 }
 
 export function companyResetKey(name: string): string {

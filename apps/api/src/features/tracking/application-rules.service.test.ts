@@ -15,10 +15,11 @@ function fixture(
     roleKeys: roles
   } as TrackingContext);
   const db = {
+    rpc: vi.fn(async () => 0),
     selectAll: vi.fn(async () => []),
     select: vi.fn(async (_table: string, _fields: string, filters: Record<string, string>) =>
       !filters.created_by_member_id || filters.created_by_member_id === `eq.${owner}`
-        ? [{ applied_at: applied, rejected_at: rejected }]
+        ? [{ company: "Acme", profile_id: "profile", applied_at: applied, rejected_at: rejected }]
         : []
     ),
     update: vi.fn(

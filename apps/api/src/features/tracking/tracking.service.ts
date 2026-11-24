@@ -1,7 +1,7 @@
 import { CompanyBlacklistService, blacklistMatches } from "./company-blacklist.service";
 import { centralDayStart } from "./application-eligibility";
 import { ApplicationRulesService } from "./application-rules.service";
-import { normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
+import { companyEligibilityKeys, normalizeCompanyName, isUnknownCompanyName } from "@rghs1/domain";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
 import { SupabaseRestClient } from "../../infrastructure/supabase-rest.client";
@@ -653,11 +653,6 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireAnyRole(context, ["admin", "bidder"]);
     const bid = await this.createBidForContext(context, input);
-    await new ApplicationRulesService(this.supabase).invalidateAffected(
-      context.workspace.id,
-      input.company,
-      input.profileIds
-    );
     await this.audit(context, "tracking.bid.created", bid.id, {
       profileCount: input.profileIds.length,
       jobMarketId: input.jobMarketId
@@ -915,9 +910,9 @@ export class TrackingService {
     context: TrackingContext,
     input: BidRecordInput
   ): Promise<BidResponse> {
-    await Promise.all([
-      this.access.requireProfiles(context.workspace.id, input.profileIds),
-      this.access.requireMarket(context.workspace.id, input.jobMarketId)
+    const [profiles, market] = await Promise.all([
+      this.access.requireProfiles(context.workspace.id, input.profileIds, trackingProfileFields),
+      this.access.requireMarket(context.workspace.id, input.jobMarketId, trackingJobMarketFields)
     ]);
 
     await new CompanyBlacklistService(this.supabase).requireAllowed(
@@ -925,60 +920,37 @@ export class TrackingService {
       input.company,
       input.profileIds
     );
-    const id = crypto.randomUUID();
-    const [bid] = await this.supabase.insert<BidRecordRow>("bid_records", [
-      {
-        id,
-        workspace_id: context.workspace.id,
+    const assignments = input.profileIds.map((profileId) => ({
+      profile_id: profileId,
+      resume: input.profileResumes.find((item) => item.profileId === profileId)?.resume ?? null
+    }));
+    const bid = await this.supabase.rpc<BidRecordRow>("create_submitted_bid", {
+      p_workspace_id: context.workspace.id,
+      p_member_id: context.member.id,
+      p_bid: {
         job_market_id: input.jobMarketId,
         job_title: input.jobTitle,
         company: input.company,
         job_link: input.jobLink,
         bid_at: input.bidAt,
-        applied_at: input.bidAt,
-        job_description: input.jobDescription ?? null,
-        created_by_member_id: context.member.id
-      }
-    ]);
-    if (!bid) {
-      throw apiError(502, "Bid creation did not return a row.", "bid_record_create_failed");
-    }
-
-    try {
-      await this.supabase.insert(
-        "bid_record_profiles",
-        input.profileIds.map((profileId) => ({
-          workspace_id: context.workspace.id,
-          bid_id: bid.id,
-          profile_id: profileId,
-          resume: input.profileResumes.find((item) => item.profileId === profileId)?.resume ?? null
-        }))
-      );
-    } catch (error) {
-      await this.supabase
-        .delete("bid_records", {
-          workspace_id: `eq.${context.workspace.id}`,
-          id: `eq.${bid.id}`
-        })
-        .catch(() => undefined);
-      throw error;
-    }
-
-    const [profiles, markets, members] = await Promise.all([
-      this.loadProfiles(context.workspace.id, true),
-      this.loadMarkets(context.workspace.id, true),
-      this.loadMembers(context.workspace.id)
-    ]);
+        job_description: input.jobDescription ?? null
+      },
+      p_profiles: assignments,
+      p_company_keys: companyEligibilityKeys(input.company, "changed")
+    });
     return this.records.bid(
       bid,
-      input.profileIds.map((profileId) => ({
+      assignments.map((assignment) => ({
+        ...assignment,
         workspace_id: context.workspace.id,
         bid_id: bid.id,
-        profile_id: profileId,
-        resume: input.profileResumes.find((item) => item.profileId === profileId)?.resume ?? null,
         created_at: bid.created_at
       })),
-      this.records.lookups(profiles, markets, members),
+      this.records.lookups(
+        profiles.map((row) => this.records.profile(row)),
+        [this.records.market(market)],
+        [{ id: context.member.id, name: context.member.display_name || context.member.email }]
+      ),
       context.member.id,
       true,
       [],
@@ -1016,13 +988,6 @@ export class TrackingService {
         "bulk_bid_delete_stale"
       );
     }
-    const beforeDeleteAssignments = await this.supabase.selectAll<{
-      bid_id: string;
-      profile_id: string;
-    }>("bid_record_profiles", "bid_id,profile_id", {
-      workspace_id: `eq.${context.workspace.id}`,
-      bid_id: `in.(${input.bidIds.join(",")})`
-    });
     const deleted = await this.supabase.delete<{ id: string }>("bid_records", {
       ...this.bulkDeleteFilters(context, input.filter),
       ...(input.filter.duplicatedOnly ? { applied_at: "is.null" } : {}),
@@ -1034,22 +999,6 @@ export class TrackingService {
       id: `in.(${input.bidIds.join(",")})`
     });
     if (deleted.length) {
-      const eligibility = new ApplicationRulesService(this.supabase);
-      const deletedIds = new Set(deleted.map((row) => row.id));
-      const groups = new Map<string, { company: string; profileIds: Set<string> }>();
-      for (const row of eligible.filter((item) => deletedIds.has(item.id))) {
-        const key = normalizeCompanyName(row.company);
-        const group = groups.get(key) ?? { company: row.company, profileIds: new Set<string>() };
-        for (const assignment of beforeDeleteAssignments) {
-          if (assignment.bid_id === row.id) group.profileIds.add(assignment.profile_id);
-        }
-        groups.set(key, group);
-      }
-      for (const group of groups.values()) {
-        await eligibility.invalidateAffected(context.workspace.id, group.company, [
-          ...group.profileIds
-        ]);
-      }
       await this.audit(context, "tracking.bid.bulk_deleted", deleted[0]!.id, {
         bidIds: deleted.map((row) => row.id),
         count: deleted.length,
@@ -1151,14 +1100,6 @@ export class TrackingService {
     const context = await this.access.requireContext(slug, user.id);
     this.access.requireAnyRole(context, ["admin", "bidder"]);
     await this.access.requireOwnedBid(context, bidId, "delete");
-    const beforeDeleteProfiles = await this.supabase.select<{ profile_id: string }>(
-      "bid_record_profiles",
-      "profile_id",
-      {
-        workspace_id: `eq.${context.workspace.id}`,
-        bid_id: `eq.${bidId}`
-      }
-    );
     const [bid] = await this.supabase.delete<BidRecordRow>("bid_records", {
       workspace_id: `eq.${context.workspace.id}`,
       id: `eq.${bidId}`,
@@ -1173,11 +1114,6 @@ export class TrackingService {
       );
     }
 
-    await new ApplicationRulesService(this.supabase).invalidateAffected(
-      context.workspace.id,
-      bid.company,
-      beforeDeleteProfiles.map((p) => p.profile_id)
-    );
     await this.audit(context, "tracking.bid.deleted", bid.id, {});
     return { ok: true, bidId: bid.id };
   }

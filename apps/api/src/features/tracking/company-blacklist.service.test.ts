@@ -68,7 +68,7 @@ describe("company blacklists", () => {
   it("validates profile membership and audits scoped additions", async () => {
     const profiles = vi
       .spyOn(TrackingAccessService.prototype, "requireProfiles")
-      .mockResolvedValue(undefined);
+      .mockResolvedValue([]);
     const { service, db } = fixture();
     await service.add(
       "team",

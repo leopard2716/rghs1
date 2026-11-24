@@ -12,7 +12,9 @@ import type {
   BidRecordRow,
   InterviewRecordRow,
   JobRecordRow,
-  PaymentRecordRow
+  PaymentRecordRow,
+  TrackingProfileRow,
+  TrackingJobMarketRow
 } from "./tracking.types";
 import {
   bidRecordFields,
@@ -104,8 +106,8 @@ export class TrackingAccessService {
     }
   }
 
-  async requireProfiles(workspaceId: string, profileIds: string[]): Promise<void> {
-    const profiles = await this.supabase.select<{ id: string }>("tracking_profiles", "id", {
+  async requireProfiles(workspaceId: string, profileIds: string[], fields = "id") {
+    const profiles = await this.supabase.select<TrackingProfileRow>("tracking_profiles", fields, {
       workspace_id: `eq.${workspaceId}`,
       id: `in.(${profileIds.join(",")})`,
       deleted_at: "is.null"
@@ -117,17 +119,23 @@ export class TrackingAccessService {
         "bid_profiles_invalid"
       );
     }
+    return profiles;
   }
 
-  async requireMarket(workspaceId: string, marketId: string): Promise<void> {
-    const markets = await this.supabase.select<{ id: string }>("tracking_job_markets", "id", {
-      workspace_id: `eq.${workspaceId}`,
-      id: `eq.${marketId}`,
-      deleted_at: "is.null"
-    });
+  async requireMarket(workspaceId: string, marketId: string, fields = "id") {
+    const markets = await this.supabase.select<TrackingJobMarketRow>(
+      "tracking_job_markets",
+      fields,
+      {
+        workspace_id: `eq.${workspaceId}`,
+        id: `eq.${marketId}`,
+        deleted_at: "is.null"
+      }
+    );
     if (!markets.length) {
       throw apiError(400, "Select an active job market from this workspace.", "job_market_invalid");
     }
+    return markets[0]!;
   }
 
   async requireActiveMembers(workspaceId: string, memberIds: string[]): Promise<void> {

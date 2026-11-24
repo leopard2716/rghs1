@@ -1,4 +1,4 @@
-import { companyResetKey, type CompanyReset, companyNamesMatch } from "@rghs1/domain";
+import { companyResetKey, type CompanyReset, companyEligibilityKeys } from "@rghs1/domain";
 import { CompanyBlacklistService, blacklistMatches } from "./company-blacklist.service";
 import type { AuthUser } from "../../auth/auth.types";
 import { apiError } from "../../errors";
@@ -103,13 +103,14 @@ export class ApplicationRulesService {
       this.db.select<{
         bid_id: string;
         profile_ids: string[] | null;
+        company_keys: string[] | null;
         duplicated: boolean;
         matches: ReturnType<typeof applicationEligibility>["matches"];
         company_reset_days?: number | null;
         refresh_after: string | null;
       }>(
         "bid_eligibility_cache",
-        "bid_id,profile_ids,duplicated,matches,refresh_after,company_reset_days",
+        "bid_id,profile_ids,company_keys,duplicated,matches,refresh_after,company_reset_days",
         { workspace_id: `eq.${workspaceId}`, bid_id: `in.(${bidIds.join(",")})` }
       ),
       new CompanyBlacklistService(this.db).entries(workspaceId),
@@ -144,6 +145,7 @@ export class ApplicationRulesService {
       const entry = byCache.get(row.id);
       if (
         !entry?.profile_ids ||
+        !entry.company_keys ||
         entry.profile_ids.length !== profiles.length ||
         !entry.profile_ids.every((id, index) => id === profiles[index]) ||
         (entry.company_reset_days ?? null) !== (resets.get(companyResetKey(row.company)) ?? null) ||
@@ -185,6 +187,7 @@ export class ApplicationRulesService {
           workspace_id: workspaceId,
           bid_id: row.id,
           profile_ids: profileIds,
+          company_keys: companyEligibilityKeys(row.company, "cached"),
           duplicated: result.duplicated,
           matches: result.matches,
           company_reset_days: resets.get(companyResetKey(row.company)) ?? null,
@@ -242,35 +245,11 @@ export class ApplicationRulesService {
   // This is invoked on writes, never on table reads or keyword searches.
   async invalidateAffected(workspaceId: string, company: string, profileIds: string[]) {
     if (!profileIds.length) return;
-    const assignments = await this.db.selectAll<{ bid_id: string }>(
-      "bid_record_profiles",
-      "bid_id",
-      {
-        workspace_id: `eq.${workspaceId}`,
-        profile_id: `in.(${profileIds.join(",")})`
-      }
-    );
-    const ids = [...new Set(assignments.map((item) => item.bid_id))];
-    for (let offset = 0; offset < ids.length; offset += 100) {
-      const batch = ids.slice(offset, offset + 100);
-      const rows = await this.db.select<{ id: string; company: string }>(
-        "bid_records",
-        "id,company",
-        { workspace_id: `eq.${workspaceId}`, id: `in.(${batch.join(",")})` }
-      );
-      const matching = rows
-        .filter(
-          (row) =>
-            companyNamesMatch(company, row.company) ||
-            companyResetKey(company) === companyResetKey(row.company)
-        )
-        .map((row) => row.id);
-      if (matching.length)
-        await this.db.delete("bid_eligibility_cache", {
-          workspace_id: `eq.${workspaceId}`,
-          bid_id: `in.(${matching.join(",")})`
-        });
-    }
+    await this.db.rpc("invalidate_bid_eligibility", {
+      p_workspace_id: workspaceId,
+      p_profile_ids: profileIds,
+      p_company_keys: companyEligibilityKeys(company, "changed")
+    });
   }
 
   async invalidateAll(workspaceId: string) {

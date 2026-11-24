@@ -25,6 +25,7 @@ describe("TrackingService deletion ownership", () => {
       deleted_at: "is.null"
     });
     expect(supabase.update).not.toHaveBeenCalled();
+    expect(supabase.selectAll).not.toHaveBeenCalled();
   });
 
   it("soft-deletes an interview only through its workspace and creator member id", async () => {
@@ -2160,4 +2161,54 @@ it("does not allow bidder exports to select other bidders", async () => {
     service.exportPendingBids("rg-team", { id: authUserId }, { memberIds: [memberId, authUserId] })
   ).rejects.toMatchObject({ status: 403, code: "export_bidder_forbidden" });
   expect(selectAll).not.toHaveBeenCalled();
+});
+
+it("returns the saved bid using selected records without paging through profile history", async () => {
+  const base = trackingSupabase("bidder", "bid_records");
+  const bidAt = "2026-11-24T16:00:00Z";
+  const select = vi.fn(async (table: string) => {
+    if (table === "tracking_profiles") return [{ id: bulkProfileId, name: "Frank" }];
+    if (table === "tracking_job_markets") return [{ id: "market", name: "US" }];
+    return base.select(table);
+  });
+  const selectAll = vi.fn(async (table: string) => {
+    expect(table).toBe("company_blacklist");
+    return [];
+  });
+  const rpc = vi.fn(async (name: string) => {
+    expect(name).toBe("create_submitted_bid");
+    return {
+      id: recordId,
+      job_market_id: "market",
+      created_by_member_id: memberId,
+      applied_at: bidAt
+    };
+  });
+  const service = new TrackingService({
+    ...base,
+    select,
+    selectAll,
+    rpc
+  } as unknown as SupabaseRestClient);
+  const result = await service.createBid(
+    "rg-team",
+    { id: authUserId },
+    {
+      jobMarketId: "market",
+      jobTitle: "Engineer",
+      company: "Acme",
+      bidAt,
+      jobLink: "https://example.com/job",
+      profileIds: [bulkProfileId],
+      profileResumes: [{ profileId: bulkProfileId, resume: "resume" }]
+    }
+  );
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(result.bid).toMatchObject({
+    id: recordId,
+    appliedAt: bidAt,
+    bidder: { id: memberId },
+    jobMarket: { name: "US" },
+    profiles: [{ name: "Frank", resume: "resume" }]
+  });
 });
