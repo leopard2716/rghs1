@@ -23,6 +23,7 @@ export type ApiBindings = {
 
 export type ApiVariables = {
   authUser: AuthUser;
+  impersonatedUser?: AuthUser;
 };
 
 export type ApiContext = Context<{

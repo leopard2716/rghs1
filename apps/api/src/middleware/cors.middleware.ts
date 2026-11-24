@@ -17,7 +17,7 @@ export function corsMiddleware(): MiddlewareHandler<{
 
         return allowedOrigins[0] ?? "http://localhost:5173";
       },
-      allowHeaders: ["Authorization", "Content-Type"],
+      allowHeaders: ["Authorization", "Content-Type", "X-Workspace-Impersonation"],
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       credentials: true
     });

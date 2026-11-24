@@ -46,7 +46,7 @@ describe("authenticatedApiFetch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("refreshes and retries once when the API rejects an expired JWT", async () => {
+  it("keeps the bidder session on both attempts when refreshing a rejected JWT", async () => {
     const session = authSession(Date.now() + 3_600_000);
     window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
     let apiCalls = 0;
@@ -61,6 +61,7 @@ describe("authenticatedApiFetch", () => {
         });
       }
 
+      expect(new Headers(init?.headers).get("X-Workspace-Impersonation")).toBe("support-id");
       apiCalls += 1;
       if (apiCalls === 1) {
         expect(new Headers(init?.headers).get("authorization")).toBe("Bearer access-token");
@@ -79,8 +80,8 @@ describe("authenticatedApiFetch", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await authenticatedApiFetch(
-      session,
-      "https://api.example.com/v1/workspaces/rg-team/membership"
+      { ...session, impersonationId: "support-id" },
+      "https://api.example.com/v1/workspaces/rg-team/session"
     );
 
     expect(response.status).toBe(200);

@@ -37,7 +37,7 @@ async function requireAuthUser(c: ApiContext, options: { requireMfa?: boolean } 
     requireAal2(token);
   }
 
-  return getAuthUser(config, token);
+  return c.get("impersonatedUser") ?? getAuthUser(config, token);
 }
 
 function routeError(c: ApiContext, error: unknown) {

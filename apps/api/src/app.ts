@@ -6,6 +6,7 @@ import { registerFileRoutes } from "./features/files/files.routes";
 import { registerHealthRoutes } from "./features/health/health.routes";
 import { registerNotificationRoutes } from "./features/notifications/notification.routes";
 import { registerTrackingRoutes } from "./features/tracking/tracking.routes";
+import { registerImpersonationRoutes } from "./features/workspace/impersonation.routes";
 import { registerWorkspaceRoutes } from "./features/workspace/workspace.routes";
 import { ApiError, jsonError } from "./errors";
 import { adminAuthMiddleware } from "./middleware/admin-auth.middleware";
@@ -20,6 +21,7 @@ export function createApp() {
   }>();
 
   app.use("*", corsMiddleware());
+  registerImpersonationRoutes(app);
   app.use("/v1/admin/*", adminAuthMiddleware());
 
   registerHealthRoutes(app);

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../../errors";
+import { impersonateBidder } from "../../../services/impersonation.service";
 import type { AuthSession } from "../../../services/auth.service";
 import {
   deleteWorkspaceMember,
@@ -78,6 +79,10 @@ export function WorkspaceUsersPage({
     onSettled: (_data, _error, memberId) => endMemberAction(memberId)
   });
 
+  const impersonation = useMutation({
+    mutationFn: (id: string) => impersonateBidder(session, slug, id)
+  });
+
   function beginMemberAction(memberId: string, action: MemberPendingAction): boolean {
     if (memberLocks.current.has(memberId)) {
       return false;
@@ -97,7 +102,8 @@ export function WorkspaceUsersPage({
     });
   }
 
-  const mutationError = statusMutation.error ?? rolesMutation.error ?? deleteMutation.error;
+  const mutationError =
+    statusMutation.error ?? rolesMutation.error ?? deleteMutation.error ?? impersonation.error;
 
   return (
     <WorkspaceShell
@@ -150,6 +156,7 @@ export function WorkspaceUsersPage({
                   <th>Roles</th>
                   <th>Registered</th>
                   <th>Account</th>
+                  <th>Impersonation</th>
                 </tr>
               </thead>
               <tbody>
@@ -159,6 +166,8 @@ export function WorkspaceUsersPage({
                     member={member}
                     data={membersQuery.data}
                     pendingAction={pendingActions[member.id]}
+                    startingImpersonation={impersonation.isPending}
+                    onImpersonate={() => impersonation.mutate(member.id)}
                     onStatus={(status, action) => {
                       if (beginMemberAction(member.id, action)) {
                         statusMutation.mutate({ memberId: member.id, status });
@@ -192,6 +201,8 @@ function WorkspaceMemberRow({
   member,
   data,
   pendingAction,
+  startingImpersonation,
+  onImpersonate,
   onStatus,
   onRoles,
   onDelete
@@ -199,6 +210,8 @@ function WorkspaceMemberRow({
   member: WorkspaceMemberSummary;
   data: WorkspaceMembersResponse;
   pendingAction?: MemberPendingAction;
+  startingImpersonation: boolean;
+  onImpersonate: () => void;
   onStatus: (
     status: "active" | "rejected" | "disabled",
     action: Exclude<MemberPendingAction, "delete" | "roles">
@@ -338,6 +351,22 @@ function WorkspaceMemberRow({
             </button>
           </div>
         )}
+      </td>
+      <td>
+        {!isSelf &&
+        member.status === "active" &&
+        member.roleKeys.includes("bidder") &&
+        !member.roleKeys.includes("admin") ? (
+          <button
+            type="button"
+            className="secondary-action compact-action"
+            disabled={locked || startingImpersonation}
+            aria-label={`Impersonate ${member.displayName}`}
+            onClick={onImpersonate}
+          >
+            Impersonate
+          </button>
+        ) : null}
       </td>
     </tr>
   );

@@ -13,6 +13,12 @@ export async function authenticatedApiFetch(
     throw new UserFacingError("Your session expired. Sign in again.", "invalid_auth_token");
   }
 
+  if (session.impersonationId) {
+    const headers = new Headers(init.headers);
+    headers.set("X-Workspace-Impersonation", session.impersonationId);
+    init = { ...init, headers };
+  }
+
   const response = await fetch(input, withBearerToken(init, current.accessToken));
   if (response.status !== 401) {
     return response;

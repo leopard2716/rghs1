@@ -1047,7 +1047,7 @@ async function requestContext(c: ApiContext) {
   }
 
   requireAal2(token);
-  const user = await getAuthUser(supabaseConfig, token);
+  const user = c.get("impersonatedUser") ?? (await getAuthUser(supabaseConfig, token));
   return {
     user,
     service: new TrackingService(new SupabaseRestClient(supabaseConfig))

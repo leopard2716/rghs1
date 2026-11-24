@@ -13,6 +13,7 @@ export type AuthSession = {
   expiresAt: number;
   user: AuthUser;
   scope: AuthScope;
+  impersonationId?: string;
   flow?: "password" | "recovery";
 };
 
