@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { companyNamesMatch } from "./company-name";
+import { companyNamesMatch, companyEligibilityKeys, companyResetKey } from "./company-name";
 
 it.each([
   ["AstranaHealth", "Astrana Health"],
@@ -40,4 +40,35 @@ it.each([
 ])("keeps unrelated or ambiguous names distinct %s / %s", (a, b) => {
   expect(companyNamesMatch(a, b)).toBe(false);
   expect(companyNamesMatch(b, a)).toBe(false);
+});
+
+it("invalidates precisely the cached names matched by the eligibility rules", () => {
+  const names = [
+    "Acme",
+    "The Acme LLC",
+    "Acme Group",
+    "Acme Health",
+    "Acme Health Group",
+    "Acme Technologies",
+    "ABC",
+    "ABC Health",
+    "Health",
+    "Health Group",
+    "F&G",
+    "F and G Inc.",
+    "Café Works",
+    "CafeWorks",
+    "Unknown",
+    "Unknown Company",
+    "",
+    "---"
+  ];
+  for (const cached of names) {
+    const keys = companyEligibilityKeys(cached, "cached");
+    for (const changed of names) {
+      expect(companyEligibilityKeys(changed, "changed").some((key) => keys.includes(key))).toBe(
+        companyNamesMatch(cached, changed) || companyResetKey(cached) === companyResetKey(changed)
+      );
+    }
+  }
 });
